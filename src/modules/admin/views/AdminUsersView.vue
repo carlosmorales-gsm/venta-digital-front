@@ -83,21 +83,19 @@ onMounted(loadUsers);
 </script>
 
 <template>
-  <section>
-    <header class="page-header">
-      <div>
+  <section class="users-page">
+    <header class="page-head head-row">
+      <div class="head-copy">
         <h1>Usuarios</h1>
         <p>Alta de vendedores y monitores con permisos por defecto.</p>
       </div>
-      <div class="header-actions">
-        <button type="button" class="btn btn-ghost" @click="router.push({ name: 'monitor-menu' })">
-          Volver al menú
-        </button>
-      </div>
+      <button type="button" class="btn btn-ghost head-back" @click="router.push({ name: 'monitor-menu' })">
+        Volver
+      </button>
     </header>
 
-    <div class="admin-grid">
-      <form class="card form" @submit.prevent="createUser">
+    <div class="grid">
+      <form class="panel form" @submit.prevent="createUser">
         <h2>Nuevo usuario</h2>
 
         <div class="field">
@@ -138,114 +136,291 @@ onMounted(loadUsers);
 
         <p class="hint">
           <template v-if="form.type === 'VENDEDOR'">
-            Login por PIN WhatsApp. Sin menú de monitor.
+            Login por PIN WhatsApp.
           </template>
           <template v-else-if="form.type === 'MONITOR'">
             Permisos default: panel, ventas y reportes.
           </template>
           <template v-else>
-            Permisos default: todos, incluyendo gestión de usuarios.
+            Permisos default: todos + gestión de usuarios.
           </template>
         </p>
 
         <p v-if="error" class="error-text">{{ error }}</p>
         <p v-if="success" class="ok-text">{{ success }}</p>
 
-        <button class="btn btn-gold" type="submit" :disabled="saving">
+        <button class="btn btn-accent submit" type="submit" :disabled="saving">
           <span v-if="saving" class="spinner" />
           {{ saving ? 'Guardando…' : 'Crear usuario' }}
         </button>
       </form>
 
-      <div class="card">
+      <div class="panel list-panel">
         <h2>Listado</h2>
-        <div v-if="loading" class="loading-row">
+        <div v-if="loading" class="loading">
           <span class="spinner" />
           Cargando…
         </div>
-        <div v-else class="table-wrap">
-          <table class="data">
-            <thead>
-              <tr>
-                <th>Nombre</th>
-                <th>Tipo</th>
-                <th>Acceso</th>
-                <th>Estado</th>
-                <th>Alta (local)</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="u in users" :key="u.id">
-                <td>{{ u.fullName }}</td>
-                <td>{{ u.type }}</td>
-                <td>{{ u.cellphone || u.username }}</td>
-                <td>
-                  <span class="badge" :class="u.active ? 'badge-ok' : 'badge-off'">
-                    {{ u.active ? 'Activo' : 'Inactivo' }}
-                  </span>
-                </td>
-                <td>{{ formatUtcToLocal(u.createdAt) }}</td>
-              </tr>
-            </tbody>
-          </table>
 
-          <div class="data-cards">
-            <article v-for="u in users" :key="`m-${u.id}`" class="data-card">
-              <div class="data-card-head">
+        <template v-else>
+          <!-- Desktop / tablet ancha -->
+          <div class="table-wrap desktop-list">
+            <table class="data users-table">
+              <thead>
+                <tr>
+                  <th>Nombre</th>
+                  <th>Tipo</th>
+                  <th>Acceso</th>
+                  <th>Estado</th>
+                  <th>Alta</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="u in users" :key="u.id">
+                  <td>{{ u.fullName }}</td>
+                  <td>{{ u.type }}</td>
+                  <td>{{ u.cellphone || u.username }}</td>
+                  <td>
+                    <span class="badge" :class="u.active ? 'badge-ok' : 'badge-off'">
+                      {{ u.active ? 'Activo' : 'Inactivo' }}
+                    </span>
+                  </td>
+                  <td>{{ formatUtcToLocal(u.createdAt) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Móvil / tablet estrecha -->
+          <div class="mobile-list">
+            <article v-for="u in users" :key="`card-${u.id}`" class="user-card">
+              <div class="user-card__head">
                 <strong>{{ u.fullName }}</strong>
                 <span class="badge" :class="u.active ? 'badge-ok' : 'badge-off'">
                   {{ u.active ? 'Activo' : 'Inactivo' }}
                 </span>
               </div>
-              <div class="data-card-meta">
-                <div class="row">
-                  <span>Tipo</span>
-                  <b>{{ u.type }}</b>
+              <dl class="user-card__meta">
+                <div>
+                  <dt>Tipo</dt>
+                  <dd>{{ u.type }}</dd>
                 </div>
-                <div class="row">
-                  <span>Acceso</span>
-                  <b>{{ u.cellphone || u.username }}</b>
+                <div>
+                  <dt>Acceso</dt>
+                  <dd>{{ u.cellphone || u.username }}</dd>
                 </div>
-                <div class="row">
-                  <span>Alta</span>
-                  <b>{{ formatUtcToLocal(u.createdAt) }}</b>
+                <div>
+                  <dt>Alta</dt>
+                  <dd>{{ formatUtcToLocal(u.createdAt) }}</dd>
                 </div>
-              </div>
+              </dl>
             </article>
+
+            <div v-if="!users.length" class="empty-state">
+              <strong>Sin usuarios</strong>
+              Crea el primero con el formulario.
+            </div>
           </div>
-        </div>
+        </template>
       </div>
     </div>
   </section>
 </template>
 
 <style scoped>
-.admin-grid {
+.users-page {
+  width: 100%;
+  min-width: 0;
+}
+
+.head-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.65rem 1rem;
+  align-items: flex-start;
+  margin-bottom: 0.85rem;
+}
+
+.head-copy {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.head-copy h1 {
+  margin-bottom: 0.2rem;
+  font-size: clamp(1.55rem, 4vw, 2.2rem);
+  line-height: 1.15;
+}
+
+.head-copy p {
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+
+.head-back {
+  flex: 0 0 auto;
+  min-height: 40px;
+  padding: 0.45rem 1rem;
+}
+
+.grid {
   display: grid;
-  grid-template-columns: minmax(260px, 360px) 1fr;
+  grid-template-columns: minmax(0, 340px) minmax(0, 1fr);
   gap: 1rem;
+  align-items: start;
+}
+
+.form,
+.list-panel {
+  min-width: 0;
+  width: 100%;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
 }
 
 .form h2,
-.card h2 {
+.list-panel > h2 {
   font-size: 1.25rem;
-  margin-bottom: 1rem;
+  margin-bottom: 0.35rem;
 }
 
 .hint {
   font-size: 0.85rem;
-  color: var(--muted);
-  margin: 0 0 0.75rem;
+  color: var(--vd-muted);
+  margin: 0;
 }
 
-.ok-text {
-  color: #2d6a4f;
-  font-size: 0.875rem;
-  margin: 0 0 0.75rem;
+.submit {
+  width: 100%;
 }
 
+.loading {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  color: var(--vd-muted);
+  padding: 0.5rem 0;
+}
+
+.users-table {
+  min-width: 0;
+  width: 100%;
+}
+
+.users-table th,
+.users-table td {
+  white-space: nowrap;
+}
+
+.users-table td:first-child,
+.users-table th:first-child {
+  white-space: normal;
+  word-break: break-word;
+}
+
+.mobile-list {
+  display: none;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.user-card {
+  border: 1px solid var(--vd-line);
+  border-radius: var(--vd-radius-sm);
+  background: var(--vd-surface-2);
+  padding: 0.95rem 1rem;
+}
+
+.user-card__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.user-card__head strong {
+  color: var(--gsm-teal);
+  font-size: 1.05rem;
+  line-height: 1.3;
+  word-break: break-word;
+  min-width: 0;
+}
+
+.user-card__meta {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem 0.85rem;
+}
+
+.user-card__meta dt {
+  margin: 0;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--vd-muted);
+}
+
+.user-card__meta dd {
+  margin: 0.15rem 0 0;
+  color: var(--vd-ink);
+  font-weight: 500;
+  word-break: break-word;
+}
+
+/* Tablet */
+@media (max-width: 1024px) {
+  .grid {
+    grid-template-columns: minmax(0, 300px) minmax(0, 1fr);
+  }
+}
+
+/* Una columna: form arriba, listado abajo */
 @media (max-width: 900px) {
-  .admin-grid {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* Título + Volver en la misma fila, sin huecos grandes */
+  .head-row {
+    flex-direction: row;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .head-copy p {
+    display: none; /* en móvil el subtítulo ocupa demasiado; el form ya explica */
+  }
+
+  .head-back {
+    width: auto;
+    flex-shrink: 0;
+  }
+}
+
+/* Móvil: cards en lugar de tabla */
+@media (max-width: 720px) {
+  .desktop-list {
+    display: none;
+  }
+
+  .mobile-list {
+    display: flex;
+  }
+
+  .user-card__meta {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 380px) {
+  .user-card__meta {
     grid-template-columns: 1fr;
   }
 }

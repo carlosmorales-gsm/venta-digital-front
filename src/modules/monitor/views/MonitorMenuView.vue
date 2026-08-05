@@ -21,8 +21,9 @@ const allItems: MenuItem[] = [
   },
   {
     title: 'Ventas',
-    description: 'Consulta de ventas del equipo.',
+    description: 'Todas las ventas de los vendedores.',
     permission: 'ventas.ver',
+    route: 'monitor-ventas',
   },
   {
     title: 'Reportes',
@@ -51,23 +52,21 @@ function openItem(item: MenuItem) {
 
 <template>
   <section>
-    <header class="page-header">
-      <div>
-        <h1>Menú</h1>
-        <p>
-          Opciones disponibles según tus permisos
-          <template v-if="auth.userType === 'ADMIN'"> (administrador)</template>.
-        </p>
-      </div>
+    <header class="page-head">
+      <h1>Inicio</h1>
+      <p>
+        Opciones según tus permisos
+        <template v-if="auth.userType === 'ADMIN'"> (administrador)</template>.
+      </p>
     </header>
 
-    <div class="menu-grid">
+    <div class="tiles">
       <button
         v-for="item in items"
         :key="item.title"
         type="button"
-        class="card menu-item"
-        :class="{ 'menu-item--active': Boolean(item.route) }"
+        class="panel tile"
+        :class="{ clickable: Boolean(item.route) }"
         @click="openItem(item)"
       >
         <strong>{{ item.title }}</strong>
@@ -78,41 +77,39 @@ function openItem(item: MenuItem) {
 </template>
 
 <style scoped>
-.menu-grid {
+.tiles {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
   gap: 0.85rem;
 }
 
-.menu-item {
+.tile {
   text-align: left;
-  cursor: default;
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
-  transition: border-color 0.2s ease, transform 0.15s ease, background 0.2s ease;
-  animation: rise 0.45s ease both;
-  border-left: 4px solid transparent;
+  gap: 0.4rem;
+  cursor: default;
+  border-top: 3px solid transparent;
+  transition: transform 0.15s ease, border-color 0.2s ease;
 }
 
-.menu-item strong {
+.tile strong {
   font-family: var(--font-display);
-  color: var(--primary);
+  color: var(--gsm-teal);
   font-size: 1.25rem;
 }
 
-.menu-item span {
-  color: var(--muted);
+.tile span {
+  color: var(--vd-muted);
   font-size: 0.92rem;
 }
 
-.menu-item--active {
+.tile.clickable {
   cursor: pointer;
-  border-left-color: var(--accent);
+  border-top-color: var(--gsm-sand);
 }
 
-.menu-item--active:hover {
-  background: var(--cream-alt);
+.tile.clickable:hover {
   transform: translateY(-2px);
 }
 </style>

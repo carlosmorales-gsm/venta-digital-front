@@ -36,6 +36,15 @@ const router = createRouter({
       meta: { roles: ['MONITOR', 'ADMIN'] },
     },
     {
+      path: '/monitor/ventas',
+      name: 'monitor-ventas',
+      component: () => import('../modules/sales/views/MonitorSalesView.vue'),
+      meta: {
+        roles: ['MONITOR', 'ADMIN'],
+        permissions: ['ventas.ver'],
+      },
+    },
+    {
       path: '/admin/usuarios',
       name: 'admin-usuarios',
       component: () => import('../modules/admin/views/AdminUsersView.vue'),

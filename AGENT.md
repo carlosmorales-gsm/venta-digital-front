@@ -14,21 +14,20 @@ Reglas obligatorias para cualquier IA o desarrollador que trabaje este repositor
 | Rol | Login | Token | Pantalla post-login |
 |-----|-------|-------|---------------------|
 | VENDEDOR | Celular + PIN WhatsApp | Access hasta **fin del día** (sin refresh) | `/vendedor/ventas` |
-| MONITOR | Usuario + contraseña | Access + **refresh** | `/monitor` (menú por permisos) |
-| ADMIN | Usuario + contraseña | Access + refresh | `/monitor` + `/admin/usuarios` |
+| MONITOR | Usuario + contraseña | Access + **refresh** | `/monitor` (menú por permisos) + `/monitor/ventas` si tiene `ventas.ver` |
+| ADMIN | Usuario + contraseña | Access + refresh | `/monitor` + `/monitor/ventas` + `/admin/usuarios` |
 
 - No inventar flujos de auth distintos a los anteriores.
 - Fechas del API llegan en UTC; mostrar siempre con `formatUtcToLocal` / zona del navegador (`shared/utils/datetime.ts`).
 
-## Diseño (basado en NetPay)
+## Diseño (identidad propia)
 
-Fuente de verdad visual: proyecto `netpay-front`.
+Comparte marca GSM (colores, logos, Roboto/Recline), pero **no copia layouts de NetPay**.
 
-- Tokens/utilidades en `src/styles/main.css` (mismo sistema NetPay)
-- Login: patrón `.login-shell` / `.brand-panel` / `.form-panel` / `.login-card`
-- App autenticada: `AppLayout` con sidebar + topbar (como NetPay)
-- Logos/fuentes en `public/` (`logo-sanmartin-white.svg`, `logo-gsm-azul.svg`, `/fonts`)
-- Clases: `.btn*`, `.field`, `.card`, `.page-header`, `.table-wrap`, `.badge*`
+- Tokens propios en `src/styles/main.css` (`--vd-*` + `--gsm-*`)
+- Login: composición centrada (hero + panel), orientada a uso en campo/móvil
+- App autenticada: header superior + nav horizontal (drawer en móvil), sin sidebar NetPay
+- Clases propias: `.panel`, `.page-head`, `.btn-accent`, `.access`
 - Responsive obligatorio: móvil, tablet y desktop
 
 ## Estructura legible

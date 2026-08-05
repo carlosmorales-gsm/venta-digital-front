@@ -28,40 +28,32 @@ onMounted(async () => {
 
 <template>
   <section>
-    <header class="page-header">
-      <div>
-        <h1>Mis ventas</h1>
-        <p>Solo ves las ventas asociadas a tu sesión de vendedor.</p>
-      </div>
-      <div class="stat-chip">
-        <span>Zona horaria</span>
+    <header class="page-head">
+      <h1>Mis ventas</h1>
+      <p>
+        Ventas de tu sesión. Horarios en zona local:
         <strong>{{ timeZone }}</strong>
-      </div>
+      </p>
     </header>
 
-    <div v-if="loading" class="card loading-row">
+    <div v-if="loading" class="panel loading">
       <span class="spinner" />
-      Cargando ventas…
+      Cargando…
     </div>
 
-    <div v-else-if="error" class="card">
+    <div v-else-if="error" class="panel">
       <p class="error-text">{{ error }}</p>
     </div>
 
-    <div v-else class="card">
-      <div class="page-header" style="margin-bottom: 1rem">
-        <div>
-          <p style="margin: 0; color: var(--muted)">{{ data?.message }}</p>
-        </div>
-        <div class="stat-chip">
-          <span>Total</span>
-          <strong>{{ data?.total ?? 0 }}</strong>
-        </div>
+    <div v-else class="panel">
+      <div class="summary">
+        <p>{{ data?.message }}</p>
+        <span class="total">Total: {{ data?.total ?? 0 }}</span>
       </div>
 
       <div v-if="!data?.items?.length" class="empty-state">
-        <strong>Sin ventas todavía</strong>
-        Cuando registres ventas, aparecerán aquí con hora local.
+        <strong>Aún no hay ventas</strong>
+        Cuando registres movimientos, se mostrarán aquí.
       </div>
 
       <div v-else class="table-wrap">
@@ -81,3 +73,30 @@ onMounted(async () => {
     </div>
   </section>
 </template>
+
+<style scoped>
+.loading {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--vd-muted);
+}
+
+.summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.total {
+  font-weight: 600;
+  color: var(--gsm-teal-deep);
+}
+
+.page-head strong {
+  color: var(--gsm-teal-deep);
+  font-weight: 600;
+}
+</style>
