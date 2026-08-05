@@ -60,7 +60,7 @@ const router = useRouter();
 
 .access__hero h1 {
   font-size: clamp(2.2rem, 6vw, 3.2rem);
-  color: var(--gsm-teal);
+  color: var(--gsm-blue);
   margin-bottom: 0.4rem;
 }
 

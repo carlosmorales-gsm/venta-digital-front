@@ -17,9 +17,7 @@ body {
   margin: 0;
   font-family: var(--font-body);
   color: var(--text);
-  background:
-    radial-gradient(circle at top right, rgba(204, 160, 121, 0.22), transparent 40%),
-    linear-gradient(160deg, var(--surface-cream) 0%, var(--surface-warm) 45%, #eef3f6 100%);
+  background: var(--surface-cream);
   -webkit-font-smoothing: antialiased;
 }
 

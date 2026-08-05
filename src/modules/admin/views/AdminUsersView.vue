@@ -344,7 +344,7 @@ onMounted(loadUsers);
 }
 
 .user-card__head strong {
-  color: var(--gsm-teal);
+  color: var(--gsm-blue);
   font-size: 1.05rem;
   line-height: 1.3;
   word-break: break-word;

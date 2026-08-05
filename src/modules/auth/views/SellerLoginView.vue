@@ -150,7 +150,7 @@ async function verifyPin() {
 
 .access__hero h1 {
   font-size: clamp(2rem, 5vw, 2.7rem);
-  color: var(--gsm-teal);
+  color: var(--gsm-blue);
 }
 
 .access__panel {

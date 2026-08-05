@@ -1,7 +1,10 @@
 /**
  * Identidad visual — Venta Digital
- * Comparte paleta/fuentes GSM, pero layout y ritmo propios
- * (no replica la UI de NetPay).
+ * Paleta institucional GSM 2025:
+ *  - Azul primario #35647D
+ *  - Café #CCA079
+ *  - Blanco #FFFFFF
+ *  - Azul saturado digital #02357D
  */
 
 @font-face {
@@ -55,34 +58,43 @@
 }
 
 :root {
-  /* Marca GSM */
-  --gsm-teal: #35647d;
-  --gsm-teal-deep: #284b5e;
-  --gsm-sand: #cca079;
-  --gsm-cream: #f9f3ee;
+  /* Paleta GSM 2025 */
+  --gsm-blue: #35647d;
+  --gsm-blue-hover: #2d5970;
+  --gsm-blue-deep: #02357d;
+  --gsm-cafe: #cca079;
+  --gsm-cafe-soft: #ecdbcd;
+  --gsm-white: #ffffff;
 
-  /* Identidad Venta Digital */
-  --vd-ink: #1c2a33;
-  --vd-muted: #5c6b73;
-  --vd-surface: #fffdf9;
-  --vd-surface-2: #f3eee7;
-  --vd-line: #ddd4c8;
+  /* Alias legacy (componentes existentes) */
+  --gsm-teal: var(--gsm-blue);
+  --gsm-teal-deep: var(--gsm-blue-deep);
+  --gsm-sand: var(--gsm-cafe);
+  --gsm-cream: #f4f7f9;
+
+  /* Superficies / texto */
+  --vd-ink: #232323;
+  --vd-muted: #5a646c;
+  --vd-bg: #f4f7f9;
+  --vd-surface: #ffffff;
+  --vd-surface-2: #eef3f6;
+  --vd-line: #d7dee3;
   --vd-danger: #cb2a1d;
   --vd-ok: #2f6f4e;
   --vd-radius: 14px;
   --vd-radius-sm: 8px;
-  --vd-shadow: 0 10px 28px rgba(40, 75, 94, 0.1);
+  --vd-shadow: 0 8px 24px rgba(2, 53, 125, 0.08);
   --vd-header: 64px;
   --font-body: 'Roboto', 'Segoe UI', sans-serif;
   --font-display: 'Recline', Georgia, serif;
 
   /* Alias cortos usados en vistas */
-  --primary: var(--gsm-teal);
-  --primary-hover: #2d5970;
-  --secondary: var(--gsm-teal-deep);
-  --accent: var(--gsm-sand);
-  --cream: var(--gsm-cream);
-  --white: #ffffff;
+  --primary: var(--gsm-blue);
+  --primary-hover: var(--gsm-blue-hover);
+  --secondary: var(--gsm-blue-deep);
+  --accent: var(--gsm-cafe);
+  --cream: var(--vd-bg);
+  --white: var(--gsm-white);
   --ink: var(--vd-ink);
   --muted: var(--vd-muted);
   --border: var(--vd-line);
@@ -106,8 +118,7 @@ body {
   margin: 0;
   font-family: var(--font-body);
   color: var(--vd-ink);
-  background:
-    linear-gradient(180deg, #eef4f7 0%, var(--gsm-cream) 42%, var(--vd-surface-2) 100%);
+  background: var(--vd-bg);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -129,7 +140,7 @@ h3 {
   font-family: var(--font-display);
   font-weight: 700;
   margin: 0;
-  color: var(--gsm-teal-deep);
+  color: var(--gsm-blue);
   letter-spacing: 0.01em;
 }
 
@@ -163,34 +174,35 @@ p {
 }
 
 .btn-primary {
-  background: var(--gsm-teal);
-  color: var(--gsm-cream);
+  background: var(--gsm-blue);
+  color: var(--gsm-white);
   box-shadow: 0 8px 18px rgba(53, 100, 125, 0.22);
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: var(--primary-hover);
+  background: var(--gsm-blue-hover);
 }
 
 .btn-accent {
-  background: var(--gsm-sand);
-  color: var(--gsm-teal-deep);
+  background: var(--gsm-cafe);
+  color: #3d2c1f;
 }
 
 .btn-accent:hover:not(:disabled) {
-  background: #c49870;
-  color: #fff;
+  background: #b89068;
+  color: var(--gsm-white);
 }
 
 .btn-ghost {
   background: transparent;
-  color: var(--gsm-teal);
+  color: var(--gsm-blue);
   border: 1px solid var(--vd-line);
 }
 
 .btn-ghost:hover:not(:disabled) {
-  border-color: var(--gsm-sand);
-  background: rgba(255, 255, 255, 0.55);
+  border-color: var(--gsm-cafe);
+  color: var(--gsm-blue-deep);
+  background: rgba(204, 160, 121, 0.1);
 }
 
 .btn-sm {
@@ -209,7 +221,7 @@ p {
 .field label {
   font-size: 0.875rem;
   font-weight: 500;
-  color: var(--gsm-teal-deep);
+  color: var(--gsm-blue);
 }
 
 .field input,
@@ -219,7 +231,7 @@ p {
   border-radius: var(--vd-radius-sm);
   min-height: 46px;
   padding: 0.7rem 0.9rem;
-  background: var(--vd-surface);
+  background: var(--gsm-white);
   color: var(--vd-ink);
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
@@ -228,7 +240,7 @@ p {
 .field select:focus,
 .field textarea:focus {
   outline: none;
-  border-color: var(--gsm-sand);
+  border-color: var(--gsm-cafe);
   box-shadow: 0 0 0 3px rgba(204, 160, 121, 0.22);
 }
 
@@ -304,7 +316,7 @@ table.data td {
 }
 
 table.data th {
-  color: var(--gsm-teal);
+  color: var(--gsm-blue);
   font-size: 0.75rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -320,7 +332,7 @@ table.data th {
 .empty-state strong {
   display: block;
   font-family: var(--font-display);
-  color: var(--gsm-teal);
+  color: var(--gsm-blue);
   font-size: 1.3rem;
   margin-bottom: 0.35rem;
 }
@@ -329,7 +341,7 @@ table.data th {
   width: 18px;
   height: 18px;
   border: 2px solid rgba(53, 100, 125, 0.2);
-  border-top-color: var(--gsm-teal);
+  border-top-color: var(--gsm-blue);
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
 }

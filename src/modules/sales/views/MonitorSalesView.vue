@@ -111,7 +111,7 @@ function formatAmount(value: number) {
 }
 
 .page-head strong {
-  color: var(--gsm-teal-deep);
+  color: var(--gsm-blue);
   font-weight: 600;
 }
 
@@ -132,7 +132,7 @@ function formatAmount(value: number) {
 
 .total {
   font-weight: 600;
-  color: var(--gsm-teal-deep);
+  color: var(--gsm-blue);
 }
 
 .mobile-list {
@@ -152,7 +152,7 @@ function formatAmount(value: number) {
 }
 
 .sale-card strong {
-  color: var(--gsm-teal);
+  color: var(--gsm-blue);
 }
 
 .sale-card span {

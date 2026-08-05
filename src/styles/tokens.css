@@ -1,20 +1,21 @@
 :root {
+  /* Paleta GSM 2025 */
   --primary: #35647d;
   --primary-50: #35647d80;
   --primary-hover: #2d5970;
-  --primary-dark: #284b5e;
+  --primary-dark: #02357d;
   --accent: #cca079;
   --accent-soft: #ecdbcd;
-  --surface-cream: #f9f3ee;
-  --surface-warm: #faf6f1;
-  --surface: #fafafa;
+  --surface-cream: #f4f7f9;
+  --surface-warm: #eef3f6;
+  --surface: #ffffff;
   --text: #232323;
-  --muted: #707070;
-  --border: #d1d9e6;
+  --muted: #5a646c;
+  --border: #d7dee3;
   --error: #cb2a1d;
   --white: #ffffff;
   --radius: 4px;
-  --shadow: 0 8px 24px rgba(53, 100, 125, 0.18);
+  --shadow: 0 8px 24px rgba(2, 53, 125, 0.08);
   --font-body: 'Roboto', sans-serif;
   --font-display: 'Recline', Georgia, serif;
   --header-h: 64px;

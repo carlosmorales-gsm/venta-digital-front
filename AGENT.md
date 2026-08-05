@@ -26,7 +26,8 @@ Comparte marca GSM (colores, logos, Roboto/Recline), pero **no copia layouts de 
 
 - Tokens propios en `src/styles/main.css` (`--vd-*` + `--gsm-*`)
 - Login: composición centrada (hero + panel), orientada a uso en campo/móvil
-- App autenticada: header superior + nav horizontal (drawer en móvil), sin sidebar NetPay
+- App autenticada MONITOR/ADMIN: menú lateral (inspirado en NetPay) + topbar, paleta GSM 2025 e iconos propios
+- VENDEDOR: solo barra superior (sin menú lateral)
 - Clases propias: `.panel`, `.page-head`, `.btn-accent`, `.access`
 - Responsive obligatorio: móvil, tablet y desktop
 

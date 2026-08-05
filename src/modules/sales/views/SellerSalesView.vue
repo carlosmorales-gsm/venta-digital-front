@@ -92,11 +92,11 @@ onMounted(async () => {
 
 .total {
   font-weight: 600;
-  color: var(--gsm-teal-deep);
+  color: var(--gsm-blue);
 }
 
 .page-head strong {
-  color: var(--gsm-teal-deep);
+  color: var(--gsm-blue);
   font-weight: 600;
 }
 </style>
