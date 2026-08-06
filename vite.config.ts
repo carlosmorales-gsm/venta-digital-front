@@ -6,6 +6,7 @@ export default defineConfig({
   plugins: [vue()],
   server: {
     port: 5173,
+    open: true,
     proxy: {
       // Evita CORS en local: el front llama /api → backend :3022
       '/api': {

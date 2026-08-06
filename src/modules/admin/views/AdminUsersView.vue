@@ -1,8 +1,12 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { http } from '../../../shared/api/http';
 import { formatUtcToLocal } from '../../../shared/utils/datetime';
+import { useDialog } from '../../../shared/ui/dialog';
+import VdModal from '../../../shared/ui/modal/VdModal.vue';
+import VdSwitch from '../../../shared/ui/switch/VdSwitch.vue';
+import { useAuthStore } from '../../auth/stores/auth.store';
 import type { UserType } from '../../../shared/types/auth';
 
 interface PublicUser {
@@ -17,11 +21,17 @@ interface PublicUser {
 }
 
 const router = useRouter();
+const auth = useAuthStore();
+const { alert, confirm } = useDialog();
+
 const users = ref<PublicUser[]>([]);
 const loading = ref(true);
 const saving = ref(false);
-const error = ref<string | null>(null);
-const success = ref<string | null>(null);
+const togglingId = ref<number | null>(null);
+const formError = ref<string | null>(null);
+const listError = ref<string | null>(null);
+const modalOpen = ref(false);
+const editingId = ref<number | null>(null);
 
 const form = reactive({
   type: 'VENDEDOR' as UserType,
@@ -31,23 +41,74 @@ const form = reactive({
   password: '',
 });
 
+const isEditing = computed(() => editingId.value != null);
+
+const formTitle = computed(() =>
+  isEditing.value ? 'Editar usuario' : 'Nuevo usuario',
+);
+
 async function loadUsers() {
   loading.value = true;
-  error.value = null;
+  listError.value = null;
   try {
     const { data } = await http.get<PublicUser[]>('/users');
     users.value = data;
   } catch (e: any) {
-    error.value = e?.response?.data?.message ?? 'No se pudo cargar usuarios';
+    listError.value = e?.response?.data?.message ?? 'No se pudo cargar usuarios';
   } finally {
     loading.value = false;
   }
 }
 
+function resetForm() {
+  editingId.value = null;
+  form.type = 'VENDEDOR';
+  form.fullName = '';
+  form.cellphone = '';
+  form.username = '';
+  form.password = '';
+  formError.value = null;
+}
+
+function openCreate() {
+  resetForm();
+  modalOpen.value = true;
+}
+
+function startEdit(user: PublicUser) {
+  editingId.value = user.id;
+  form.type = user.type;
+  form.fullName = user.fullName;
+  form.cellphone = user.cellphone ?? '';
+  form.username = user.username ?? '';
+  form.password = '';
+  formError.value = null;
+  modalOpen.value = true;
+}
+
+function closeModal() {
+  if (saving.value) return;
+  modalOpen.value = false;
+  resetForm();
+}
+
+function apiMessage(e: any, fallback: string) {
+  const msg = e?.response?.data?.message;
+  if (Array.isArray(msg)) return msg.join('. ');
+  return msg ?? fallback;
+}
+
+async function submitForm() {
+  if (isEditing.value) {
+    await updateUser();
+  } else {
+    await createUser();
+  }
+}
+
 async function createUser() {
   saving.value = true;
-  error.value = null;
-  success.value = null;
+  formError.value = null;
 
   const payload: Record<string, unknown> = {
     type: form.type,
@@ -63,20 +124,95 @@ async function createUser() {
 
   try {
     await http.post('/users', payload);
-    success.value = 'Usuario creado correctamente';
-    form.fullName = '';
-    form.cellphone = '';
-    form.username = '';
-    form.password = '';
+    modalOpen.value = false;
+    resetForm();
     await loadUsers();
+    await alert({
+      title: 'Listo',
+      message: 'Usuario creado correctamente.',
+      variant: 'success',
+    });
   } catch (e: any) {
-    const msg = e?.response?.data?.message;
-    error.value = Array.isArray(msg)
-      ? msg.join('. ')
-      : msg ?? 'No se pudo crear el usuario';
+    formError.value = apiMessage(e, 'No se pudo crear el usuario');
   } finally {
     saving.value = false;
   }
+}
+
+async function updateUser() {
+  if (editingId.value == null) return;
+
+  saving.value = true;
+  formError.value = null;
+
+  const payload: Record<string, unknown> = {
+    fullName: form.fullName.trim(),
+  };
+
+  if (form.type === 'VENDEDOR') {
+    payload.cellphone = form.cellphone.trim();
+  } else {
+    payload.username = form.username.trim();
+    if (form.password.trim()) {
+      payload.password = form.password;
+    }
+  }
+
+  try {
+    await http.patch(`/users/${editingId.value}`, payload);
+    modalOpen.value = false;
+    resetForm();
+    await loadUsers();
+    await alert({
+      title: 'Listo',
+      message: 'Usuario actualizado correctamente.',
+      variant: 'success',
+    });
+  } catch (e: any) {
+    formError.value = apiMessage(e, 'No se pudo actualizar el usuario');
+  } finally {
+    saving.value = false;
+  }
+}
+
+async function toggleActive(user: PublicUser) {
+  const nextActive = !user.active;
+  const ok = await confirm({
+    title: nextActive ? 'Habilitar usuario' : 'Deshabilitar usuario',
+    message: nextActive
+      ? `¿Habilitar a ${user.fullName}? Podrá iniciar sesión de nuevo.`
+      : `¿Deshabilitar a ${user.fullName}? No podrá iniciar sesión.`,
+    variant: nextActive ? 'info' : 'danger',
+    confirmText: nextActive ? 'Habilitar' : 'Deshabilitar',
+    cancelText: 'Cancelar',
+  });
+
+  if (!ok) return;
+
+  togglingId.value = user.id;
+  try {
+    await http.patch(`/users/${user.id}/active`, { active: nextActive });
+    await loadUsers();
+    await alert({
+      title: 'Listo',
+      message: nextActive
+        ? 'Usuario habilitado correctamente.'
+        : 'Usuario deshabilitado correctamente.',
+      variant: 'success',
+    });
+  } catch (e: any) {
+    await alert({
+      title: 'No se pudo cambiar el estado',
+      message: apiMessage(e, 'Intenta de nuevo'),
+      variant: 'danger',
+    });
+  } finally {
+    togglingId.value = null;
+  }
+}
+
+function isSelf(user: PublicUser) {
+  return auth.user?.id === user.id;
 }
 
 onMounted(loadUsers);
@@ -87,20 +223,165 @@ onMounted(loadUsers);
     <header class="page-head head-row">
       <div class="head-copy">
         <h1>Usuarios</h1>
-        <p>Alta de vendedores y monitores con permisos por defecto.</p>
+        <p>Alta, edición y habilitación de vendedores y monitores.</p>
       </div>
-      <button type="button" class="btn btn-ghost head-back" @click="router.push({ name: 'monitor-menu' })">
-        Volver
-      </button>
+      <div class="head-actions">
+        <button type="button" class="btn btn-accent" @click="openCreate">
+          Nuevo usuario
+        </button>
+        <button
+          type="button"
+          class="btn btn-ghost head-back"
+          @click="router.push({ name: 'monitor-menu' })"
+        >
+          Volver
+        </button>
+      </div>
     </header>
 
-    <div class="grid">
-      <form class="panel form" @submit.prevent="createUser">
-        <h2>Nuevo usuario</h2>
+    <div class="panel list-panel">
+      <h2>Listado</h2>
+      <p v-if="listError" class="error-text">{{ listError }}</p>
 
+      <div v-if="loading" class="loading">
+        <span class="spinner" />
+        Cargando…
+      </div>
+
+      <template v-else>
+        <div class="table-wrap desktop-list">
+          <table class="data users-table">
+            <thead>
+              <tr>
+                <th>Nombre</th>
+                <th>Tipo</th>
+                <th>Acceso</th>
+                <th>Estado</th>
+                <th>Alta</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="u in users" :key="u.id">
+                <td>{{ u.fullName }}</td>
+                <td>{{ u.type }}</td>
+                <td>{{ u.cellphone || u.username }}</td>
+                <td>
+                  <span class="badge" :class="u.active ? 'badge-ok' : 'badge-off'">
+                    {{ u.active ? 'Activo' : 'Inactivo' }}
+                  </span>
+                </td>
+                <td>{{ formatUtcToLocal(u.createdAt) }}</td>
+                <td>
+                  <div class="row-actions">
+                    <button
+                      type="button"
+                      class="icon-btn"
+                      title="Editar"
+                      aria-label="Editar usuario"
+                      @click="startEdit(u)"
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <path
+                          d="M4 20h4l10.5-10.5a1.5 1.5 0 0 0 0-2.12l-1.88-1.88a1.5 1.5 0 0 0-2.12 0L4 16v4Z"
+                          stroke="currentColor"
+                          stroke-width="1.8"
+                          stroke-linejoin="round"
+                        />
+                        <path
+                          d="M13 6.5 17.5 11"
+                          stroke="currentColor"
+                          stroke-width="1.8"
+                          stroke-linecap="round"
+                        />
+                      </svg>
+                    </button>
+                    <VdSwitch
+                      :model-value="u.active"
+                      :disabled="togglingId === u.id || isSelf(u)"
+                      :aria-label="u.active ? 'Deshabilitar usuario' : 'Habilitar usuario'"
+                      :title="isSelf(u) ? 'No puedes desactivar tu cuenta' : u.active ? 'Deshabilitar' : 'Habilitar'"
+                      @change="toggleActive(u)"
+                    />
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="mobile-list">
+          <article v-for="u in users" :key="`card-${u.id}`" class="user-card">
+            <div class="user-card__head">
+              <strong>{{ u.fullName }}</strong>
+              <span class="badge" :class="u.active ? 'badge-ok' : 'badge-off'">
+                {{ u.active ? 'Activo' : 'Inactivo' }}
+              </span>
+            </div>
+            <dl class="user-card__meta">
+              <div>
+                <dt>Tipo</dt>
+                <dd>{{ u.type }}</dd>
+              </div>
+              <div>
+                <dt>Acceso</dt>
+                <dd>{{ u.cellphone || u.username }}</dd>
+              </div>
+              <div>
+                <dt>Alta</dt>
+                <dd>{{ formatUtcToLocal(u.createdAt) }}</dd>
+              </div>
+            </dl>
+            <div class="row-actions card-actions">
+              <button
+                type="button"
+                class="icon-btn"
+                title="Editar"
+                aria-label="Editar usuario"
+                @click="startEdit(u)"
+              >
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path
+                    d="M4 20h4l10.5-10.5a1.5 1.5 0 0 0 0-2.12l-1.88-1.88a1.5 1.5 0 0 0-2.12 0L4 16v4Z"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linejoin="round"
+                  />
+                  <path
+                    d="M13 6.5 17.5 11"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                  />
+                </svg>
+              </button>
+              <VdSwitch
+                :model-value="u.active"
+                :disabled="togglingId === u.id || isSelf(u)"
+                :aria-label="u.active ? 'Deshabilitar usuario' : 'Habilitar usuario'"
+                @change="toggleActive(u)"
+              />
+            </div>
+          </article>
+
+          <div v-if="!users.length" class="empty-state">
+            <strong>Sin usuarios</strong>
+            Crea el primero con “Nuevo usuario”.
+          </div>
+        </div>
+
+        <div v-if="users.length === 0 && !loading" class="empty-state desktop-empty">
+          <strong>Sin usuarios</strong>
+          Crea el primero con “Nuevo usuario”.
+        </div>
+      </template>
+    </div>
+
+    <VdModal :open="modalOpen" :title="formTitle" @close="closeModal">
+      <form id="user-form" class="user-form" @submit.prevent="submitForm">
         <div class="field">
           <label for="type">Tipo</label>
-          <select id="type" v-model="form.type">
+          <select id="type" v-model="form.type" :disabled="isEditing">
             <option value="VENDEDOR">Vendedor</option>
             <option value="MONITOR">Monitor</option>
             <option value="ADMIN">Administrador</option>
@@ -129,14 +410,27 @@ onMounted(loadUsers);
             <input id="username" v-model="form.username" required />
           </div>
           <div class="field">
-            <label for="password">Contraseña</label>
-            <input id="password" v-model="form.password" type="password" required minlength="6" />
+            <label for="password">
+              Contraseña
+              <template v-if="isEditing"> (opcional)</template>
+            </label>
+            <input
+              id="password"
+              v-model="form.password"
+              type="password"
+              :required="!isEditing"
+              minlength="6"
+              :placeholder="isEditing ? 'Dejar vacío para no cambiar' : ''"
+            />
           </div>
         </template>
 
         <p class="hint">
-          <template v-if="form.type === 'VENDEDOR'">
-            Login por PIN WhatsApp.
+          <template v-if="isEditing">
+            El tipo de usuario no se puede cambiar al editar.
+          </template>
+          <template v-else-if="form.type === 'VENDEDOR'">
+            Login por PIN WhatsApp. El número no puede repetirse entre vendedores.
           </template>
           <template v-else-if="form.type === 'MONITOR'">
             Permisos default: panel, ventas y reportes.
@@ -146,84 +440,35 @@ onMounted(loadUsers);
           </template>
         </p>
 
-        <p v-if="error" class="error-text">{{ error }}</p>
-        <p v-if="success" class="ok-text">{{ success }}</p>
-
-        <button class="btn btn-accent submit" type="submit" :disabled="saving">
-          <span v-if="saving" class="spinner" />
-          {{ saving ? 'Guardando…' : 'Crear usuario' }}
-        </button>
+        <p v-if="formError" class="error-text">{{ formError }}</p>
       </form>
 
-      <div class="panel list-panel">
-        <h2>Listado</h2>
-        <div v-if="loading" class="loading">
-          <span class="spinner" />
-          Cargando…
-        </div>
-
-        <template v-else>
-          <!-- Desktop / tablet ancha -->
-          <div class="table-wrap desktop-list">
-            <table class="data users-table">
-              <thead>
-                <tr>
-                  <th>Nombre</th>
-                  <th>Tipo</th>
-                  <th>Acceso</th>
-                  <th>Estado</th>
-                  <th>Alta</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="u in users" :key="u.id">
-                  <td>{{ u.fullName }}</td>
-                  <td>{{ u.type }}</td>
-                  <td>{{ u.cellphone || u.username }}</td>
-                  <td>
-                    <span class="badge" :class="u.active ? 'badge-ok' : 'badge-off'">
-                      {{ u.active ? 'Activo' : 'Inactivo' }}
-                    </span>
-                  </td>
-                  <td>{{ formatUtcToLocal(u.createdAt) }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          <!-- Móvil / tablet estrecha -->
-          <div class="mobile-list">
-            <article v-for="u in users" :key="`card-${u.id}`" class="user-card">
-              <div class="user-card__head">
-                <strong>{{ u.fullName }}</strong>
-                <span class="badge" :class="u.active ? 'badge-ok' : 'badge-off'">
-                  {{ u.active ? 'Activo' : 'Inactivo' }}
-                </span>
-              </div>
-              <dl class="user-card__meta">
-                <div>
-                  <dt>Tipo</dt>
-                  <dd>{{ u.type }}</dd>
-                </div>
-                <div>
-                  <dt>Acceso</dt>
-                  <dd>{{ u.cellphone || u.username }}</dd>
-                </div>
-                <div>
-                  <dt>Alta</dt>
-                  <dd>{{ formatUtcToLocal(u.createdAt) }}</dd>
-                </div>
-              </dl>
-            </article>
-
-            <div v-if="!users.length" class="empty-state">
-              <strong>Sin usuarios</strong>
-              Crea el primero con el formulario.
-            </div>
-          </div>
-        </template>
-      </div>
-    </div>
+      <template #footer>
+        <button
+          class="btn btn-ghost"
+          type="button"
+          :disabled="saving"
+          @click="closeModal"
+        >
+          Cancelar
+        </button>
+        <button
+          class="btn btn-accent"
+          type="submit"
+          form="user-form"
+          :disabled="saving"
+        >
+          <span v-if="saving" class="spinner" />
+          {{
+            saving
+              ? 'Guardando…'
+              : isEditing
+                ? 'Guardar cambios'
+                : 'Crear usuario'
+          }}
+        </button>
+      </template>
+    </VdModal>
   </section>
 </template>
 
@@ -257,45 +502,26 @@ onMounted(loadUsers);
   line-height: 1.35;
 }
 
-.head-back {
+.head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
   flex: 0 0 auto;
+}
+
+.head-back {
   min-height: 40px;
   padding: 0.45rem 1rem;
 }
 
-.grid {
-  display: grid;
-  grid-template-columns: minmax(0, 340px) minmax(0, 1fr);
-  gap: 1rem;
-  align-items: start;
-}
-
-.form,
 .list-panel {
   min-width: 0;
   width: 100%;
 }
 
-.form {
-  display: flex;
-  flex-direction: column;
-  gap: 0.8rem;
-}
-
-.form h2,
 .list-panel > h2 {
   font-size: 1.25rem;
-  margin-bottom: 0.35rem;
-}
-
-.hint {
-  font-size: 0.85rem;
-  color: var(--vd-muted);
-  margin: 0;
-}
-
-.submit {
-  width: 100%;
+  margin-bottom: 0.75rem;
 }
 
 .loading {
@@ -307,7 +533,7 @@ onMounted(loadUsers);
 }
 
 .users-table {
-  min-width: 0;
+  min-width: 720px;
   width: 100%;
 }
 
@@ -322,10 +548,46 @@ onMounted(loadUsers);
   word-break: break-word;
 }
 
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.icon-btn {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--vd-line);
+  border-radius: 10px;
+  background: var(--gsm-white);
+  color: var(--gsm-blue);
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.icon-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.icon-btn:hover {
+  border-color: var(--gsm-cafe);
+  background: rgba(204, 160, 121, 0.12);
+  color: var(--gsm-blue);
+}
+
 .mobile-list {
   display: none;
   flex-direction: column;
   gap: 0.75rem;
+}
+
+.desktop-empty {
+  display: block;
 }
 
 .user-card {
@@ -373,40 +635,48 @@ onMounted(loadUsers);
   word-break: break-word;
 }
 
-/* Tablet */
-@media (max-width: 1024px) {
-  .grid {
-    grid-template-columns: minmax(0, 300px) minmax(0, 1fr);
-  }
+.card-actions {
+  margin-top: 0.85rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--vd-line);
 }
 
-/* Una columna: form arriba, listado abajo */
-@media (max-width: 900px) {
-  .grid {
-    grid-template-columns: 1fr;
-  }
+.user-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
 
-  /* Título + Volver en la misma fila, sin huecos grandes */
+.hint {
+  font-size: 0.85rem;
+  color: var(--vd-muted);
+  margin: 0;
+}
+
+@media (max-width: 900px) {
   .head-row {
-    flex-direction: row;
-    align-items: center;
-    gap: 0.5rem;
-    margin-bottom: 0.75rem;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
   }
 
   .head-copy p {
-    display: none; /* en móvil el subtítulo ocupa demasiado; el form ya explica */
+    display: none;
   }
 
-  .head-back {
-    width: auto;
-    flex-shrink: 0;
+  .head-actions {
+    width: 100%;
+  }
+
+  .head-actions .btn {
+    flex: 1;
+    min-height: 44px;
   }
 }
 
-/* Móvil: cards en lugar de tabla */
 @media (max-width: 720px) {
-  .desktop-list {
+  .desktop-list,
+  .desktop-empty {
     display: none;
   }
 
@@ -416,6 +686,10 @@ onMounted(loadUsers);
 
   .user-card__meta {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .card-actions {
+    justify-content: space-between;
   }
 }
 

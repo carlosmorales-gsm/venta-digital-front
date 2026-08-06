@@ -53,6 +53,14 @@ const router = createRouter({
         permissions: ['usuarios.gestionar'],
       },
     },
+    {
+      path: '/admin/bitacora',
+      name: 'admin-bitacora',
+      component: () => import('../modules/audit/views/AdminAuditLogsView.vue'),
+      meta: {
+        roles: ['ADMIN'],
+      },
+    },
   ],
 });
 

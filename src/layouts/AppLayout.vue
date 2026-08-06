@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../modules/auth/stores/auth.store';
 
-type NavIcon = 'inicio' | 'ventas' | 'usuarios' | 'reportes';
+type NavIcon = 'inicio' | 'ventas' | 'usuarios' | 'bitacora' | 'reportes';
 
 type NavItem = {
   to: string;
@@ -45,6 +45,13 @@ const allItems: NavItem[] = [
     icon: 'usuarios',
     roles: ['ADMIN'],
     permission: 'usuarios.gestionar',
+  },
+  {
+    to: '/admin/bitacora',
+    label: 'Bitácora',
+    hint: 'Log de transacciones',
+    icon: 'bitacora',
+    roles: ['ADMIN'],
   },
 ];
 
@@ -207,6 +214,16 @@ function toggleSidebar() {
                 stroke-width="1.8"
                 stroke-linecap="round"
               />
+            </svg>
+            <svg v-else-if="item.icon === 'bitacora'" viewBox="0 0 24 24" fill="none">
+              <path
+                d="M7 3.5h8.5L19 7v13.5H7A1.5 1.5 0 0 1 5.5 19V5A1.5 1.5 0 0 1 7 3.5Z"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linejoin="round"
+              />
+              <path d="M15 3.5V7h3.5" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
+              <path d="M9 12h6M9 15.5h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
             </svg>
             <svg v-else viewBox="0 0 24 24" fill="none">
               <path d="M4 19h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />

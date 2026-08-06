@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useRoute } from 'vue-router';
 import AppLayout from './layouts/AppLayout.vue';
+import VdDialogHost from './shared/ui/dialog/VdDialogHost.vue';
 
 const route = useRoute();
 </script>
@@ -12,4 +13,7 @@ const route = useRoute();
     </AppLayout>
     <component :is="Component" v-else-if="Component" />
   </RouterView>
+
+  <!-- Host global: alert / confirm reutilizables (nunca window.alert/confirm) -->
+  <VdDialogHost />
 </template>

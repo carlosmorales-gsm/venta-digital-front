@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import { http } from '../../../shared/api/http';
-import { formatUtcToLocal, getClientTimeZone } from '../../../shared/utils/datetime';
+import { formatUtcToLocal } from '../../../shared/utils/datetime';
 
 interface SalesResponse {
   items: Array<Record<string, unknown>>;
@@ -12,7 +12,6 @@ interface SalesResponse {
 const loading = ref(true);
 const data = ref<SalesResponse | null>(null);
 const error = ref<string | null>(null);
-const timeZone = getClientTimeZone();
 
 onMounted(async () => {
   try {
@@ -30,10 +29,7 @@ onMounted(async () => {
   <section>
     <header class="page-head">
       <h1>Mis ventas</h1>
-      <p>
-        Ventas de tu sesión. Horarios en zona local:
-        <strong>{{ timeZone }}</strong>
-      </p>
+      <p>Ventas de tu sesión.</p>
     </header>
 
     <div v-if="loading" class="panel loading">

@@ -15,10 +15,11 @@ Reglas obligatorias para cualquier IA o desarrollador que trabaje este repositor
 |-----|-------|-------|---------------------|
 | VENDEDOR | Celular + PIN WhatsApp | Access hasta **fin del día** (sin refresh) | `/vendedor/ventas` |
 | MONITOR | Usuario + contraseña | Access + **refresh** | `/monitor` (menú por permisos) + `/monitor/ventas` si tiene `ventas.ver` |
-| ADMIN | Usuario + contraseña | Access + refresh | `/monitor` + `/monitor/ventas` + `/admin/usuarios` |
+| ADMIN | Usuario + contraseña | Access + refresh | `/monitor` + `/monitor/ventas` + `/admin/usuarios` + `/admin/bitacora` |
 
 - No inventar flujos de auth distintos a los anteriores.
-- Fechas del API llegan en UTC; mostrar siempre con `formatUtcToLocal` / zona del navegador (`shared/utils/datetime.ts`).
+- Fechas del API llegan en UTC; mostrar con `formatUtcToLocal` (`shared/utils/datetime.ts`).
+- **No mostrar** al usuario final nombres de zona horaria, “UTC”, ni textos técnicos de horario; solo fechas/horas legibles.
 
 ## Diseño (identidad propia)
 
@@ -36,7 +37,9 @@ Comparte marca GSM (colores, logos, Roboto/Recline), pero **no copia layouts de 
 ```
 src/
   modules/     # por dominio (auth, sales, monitor, admin)
-  shared/      # api, utils, types
+  shared/      # api, utils, types, ui global
+    ui/dialog/ # alert / confirm globales
+    ui/modal/  # VdModal reutilizable (formularios, etc.)
   layouts/     # shells reutilizables
   styles/      # tokens, fonts, base
   router/
@@ -45,6 +48,31 @@ src/
 - Código claro y comentado solo donde aporte contexto de negocio.
 - Preferir nombres en español para UI; inglés técnico en código (`auth.store`, `http`, etc.) de forma consistente.
 - SOLID: un store/servicio con una responsabilidad; vistas delgadas.
+
+## Diálogos (obligatorio)
+
+**Prohibido** usar `alert()`, `confirm()` o `prompt()` nativos de JavaScript / `window`.
+
+Usar el sistema global:
+
+```ts
+import { useDialog } from '../shared/ui/dialog'
+
+const { alert, confirm } = useDialog()
+
+await alert({ title: 'Listo', message: 'Usuario creado', variant: 'success' })
+
+const ok = await confirm({
+  title: 'Eliminar',
+  message: '¿Seguro que deseas continuar?',
+  variant: 'danger',
+  confirmText: 'Eliminar',
+  cancelText: 'Cancelar',
+})
+```
+
+- Host montado en `App.vue` (`VdDialogHost`).
+- Variantes: `info` | `success` | `warning` | `danger`.
 
 ## Historial ANA
 
@@ -59,6 +87,8 @@ src/
 3. No agregar UI de ventas reales hasta que el backend lo exponga (hoy el listado es placeholder).
 4. Mantener botones y campos táctiles (min ~44px) en móvil.
 5. Si tocas auth, verificar los 3 roles.
+6. Usuarios admin: crear, editar y habilitar/deshabilitar (sin `alert`/`confirm` nativos).
+7. Bitácora (`/admin/bitacora`): solo ADMIN; filtros por fechas/palabra/usuario/acción; PDF con `jspdf` en el front.
 
 ## Arranque
 

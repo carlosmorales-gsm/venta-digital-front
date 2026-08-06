@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import { http } from '../../../shared/api/http';
-import { formatUtcToLocal, getClientTimeZone } from '../../../shared/utils/datetime';
+import { formatUtcToLocal } from '../../../shared/utils/datetime';
 
 interface SaleItem {
   id: number;
@@ -21,7 +21,6 @@ interface SalesResponse {
 const loading = ref(true);
 const data = ref<SalesResponse | null>(null);
 const error = ref<string | null>(null);
-const timeZone = getClientTimeZone();
 
 onMounted(async () => {
   try {
@@ -47,10 +46,7 @@ function formatAmount(value: number) {
   <section class="sales-page">
     <header class="page-head">
       <h1>Ventas</h1>
-      <p>
-        Consulta de ventas de todos los vendedores. Horarios en
-        <strong>{{ timeZone }}</strong>.
-      </p>
+      <p>Consulta de ventas de todos los vendedores.</p>
     </header>
 
     <div v-if="loading" class="panel loading">

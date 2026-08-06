@@ -205,6 +205,15 @@ p {
   background: rgba(204, 160, 121, 0.1);
 }
 
+.btn-danger {
+  background: var(--vd-danger);
+  color: var(--gsm-white);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #a82218;
+}
+
 .btn-sm {
   min-height: 36px;
   padding: 0.4rem 0.9rem;
