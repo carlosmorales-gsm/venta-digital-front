@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { extractApiError, http } from '../../../shared/api/http';
 import { formatUtcToLocal } from '../../../shared/utils/datetime';
@@ -40,25 +40,76 @@ interface PublicUser {
   type: string;
 }
 
+/** Misma semántica amigable que el PDF. */
 const ACTION_LABELS: Record<string, string> = {
-  CREATE: 'Alta',
-  UPDATE: 'Edición',
-  ACTIVATE: 'Habilitar',
-  DEACTIVATE: 'Deshabilitar',
-  DELETE: 'Eliminar',
+  CREATE: 'Nuevo registro',
+  UPDATE: 'Cambio de datos',
+  ACTIVATE: 'Habilitación',
+  DEACTIVATE: 'Deshabilitación',
+  DELETE: 'Eliminación',
 };
 
+const ACTION_VERBS: Record<string, string> = {
+  CREATE: 'Dio de alta',
+  UPDATE: 'Modificó',
+  ACTIVATE: 'Habilitó',
+  DEACTIVATE: 'Deshabilitó',
+  DELETE: 'Eliminó',
+};
+
+const ENTITY_WORDS: Record<string, string> = {
+  USER: 'usuario',
+  SALE: 'venta',
+};
+
+const HIDDEN_FIELDS = new Set(['id', 'sellerId']);
+
 const FIELD_LABELS: Record<string, string> = {
-  id: 'ID',
-  type: 'Tipo',
-  fullName: 'Nombre completo',
-  username: 'Usuario',
+  type: 'Tipo de cuenta',
+  fullName: 'Nombre',
+  username: 'Usuario de acceso',
   cellphone: 'Celular / WhatsApp',
   active: 'Estado',
   password: 'Contraseña',
   amount: 'Monto',
-  sellerId: 'Vendedor (ID)',
   sellerName: 'Vendedor',
+  titularName: 'Titular',
+  status: 'Estatus',
+  fecha: 'Fecha',
+  contrato: 'Contrato',
+  origenVenta: 'Origen de venta',
+  folioSolicitud: 'Folio solicitud',
+  curp: 'CURP',
+  celular: 'Celular',
+  correo: 'Correo',
+  municipio: 'Municipio',
+  estado: 'Estado (domicilio)',
+  planKind: 'Tipo de plan',
+  nombrePlan: 'Nombre del plan',
+  servicioFunerario: 'Servicio funerario',
+  parqueFuneral: 'Parque funeral',
+  seccion: 'Sección',
+  cuadrante: 'Cuadrante',
+  numero: 'Número',
+  preasignacion: 'Preasignación',
+  beneficiario1: 'Beneficiario 1',
+  beneficiario1Parentesco: 'Parentesco beneficiario 1',
+  beneficiario2: 'Beneficiario 2',
+  segundoContacto: 'Segundo contacto',
+  documentos: 'Documentos',
+  precioPlan: 'Precio del plan',
+  anticipo: 'Anticipo',
+  pagoInicial: 'Pago inicial',
+  frecuencia: 'Frecuencia',
+  plazo: 'Plazo',
+  importeCadaPago: 'Importe cada pago',
+  saldo: 'Saldo',
+  formaPago: 'Forma de pago',
+  banco: 'Banco',
+  cuenta: 'Cuenta',
+  nombreAsesor: 'Asesor',
+  nombreJefeVentas: 'Jefe de ventas',
+  driveFolderUrl: 'Carpeta Drive',
 };
 
 const TYPE_LABELS: Record<string, string> = {
@@ -67,14 +118,21 @@ const TYPE_LABELS: Record<string, string> = {
   ADMIN: 'Administrador',
   USER: 'Usuario',
   SALE: 'Venta',
+  DRAFT: 'Borrador',
+  PENDING_PAYMENT: 'Pendiente de pago',
+  PENDING_SIGNATURE: 'Pendiente de firma',
+  COMPLETED: 'Completada',
+  SUBMITTED: 'Enviada',
+  PARQUE: 'Parque',
+  PLAN_FUTURO: 'Plan a futuro',
 };
 
 interface DetailRow {
-  label: string;
-  value: string;
+  text: string;
+  kind: 'value' | 'change';
+  label?: string;
   from?: string;
   to?: string;
-  kind: 'value' | 'change';
 }
 
 const router = useRouter();
@@ -87,7 +145,6 @@ const error = ref<string | null>(null);
 const total = ref(0);
 const expandedId = ref<number | null>(null);
 
-/** Hoy calendario del negocio (YYYY-MM-DD). Interno; no exponer TZ al UI. */
 function todayYmd(): string {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/Mexico_City',
@@ -95,6 +152,17 @@ function todayYmd(): string {
     month: '2-digit',
     day: '2-digit',
   }).format(new Date());
+}
+
+function formatCalendarDate(isoDate: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate.trim());
+  if (!m) return isoDate;
+  const date = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return new Intl.DateTimeFormat('es-MX', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  }).format(date);
 }
 
 const todayDefault = todayYmd();
@@ -110,6 +178,29 @@ const filters = reactive({
 const pageSize = 30;
 const offset = ref(0);
 
+const filterSummary = computed(() => {
+  const parts: string[] = [];
+  if (filters.dateFrom && filters.dateTo && filters.dateFrom === filters.dateTo) {
+    parts.push(`Día: ${formatCalendarDate(filters.dateFrom)}`);
+  } else if (filters.dateFrom || filters.dateTo) {
+    parts.push(
+      `Del ${filters.dateFrom ? formatCalendarDate(filters.dateFrom) : '…'} al ${
+        filters.dateTo ? formatCalendarDate(filters.dateTo) : '…'
+      }`,
+    );
+  }
+  if (filters.q.trim()) parts.push(`Búsqueda: "${filters.q.trim()}"`);
+  if (filters.actorUserId !== '' && filters.actorUserId != null) {
+    const name = users.value.find((u) => u.id === Number(filters.actorUserId))
+      ?.fullName;
+    if (name) parts.push(`Hecho por: ${name}`);
+  }
+  if (filters.action) {
+    parts.push(`Tipo: ${ACTION_LABELS[filters.action] ?? filters.action}`);
+  }
+  return parts;
+});
+
 async function loadUsers() {
   try {
     const { data } = await http.get<PublicUser[]>('/users');
@@ -123,6 +214,7 @@ async function loadLogs(reset = true) {
   if (reset) offset.value = 0;
   loading.value = true;
   error.value = null;
+  expandedId.value = null;
 
   const params: Record<string, string | number> = {
     ...buildFilterParams(),
@@ -247,10 +339,6 @@ function nextPage() {
   void loadLogs(false);
 }
 
-function actionLabel(action: string) {
-  return ACTION_LABELS[action] ?? action;
-}
-
 function toggleDetails(id: number) {
   expandedId.value = expandedId.value === id ? null : id;
 }
@@ -271,12 +359,68 @@ function formatValue(key: string, value: unknown): string {
     return TYPE_LABELS[value];
   }
   if (key === 'password') {
-    return String(value);
+    const s = String(value).toLowerCase();
+    if (s.includes('actualiz') || s.includes('updated')) return 'actualizada';
+    return 'no visible';
   }
   return String(value);
 }
 
-/** Convierte details del API a filas legibles en español (sin JSON). */
+function targetNameFromDetails(
+  details: Record<string, unknown> | null,
+): string | null {
+  if (!details) return null;
+  const after = details.after;
+  if (after && typeof after === 'object') {
+    const a = after as Record<string, unknown>;
+    for (const key of ['titularName', 'fullName', 'sellerName'] as const) {
+      const v = a[key];
+      if (typeof v === 'string' && v.trim()) return v.trim();
+    }
+  }
+  const changes = details.changes;
+  if (changes && typeof changes === 'object') {
+    const fullName = (changes as Record<string, { to?: unknown }>).fullName;
+    if (typeof fullName?.to === 'string' && fullName.to.trim()) {
+      return fullName.to.trim();
+    }
+  }
+  return null;
+}
+
+/** Título corto como en el PDF: "Modificó venta #12 (Titular)". */
+function entryTitle(item: AuditLogItem, index: number): string {
+  const verb = ACTION_VERBS[item.action] ?? ACTION_LABELS[item.action] ?? item.action;
+  const entityWord =
+    ENTITY_WORDS[item.entityType] ??
+    (TYPE_LABELS[item.entityType] ?? 'registro').toLowerCase();
+  const name = targetNameFromDetails(item.details);
+
+  let core: string;
+  if (item.entityType === 'SALE') {
+    if (item.entityId != null && name) {
+      core = `${verb} venta #${item.entityId} (${name})`;
+    } else if (item.entityId != null) {
+      core = `${verb} venta #${item.entityId}`;
+    } else {
+      core = `${verb} venta`;
+    }
+  } else if (name) {
+    core = `${verb} ${entityWord} ${name}`;
+  } else if (item.entityId != null) {
+    core = `${verb} ${entityWord} #${item.entityId}`;
+  } else {
+    core = verb;
+  }
+
+  return `${offset.value + index + 1}.  ${core}`;
+}
+
+function detailBoxTitle(action: string): string {
+  return action === 'CREATE' ? 'Datos registrados' : 'Qué cambió';
+}
+
+/** Líneas de detalle al estilo PDF. */
 function detailRows(details: Record<string, unknown> | null): DetailRow[] {
   if (!details) return [];
 
@@ -285,10 +429,11 @@ function detailRows(details: Record<string, unknown> | null): DetailRow[] {
   if (details.after && typeof details.after === 'object') {
     const after = details.after as Record<string, unknown>;
     for (const [key, value] of Object.entries(after)) {
+      if (HIDDEN_FIELDS.has(key)) continue;
       rows.push({
         kind: 'value',
         label: fieldLabel(key),
-        value: formatValue(key, value),
+        text: `${fieldLabel(key)}: ${formatValue(key, value)}`,
       });
     }
     return rows;
@@ -300,24 +445,33 @@ function detailRows(details: Record<string, unknown> | null): DetailRow[] {
       { from?: unknown; to?: unknown }
     >;
     for (const [key, change] of Object.entries(changes)) {
+      if (HIDDEN_FIELDS.has(key)) continue;
+      const from = formatValue(key, change?.from);
+      const to = formatValue(key, change?.to);
+      if (key === 'password') {
+        rows.push({
+          kind: 'value',
+          text: `${fieldLabel(key)}: se actualizó`,
+        });
+        continue;
+      }
       rows.push({
         kind: 'change',
         label: fieldLabel(key),
-        value: '',
-        from: formatValue(key, change?.from),
-        to: formatValue(key, change?.to),
+        from,
+        to,
+        text: `${fieldLabel(key)}: pasó de "${from}" a "${to}"`,
       });
     }
     return rows;
   }
 
-  // Fallback genérico por si llega otra estructura
   for (const [key, value] of Object.entries(details)) {
+    if (HIDDEN_FIELDS.has(key)) continue;
     if (typeof value === 'object' && value !== null) continue;
     rows.push({
       kind: 'value',
-      label: fieldLabel(key),
-      value: formatValue(key, value),
+      text: `${fieldLabel(key)}: ${formatValue(key, value)}`,
     });
   }
 
@@ -335,7 +489,7 @@ onMounted(async () => {
     <header class="page-head head-row">
       <div class="head-copy">
         <h1>Bitácora</h1>
-        <p>Log de transacciones. Solo visible para administrador.</p>
+        <p>Bitácora de actividad · Solo administrador</p>
       </div>
       <button
         type="button"
@@ -382,11 +536,11 @@ onMounted(async () => {
         <label for="action">Tipo de acción</label>
         <select id="action" v-model="filters.action">
           <option value="">Todas</option>
-          <option value="CREATE">Alta</option>
-          <option value="UPDATE">Edición</option>
-          <option value="ACTIVATE">Habilitar</option>
-          <option value="DEACTIVATE">Deshabilitar</option>
-          <option value="DELETE">Eliminar</option>
+          <option value="CREATE">Nuevo registro</option>
+          <option value="UPDATE">Cambio de datos</option>
+          <option value="ACTIVATE">Habilitación</option>
+          <option value="DEACTIVATE">Deshabilitación</option>
+          <option value="DELETE">Eliminación</option>
         </select>
       </div>
 
@@ -409,12 +563,24 @@ onMounted(async () => {
       </div>
     </div>
 
-    <div class="panel list-panel">
-      <div class="list-head">
-        <h2>Registros</h2>
-        <span class="total">{{ total }} resultado{{ total === 1 ? '' : 's' }}</span>
-      </div>
+    <div class="results-banner">
+      <strong>
+        {{
+          total === 1
+            ? '1 registro encontrado'
+            : `${total} registros encontrados`
+        }}
+      </strong>
+      <p>
+        {{
+          filterSummary.length
+            ? filterSummary.join('   ·   ')
+            : 'Sin filtros adicionales'
+        }}
+      </p>
+    </div>
 
+    <div class="list-panel">
       <p v-if="error" class="error-text">{{ error }}</p>
 
       <div v-if="loading" class="loading">
@@ -424,65 +590,68 @@ onMounted(async () => {
 
       <template v-else>
         <div v-if="!logs.length" class="empty-state">
-          <strong>Sin registros</strong>
-          Prueba otra palabra clave o limpia los filtros.
+          <strong>Sin actividad</strong>
+          No hay actividad para mostrar con estos filtros.
         </div>
 
         <ul v-else class="log-list">
-          <li v-for="item in logs" :key="item.id" class="log-item">
-            <div class="log-item__top">
-              <span class="badge-action" :data-action="item.action">
-                {{ actionLabel(item.action) }}
-              </span>
-              <time>{{ formatUtcToLocal(item.createdAt) }}</time>
-            </div>
+          <li
+            v-for="(item, index) in logs"
+            :key="item.id"
+            class="log-card"
+            :class="{ 'log-card--alt': index % 2 === 1 }"
+          >
+            <div class="log-card__accent" aria-hidden="true" />
 
-            <p class="log-item__summary">{{ item.summary }}</p>
+            <div class="log-card__body">
+              <div class="log-card__head">
+                <h3 class="log-card__title">{{ entryTitle(item, index) }}</h3>
+                <div class="log-card__meta">
+                  <span class="actor-badge">{{
+                    item.actorName?.trim() || 'Sistema'
+                  }}</span>
+                  <time>{{ formatUtcToLocal(item.createdAt) }}</time>
+                </div>
+              </div>
 
-            <div class="log-item__meta">
-              <span>
-                Usuario:
-                <strong>{{ item.actorName || 'Sistema' }}</strong>
-                <template v-if="item.actorType"> ({{ item.actorType }})</template>
-              </span>
-              <span>
-                Entidad:
-                <strong>{{ item.entityType }}</strong>
-                <template v-if="item.entityId != null"> #{{ item.entityId }}</template>
-              </span>
-            </div>
+              <button
+                type="button"
+                class="detail-toggle"
+                @click="toggleDetails(item.id)"
+              >
+                {{
+                  expandedId === item.id
+                    ? 'Ocultar detalle'
+                    : detailBoxTitle(item.action)
+                }}
+              </button>
 
-            <button
-              type="button"
-              class="link-btn"
-              @click="toggleDetails(item.id)"
-            >
-              {{ expandedId === item.id ? 'Ocultar detalle' : 'Ver detalle' }}
-            </button>
-
-            <div v-if="expandedId === item.id" class="log-item__details">
-              <p v-if="!detailRows(item.details).length" class="details-empty">
-                Sin detalle adicional.
-              </p>
-              <ul v-else class="details-list">
-                <li
-                  v-for="(row, idx) in detailRows(item.details)"
-                  :key="`${item.id}-${idx}`"
-                >
-                  <template v-if="row.kind === 'change'">
-                    <span class="details-label">{{ row.label }}</span>
-                    <span class="details-change">
-                      <span class="from">{{ row.from }}</span>
-                      <span class="arrow">→</span>
-                      <span class="to">{{ row.to }}</span>
-                    </span>
-                  </template>
-                  <template v-else>
-                    <span class="details-label">{{ row.label }}</span>
-                    <span class="details-value">{{ row.value }}</span>
-                  </template>
-                </li>
-              </ul>
+              <div
+                v-if="expandedId === item.id"
+                class="detail-box"
+              >
+                <p class="detail-box__label">{{ detailBoxTitle(item.action) }}</p>
+                <p v-if="!detailRows(item.details).length" class="details-empty">
+                  Sin detalle adicional.
+                </p>
+                <ul v-else class="detail-lines">
+                  <li
+                    v-for="(row, idx) in detailRows(item.details)"
+                    :key="`${item.id}-${idx}`"
+                  >
+                    <template v-if="row.kind === 'change'">
+                      <span class="details-label">{{ row.label }}:</span>
+                      pasó de
+                      <span class="from">"{{ row.from }}"</span>
+                      a
+                      <span class="to">"{{ row.to }}"</span>
+                    </template>
+                    <template v-else>
+                      {{ row.text }}
+                    </template>
+                  </li>
+                </ul>
+              </div>
             </div>
           </li>
         </ul>
@@ -497,7 +666,8 @@ onMounted(async () => {
             Anterior
           </button>
           <span>
-            {{ offset + 1 }}–{{ Math.min(offset + pageSize, total) }} de {{ total }}
+            {{ offset + 1 }}–{{ Math.min(offset + pageSize, total) }} de
+            {{ total }}
           </span>
           <button
             type="button"
@@ -537,16 +707,23 @@ onMounted(async () => {
   font-size: clamp(1.55rem, 4vw, 2.2rem);
 }
 
+.head-copy p {
+  margin: 0;
+  color: var(--vd-muted);
+}
+
 .head-back {
   min-height: 40px;
 }
 
 .filters {
   display: grid;
-  grid-template-columns: minmax(8rem, 0.85fr) minmax(8rem, 0.85fr) minmax(10rem, 1.4fr) minmax(9rem, 1.2fr) minmax(9rem, 1.1fr);
+  grid-template-columns:
+    minmax(8rem, 0.85fr) minmax(8rem, 0.85fr) minmax(10rem, 1.4fr)
+    minmax(9rem, 1.2fr) minmax(9rem, 1.1fr);
   gap: 0.75rem;
   align-items: end;
-  margin-bottom: 1rem;
+  margin-bottom: 0.85rem;
 }
 
 .filter-actions {
@@ -556,22 +733,31 @@ onMounted(async () => {
   grid-column: 1 / -1;
 }
 
-.list-panel > .list-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 0.75rem;
-  margin-bottom: 0.85rem;
+/* Resumen como el banner del PDF */
+.results-banner {
+  margin-bottom: 1rem;
+  padding: 0.9rem 1.1rem;
+  border-radius: 10px;
+  border: 1px solid var(--vd-line);
+  background: #f8fafb;
 }
 
-.list-head h2 {
+.results-banner strong {
+  display: block;
+  color: var(--gsm-blue);
+  font-size: 0.95rem;
+  margin-bottom: 0.25rem;
+}
+
+.results-banner p {
   margin: 0;
-  font-size: 1.25rem;
+  color: var(--vd-muted);
+  font-size: 0.88rem;
+  line-height: 1.4;
 }
 
-.total {
-  color: var(--vd-muted);
-  font-size: 0.9rem;
+.list-panel {
+  min-width: 0;
 }
 
 .loading {
@@ -579,6 +765,22 @@ onMounted(async () => {
   align-items: center;
   gap: 0.65rem;
   color: var(--vd-muted);
+  padding: 1rem 0;
+}
+
+.empty-state {
+  padding: 1.5rem 1rem;
+  text-align: center;
+  color: var(--vd-muted);
+  border: 1px dashed var(--vd-line);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.empty-state strong {
+  display: block;
+  color: var(--vd-ink);
+  margin-bottom: 0.25rem;
 }
 
 .log-list {
@@ -587,104 +789,116 @@ onMounted(async () => {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.65rem;
 }
 
-.log-item {
-  border: 1px solid var(--vd-line);
-  border-radius: var(--vd-radius-sm);
-  background: var(--vd-surface-2);
-  padding: 0.9rem 1rem;
+/* Tarjeta tipo PDF */
+.log-card {
+  position: relative;
+  display: flex;
+  border: 1px solid #dce2e6;
+  border-radius: 10px;
+  background: #f8fafb;
+  overflow: hidden;
+}
+
+.log-card--alt {
+  background: #fff;
+}
+
+.log-card__accent {
+  flex: 0 0 5px;
+  background: var(--gsm-blue);
+  border-radius: 10px 0 0 10px;
+}
+
+.log-card__body {
+  flex: 1;
+  min-width: 0;
+  padding: 0.95rem 1.1rem 1rem;
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
+  gap: 0.65rem;
 }
 
-.log-item__top {
+.log-card__head {
   display: flex;
   justify-content: space-between;
-  gap: 0.75rem;
-  align-items: center;
+  align-items: flex-start;
+  gap: 1rem;
 }
 
-.log-item__top time {
+.log-card__title {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  color: var(--gsm-blue);
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.log-card__meta {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.3rem;
+  min-width: 7.5rem;
+}
+
+.actor-badge {
+  display: inline-block;
+  max-width: 11rem;
+  padding: 0.22rem 0.55rem;
+  border-radius: 999px;
+  background: #e8eef2;
+  color: var(--gsm-blue);
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.log-card__meta time {
   color: var(--vd-muted);
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   white-space: nowrap;
 }
 
-.badge-action {
-  display: inline-block;
-  padding: 0.2rem 0.55rem;
-  border-radius: 999px;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  background: rgba(53, 100, 125, 0.12);
-  color: var(--gsm-blue);
-}
-
-.badge-action[data-action='CREATE'] {
-  background: rgba(47, 111, 78, 0.14);
-  color: var(--vd-ok);
-}
-
-.badge-action[data-action='UPDATE'] {
-  background: rgba(53, 100, 125, 0.12);
-  color: var(--gsm-blue);
-}
-
-.badge-action[data-action='ACTIVATE'] {
-  background: rgba(204, 160, 121, 0.22);
-  color: #6a4a2e;
-}
-
-.badge-action[data-action='DEACTIVATE'],
-.badge-action[data-action='DELETE'] {
-  background: rgba(203, 42, 29, 0.12);
-  color: var(--vd-danger);
-}
-
-.log-item__summary {
-  margin: 0;
-  color: var(--vd-ink);
-  font-weight: 500;
-  line-height: 1.4;
-}
-
-.log-item__meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem 1rem;
-  color: var(--vd-muted);
-  font-size: 0.88rem;
-}
-
-.log-item__meta strong {
-  color: var(--gsm-blue);
-  font-weight: 600;
-}
-
-.link-btn {
+.detail-toggle {
   align-self: flex-start;
   border: 0;
   background: transparent;
-  color: var(--gsm-blue);
+  color: var(--gsm-cafe);
   padding: 0;
   cursor: pointer;
-  font-weight: 500;
-  font-size: 0.9rem;
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  font-weight: 700;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
-.log-item__details {
-  margin: 0.25rem 0 0;
-  padding: 0.75rem 0.85rem;
-  border-radius: 8px;
+.detail-toggle:hover {
+  color: var(--gsm-blue);
+}
+
+.detail-box {
+  margin: 0;
+  padding: 0.75rem 0.9rem 0.85rem;
+  border-radius: 6px;
   background: #fff;
-  border: 1px solid var(--vd-line);
+  border: 1px solid #dce2e6;
+}
+
+.detail-box__label {
+  margin: 0 0 0.55rem;
+  color: var(--gsm-cafe);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .details-empty {
@@ -693,62 +907,47 @@ onMounted(async () => {
   font-size: 0.9rem;
 }
 
-.details-list {
+.detail-lines {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.55rem;
+  gap: 0.4rem;
 }
 
-.details-list li {
-  display: grid;
-  grid-template-columns: minmax(120px, 160px) minmax(0, 1fr);
-  gap: 0.5rem 0.85rem;
-  align-items: start;
-  font-size: 0.92rem;
-}
-
-.details-label {
-  color: var(--vd-muted);
-  font-weight: 500;
-}
-
-.details-value {
+.detail-lines li {
+  position: relative;
+  padding-left: 1rem;
   color: var(--vd-ink);
-  font-weight: 600;
+  font-size: 0.9rem;
+  line-height: 1.4;
   word-break: break-word;
 }
 
-.details-change {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.35rem;
+.detail-lines li::before {
+  content: '';
+  position: absolute;
+  left: 0.15rem;
+  top: 0.55em;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--gsm-blue);
+}
+
+.details-label {
   color: var(--vd-ink);
+  font-weight: 600;
 }
 
-.details-change .from {
+.detail-lines .from {
   color: var(--vd-muted);
-  text-decoration: line-through;
 }
 
-.details-change .arrow {
-  color: var(--gsm-cafe);
-  font-weight: 700;
-}
-
-.details-change .to {
+.detail-lines .to {
   color: var(--gsm-blue);
   font-weight: 700;
-}
-
-@media (max-width: 600px) {
-  .details-list li {
-    grid-template-columns: 1fr;
-    gap: 0.15rem;
-  }
 }
 
 .pager {
@@ -757,8 +956,15 @@ onMounted(async () => {
   align-items: center;
   gap: 0.75rem;
   margin-top: 1rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--vd-line);
   color: var(--vd-muted);
   font-size: 0.9rem;
+}
+
+.error-text {
+  color: var(--vd-danger);
+  margin: 0 0 0.75rem;
 }
 
 @media (max-width: 960px) {
@@ -786,9 +992,15 @@ onMounted(async () => {
     grid-template-columns: 1fr;
   }
 
-  .log-item__top {
+  .log-card__head {
     flex-direction: column;
-    align-items: flex-start;
+  }
+
+  .log-card__meta {
+    flex-direction: row;
+    align-items: center;
+    gap: 0.65rem;
+    min-width: 0;
   }
 }
 </style>

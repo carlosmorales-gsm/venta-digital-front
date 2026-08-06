@@ -8,10 +8,13 @@ const props = withDefaults(
     /** Cerrar al hacer clic en el fondo */
     closeOnScrim?: boolean;
     wide?: boolean;
+    /** Modal extra ancho (p. ej. vista previa PDF) */
+    xlarge?: boolean;
   }>(),
   {
     closeOnScrim: true,
     wide: false,
+    xlarge: false,
   },
 );
 
@@ -49,7 +52,10 @@ function onScrim() {
 
       <div
         class="vd-modal panel"
-        :class="{ 'vd-modal--wide': wide }"
+        :class="{
+          'vd-modal--wide': wide && !xlarge,
+          'vd-modal--xlarge': xlarge,
+        }"
         role="dialog"
         aria-modal="true"
         :aria-labelledby="'vd-modal-title'"
@@ -110,6 +116,15 @@ function onScrim() {
 
 .vd-modal--wide {
   width: min(560px, 100%);
+}
+
+.vd-modal--xlarge {
+  width: min(820px, 100%);
+  max-height: min(94vh, 900px);
+}
+
+.vd-modal--xlarge .vd-modal__body {
+  padding: 0.75rem 0.85rem;
 }
 
 .vd-modal__head {

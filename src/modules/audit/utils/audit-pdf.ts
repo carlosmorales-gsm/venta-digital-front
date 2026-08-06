@@ -33,6 +33,43 @@ const FIELD_LABELS: Record<string, string> = {
   password: 'Contraseña',
   amount: 'Monto',
   sellerName: 'Vendedor',
+  titularName: 'Titular',
+  status: 'Estatus',
+  fecha: 'Fecha',
+  contrato: 'Contrato',
+  origenVenta: 'Origen de venta',
+  folioSolicitud: 'Folio solicitud',
+  curp: 'CURP',
+  celular: 'Celular',
+  correo: 'Correo',
+  municipio: 'Municipio',
+  estado: 'Estado (domicilio)',
+  planKind: 'Tipo de plan',
+  nombrePlan: 'Nombre del plan',
+  servicioFunerario: 'Servicio funerario',
+  parqueFuneral: 'Parque funeral',
+  seccion: 'Sección',
+  cuadrante: 'Cuadrante',
+  numero: 'Número',
+  preasignacion: 'Preasignación',
+  beneficiario1: 'Beneficiario 1',
+  beneficiario1Parentesco: 'Parentesco beneficiario 1',
+  beneficiario2: 'Beneficiario 2',
+  segundoContacto: 'Segundo contacto',
+  documentos: 'Documentos',
+  precioPlan: 'Precio del plan',
+  anticipo: 'Anticipo',
+  pagoInicial: 'Pago inicial',
+  frecuencia: 'Frecuencia',
+  plazo: 'Plazo',
+  importeCadaPago: 'Importe cada pago',
+  saldo: 'Saldo',
+  formaPago: 'Forma de pago',
+  banco: 'Banco',
+  cuenta: 'Cuenta',
+  nombreAsesor: 'Asesor',
+  nombreJefeVentas: 'Jefe de ventas',
+  driveFolderUrl: 'Carpeta Drive',
 };
 
 const TYPE_LABELS: Record<string, string> = {
@@ -41,6 +78,13 @@ const TYPE_LABELS: Record<string, string> = {
   ADMIN: 'Administrador',
   USER: 'Usuario',
   SALE: 'Venta',
+  DRAFT: 'Borrador',
+  PENDING_PAYMENT: 'Pendiente de pago',
+  PENDING_SIGNATURE: 'Pendiente de firma',
+  COMPLETED: 'Completada',
+  SUBMITTED: 'Enviada',
+  PARQUE: 'Parque',
+  PLAN_FUTURO: 'Plan a futuro',
 };
 
 const COLORS = {
@@ -163,9 +207,12 @@ function targetNameFromDetails(
 
   const after = details.after;
   if (after && typeof after === 'object') {
-    const name = (after as Record<string, unknown>).fullName;
+    const a = after as Record<string, unknown>;
+    const titular = a.titularName;
+    if (typeof titular === 'string' && titular.trim()) return titular.trim();
+    const name = a.fullName;
     if (typeof name === 'string' && name.trim()) return name.trim();
-    const seller = (after as Record<string, unknown>).sellerName;
+    const seller = a.sellerName;
     if (typeof seller === 'string' && seller.trim()) return seller.trim();
   }
 
@@ -203,6 +250,12 @@ function entryTitle(item: AuditLogPdfItem): string {
     targetNameFromDetails(item.details) ?? targetNameFromSummary(item.summary);
 
   if (item.entityType === 'SALE') {
+    const titular =
+      targetNameFromDetails(item.details) ??
+      targetNameFromSummary(item.summary);
+    if (item.entityId != null && titular) {
+      return `${verb} venta #${item.entityId} (${titular})`;
+    }
     if (item.entityId != null) return `${verb} venta #${item.entityId}`;
     return `${verb} venta`;
   }

@@ -8,9 +8,9 @@ export default defineConfig({
     port: 5173,
     open: true,
     proxy: {
-      // Evita CORS en local: el front llama /api → backend :3022
+      // 127.0.0.1 evita fallos de IPv6 (::1) con localhost en Windows
       '/api': {
-        target: 'http://localhost:3022',
+        target: 'http://127.0.0.1:3022',
         changeOrigin: true,
       },
     },

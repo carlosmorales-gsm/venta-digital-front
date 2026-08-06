@@ -30,6 +30,18 @@ const router = createRouter({
       meta: { roles: ['VENDEDOR'] },
     },
     {
+      path: '/vendedor/ventas/nueva',
+      name: 'vendedor-venta-nueva',
+      component: () => import('../modules/sales/views/SellerSaleCaptureView.vue'),
+      meta: { roles: ['VENDEDOR'] },
+    },
+    {
+      path: '/vendedor/ventas/:id',
+      name: 'vendedor-venta-editar',
+      component: () => import('../modules/sales/views/SellerSaleCaptureView.vue'),
+      meta: { roles: ['VENDEDOR'] },
+    },
+    {
       path: '/monitor',
       name: 'monitor-menu',
       component: () => import('../modules/monitor/views/MonitorMenuView.vue'),

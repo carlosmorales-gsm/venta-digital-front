@@ -84,7 +84,7 @@ const ok = await confirm({
 
 1. No commitear `.env` con secretos.
 2. No romper guards de router (`roles` / `permissions`).
-3. No agregar UI de ventas reales hasta que el backend lo exponga (hoy el listado es placeholder).
+3. Ventas vendedor: wizard por secciones (`/vendedor/ventas/nueva`), borradores (máx. 3, 24 h), reutilizar cotización, vista previa PDF en modal, INE + comprobante al enviar.
 4. Mantener botones y campos táctiles (min ~44px) en móvil.
 5. Si tocas auth, verificar los 3 roles.
 6. Usuarios admin: crear, editar y habilitar/deshabilitar (sin `alert`/`confirm` nativos).

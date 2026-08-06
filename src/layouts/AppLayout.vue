@@ -342,7 +342,36 @@ function toggleSidebar() {
 
 .seller-main {
   flex: 1;
-  padding: 1.1rem 1.15rem 2rem;
+  width: 100%;
+  max-width: 100%;
+  padding: 0.85rem 0.85rem 1.5rem;
+  box-sizing: border-box;
+  overflow-x: hidden;
+}
+
+@media (min-width: 720px) {
+  .seller-main {
+    padding: 1.15rem 1.25rem 2rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .seller-bar {
+    padding: 0.65rem 0.8rem;
+    gap: 0.5rem;
+  }
+
+  .seller-bar__brand img {
+    height: 26px;
+  }
+
+  .seller-bar__titles strong {
+    font-size: 1rem;
+  }
+
+  .seller-bar__titles small {
+    display: none;
+  }
 }
 
 /* —— Shell lateral —— */

@@ -7,6 +7,7 @@ interface SaleItem {
   id: number;
   sellerId: number;
   sellerName: string;
+  titularName?: string | null;
   amount: number;
   createdAt: string;
 }
@@ -75,6 +76,7 @@ function formatAmount(value: number) {
             <thead>
               <tr>
                 <th>Fecha local</th>
+                <th>Titular</th>
                 <th>Vendedor</th>
                 <th>Monto</th>
               </tr>
@@ -82,6 +84,7 @@ function formatAmount(value: number) {
             <tbody>
               <tr v-for="item in data.items" :key="item.id">
                 <td>{{ formatUtcToLocal(item.createdAt) }}</td>
+                <td>{{ item.titularName || '—' }}</td>
                 <td>{{ item.sellerName }}</td>
                 <td>{{ formatAmount(item.amount) }}</td>
               </tr>
@@ -91,7 +94,8 @@ function formatAmount(value: number) {
 
         <div class="mobile-list">
           <article v-for="item in data.items" :key="`m-${item.id}`" class="sale-card">
-            <strong>{{ item.sellerName }}</strong>
+            <strong>{{ item.titularName || 'Sin titular' }}</strong>
+            <span>{{ item.sellerName }}</span>
             <span>{{ formatUtcToLocal(item.createdAt) }}</span>
             <b>{{ formatAmount(item.amount) }}</b>
           </article>
