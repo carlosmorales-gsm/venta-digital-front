@@ -1,6 +1,9 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import { useAuthStore } from '../modules/auth/stores/auth.store';
-import { tokenStorage } from '../shared/api/http';
+import {
+  redirectToLoginOnSessionExpired,
+  tokenStorage,
+} from '../shared/api/http';
 
 const router = createRouter({
   history: createWebHistory(),
@@ -73,15 +76,43 @@ const router = createRouter({
         roles: ['ADMIN'],
       },
     },
+    {
+      path: '/admin/configuracion',
+      name: 'admin-configuracion',
+      component: () => import('../modules/admin/views/AdminSettingsView.vue'),
+      meta: {
+        roles: ['ADMIN'],
+      },
+    },
+    {
+      path: '/admin/descuentos',
+      name: 'admin-descuentos',
+      component: () => import('../modules/admin/views/AdminDiscountsView.vue'),
+      meta: {
+        roles: ['ADMIN'],
+      },
+    },
   ],
 });
 
-router.beforeEach((to) => {
+function sessionExpired(): boolean {
+  const expiresAt = localStorage.getItem('vd_expires_at');
+  if (!expiresAt) return false;
+  const ts = Date.parse(expiresAt);
+  return Number.isFinite(ts) && ts <= Date.now();
+}
+
+router.beforeEach(async (to) => {
   const auth = useAuthStore();
   const hasToken = Boolean(tokenStorage.getAccess());
 
+  if (!to.meta.guest && hasToken && sessionExpired()) {
+    await redirectToLoginOnSessionExpired();
+    return false;
+  }
+
   if (to.meta.guest) {
-    if (hasToken && auth.user) {
+    if (hasToken && auth.user && !sessionExpired()) {
       if (auth.userType === 'VENDEDOR') return { name: 'vendedor-ventas' };
       return { name: 'monitor-menu' };
     }
@@ -91,6 +122,12 @@ router.beforeEach((to) => {
   const roles = (to.meta.roles as string[] | undefined) ?? [];
   if (roles.length) {
     if (!hasToken || !auth.user) {
+      if (to.path.startsWith('/vendedor')) {
+        return { name: 'login-vendedor' };
+      }
+      if (to.path.startsWith('/monitor') || to.path.startsWith('/admin')) {
+        return { name: 'login-monitor' };
+      }
       return { name: 'home' };
     }
     if (!roles.includes(auth.user.type)) {

@@ -12,6 +12,8 @@ type AuditAction =
   | 'ACTIVATE'
   | 'DEACTIVATE'
   | 'DELETE'
+  | 'CANCEL'
+  | 'APPLY'
   | '';
 
 interface AuditLogItem {
@@ -47,6 +49,8 @@ const ACTION_LABELS: Record<string, string> = {
   ACTIVATE: 'Habilitación',
   DEACTIVATE: 'Deshabilitación',
   DELETE: 'Eliminación',
+  CANCEL: 'Cancelación',
+  APPLY: 'Aplicación',
 };
 
 const ACTION_VERBS: Record<string, string> = {
@@ -55,11 +59,15 @@ const ACTION_VERBS: Record<string, string> = {
   ACTIVATE: 'Habilitó',
   DEACTIVATE: 'Deshabilitó',
   DELETE: 'Eliminó',
+  CANCEL: 'Canceló',
+  APPLY: 'Aplicó',
 };
 
 const ENTITY_WORDS: Record<string, string> = {
   USER: 'usuario',
   SALE: 'venta',
+  DISCOUNT: 'descuento especial',
+  SETTINGS: 'configuración',
 };
 
 const HIDDEN_FIELDS = new Set(['id', 'sellerId']);
@@ -110,6 +118,13 @@ const FIELD_LABELS: Record<string, string> = {
   nombreAsesor: 'Asesor',
   nombreJefeVentas: 'Jefe de ventas',
   driveFolderUrl: 'Carpeta Drive',
+  percent: 'Porcentaje',
+  createdByName: 'Generó',
+  cancelledByName: 'Canceló',
+  appliedSaleId: 'Venta aplicada',
+  draftLimit: 'Límite de borradores',
+  draftTtlHours: 'Vigencia borrador (h)',
+  maxDiscountAmount: 'Descuento máximo (%)',
 };
 
 const TYPE_LABELS: Record<string, string> = {
@@ -118,6 +133,11 @@ const TYPE_LABELS: Record<string, string> = {
   ADMIN: 'Administrador',
   USER: 'Usuario',
   SALE: 'Venta',
+  DISCOUNT: 'Descuento especial',
+  SETTINGS: 'Configuración',
+  ACTIVE: 'Activo',
+  CANCELLED: 'Cancelado',
+  APPLIED: 'Aplicado',
   DRAFT: 'Borrador',
   PENDING_PAYMENT: 'Pendiente de pago',
   PENDING_SIGNATURE: 'Pendiente de firma',
@@ -541,6 +561,8 @@ onMounted(async () => {
           <option value="ACTIVATE">Habilitación</option>
           <option value="DEACTIVATE">Deshabilitación</option>
           <option value="DELETE">Eliminación</option>
+          <option value="CANCEL">Cancelación</option>
+          <option value="APPLY">Aplicación</option>
         </select>
       </div>
 

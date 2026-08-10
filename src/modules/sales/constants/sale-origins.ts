@@ -1,11 +1,14 @@
-/** Orígenes de venta (Odoo sale.order / sale_origin). */
+/**
+ * Orígenes de venta — mismos values/labels que
+ * sale.order.sale_origin (sale_extensions).
+ */
 export const SALE_ORIGIN_OPTIONS = [
-  { value: 'inmediate_need', label: 'Necesidad inmediata' },
-  { value: 'field_selling', label: 'Cambaceo' },
-  { value: 'social_media', label: 'Redes sociales' },
+  { value: 'inmediate_need', label: 'Immediate Need' },
+  { value: 'field_selling', label: 'Field Selling' },
+  { value: 'social_media', label: 'Social Media' },
   { value: 'redes_personal', label: 'Redes Personal' },
-  { value: 'agreement', label: 'Ventas convenio' },
-  { value: 'exhibition', label: 'Exhibición' },
+  { value: 'agreement', label: 'Agreement' },
+  { value: 'exhibition', label: 'Exhibition' },
   { value: 'guard_culiacan_park', label: 'Guardia parque Culiacán' },
   { value: 'guard_montebello', label: 'Guardia Montebello' },
   { value: 'guard_zapata_branch', label: 'Guardia suc Zapata' },
@@ -18,10 +21,10 @@ export const SALE_ORIGIN_OPTIONS = [
   { value: 'referral_sales', label: 'Ventas por referidos' },
   { value: 'telemarketing_sales', label: 'Ventas por telemarketing' },
   { value: 'employee_sales', label: 'Venta empleado' },
-  { value: 'operational', label: 'Operativo' },
-  { value: 'direct', label: 'Directo' },
-  { value: 'convention', label: 'Convenio' },
-  { value: 'agency', label: 'Agencia' },
+  { value: 'operational', label: 'Operational' },
+  { value: 'direct', label: 'Direct' },
+  { value: 'convention', label: 'Convention' },
+  { value: 'agency', label: 'Agency' },
   { value: 'omnichannel', label: 'Omnicanal' },
   { value: 'plaza_fiesta', label: 'Plaza Fiesta' },
   { value: 'ley_humaya', label: 'Ley Humaya' },

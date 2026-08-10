@@ -653,6 +653,15 @@ onMounted(loadUsers);
   margin: 0;
 }
 
+.field-hint {
+  display: block;
+  margin-top: 0.3rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--vd-muted);
+  line-height: 1.35;
+}
+
 @media (max-width: 900px) {
   .head-row {
     flex-direction: column;

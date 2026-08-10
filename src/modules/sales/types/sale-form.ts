@@ -22,7 +22,10 @@ export interface SaleBeneficiary extends SalePersonName {
 export interface SaleAttachment {
   name: string;
   mime: string;
-  dataBase64: string;
+  /** Presente mientras el archivo aún no está en Drive. */
+  dataBase64?: string;
+  driveFileId?: string | null;
+  driveFileUrl?: string | null;
 }
 
 export interface SaleFormData {
@@ -78,16 +81,24 @@ export interface SaleFormData {
   ubicacionPlan: {
     planKind: PlanKind;
     nombrePlan: string;
+    /** Id product.template Odoo */
+    productId: number | null;
+    /** Referencia interna Odoo (`default_code`) — informativo */
+    productDefaultCode: string;
+    /** Precio list_price (también en pago.precioPlan) */
+    precioPlan: string;
     seccion: string;
     cuadrante: string;
     numero: string;
     servicioFunerario: string;
     parqueFuneral: string;
-    preasignacion: string;
+    /** Bandera: muestra/exige ubicación parque */
+    preasignacion: boolean;
   };
   pago: {
     precioPlan: string;
     frecuencia: string;
+    /** Porcentaje de descuento (0–100). También alimenta la carátula. */
     promocionDescuento: string;
     anticipo: string;
     pagoInicial: string;
@@ -110,6 +121,7 @@ export interface SaleFormData {
     ine: SaleAttachment | null;
     comprobanteDomicilio: SaleAttachment | null;
     firmaCliente: SaleAttachment | null;
+    ticketPago: SaleAttachment | null;
   };
 }
 
@@ -127,6 +139,8 @@ export interface SaleListItem {
   createdAt: string;
   updatedAt: string;
   driveFolderUrl?: string | null;
+  /** Ruta Drive: AÑO/MES/FOLIO-nombrecliente */
+  driveFolderPath?: string | null;
 }
 
 export function emptyPerson(): SalePersonName {
@@ -206,12 +220,15 @@ export function createEmptySaleForm(): SaleFormData {
     ubicacionPlan: {
       planKind: 'PLAN_FUTURO',
       nombrePlan: '',
+      productId: null,
+      productDefaultCode: '',
+      precioPlan: '',
       seccion: '',
       cuadrante: '',
       numero: '',
       servicioFunerario: '',
       parqueFuneral: '',
-      preasignacion: 'N/A',
+      preasignacion: false,
     },
     pago: {
       precioPlan: '',
@@ -238,6 +255,7 @@ export function createEmptySaleForm(): SaleFormData {
       ine: null,
       comprobanteDomicilio: null,
       firmaCliente: null,
+      ticketPago: null,
     },
   };
 }
@@ -251,7 +269,7 @@ export function createPrefillPago(): SaleFormData['pago'] {
   return {
     precioPlan: '45000',
     frecuencia: 'MENSUAL',
-    promocionDescuento: '10% anticipo',
+    promocionDescuento: '10',
     anticipo: '5000',
     pagoInicial: '4500',
     plazo: '24',
@@ -274,7 +292,7 @@ export function createPrefillSaleForm(): SaleFormData {
     ...base.meta,
     contrato: 'VD-DEMO-001',
     origenVenta: 'field_selling',
-    folioSolicitud: 'SOL-2026-0842',
+    folioSolicitud: '',
     verificacion: 'Pendiente',
   };
   base.contacto = {
@@ -330,12 +348,20 @@ export function createPrefillSaleForm(): SaleFormData {
   base.ubicacionPlan = {
     planKind: 'PARQUE',
     nombrePlan: 'Plan Familiar Premium',
+    productId: 9001,
+    productDefaultCode: 'PFAM-001',
+    precioPlan: '45000',
     seccion: 'A',
     cuadrante: '3',
     numero: '128',
     servicioFunerario: 'Servicio completo',
     parqueFuneral: 'Parque San Martín Culiacán',
-    preasignacion: 'N/A',
+    preasignacion: true,
+  };
+  base.pago = {
+    ...createPrefillPago(),
+    precioPlan: '45000',
+    nombreAsesor: '',
   };
   base.declaraciones = {
     aceptaMercadotecnia: 'NO',
@@ -343,6 +369,15 @@ export function createPrefillSaleForm(): SaleFormData {
   };
   base.meta.fecha = today;
   return base;
+}
+
+function asBool(v: unknown, fallback = false): boolean {
+  if (typeof v === 'boolean') return v;
+  if (v == null || v === '') return fallback;
+  const t = String(v).trim().toLowerCase();
+  if (['true', '1', 'si', 'sí', 'yes'].includes(t)) return true;
+  if (['false', '0', 'no', 'n/a'].includes(t)) return false;
+  return fallback;
 }
 
 export function fullName(p: SalePersonName): string {
@@ -402,6 +437,21 @@ export function mergeSaleForm(raw: unknown): SaleFormData {
       ...(src.ubicacionPlan ?? {}),
       planKind:
         src.ubicacionPlan?.planKind === 'PARQUE' ? 'PARQUE' : 'PLAN_FUTURO',
+      productId:
+        src.ubicacionPlan?.productId != null
+          ? Number(src.ubicacionPlan.productId)
+          : (base.ubicacionPlan.productId ?? null),
+      productDefaultCode:
+        src.ubicacionPlan?.productDefaultCode ??
+        base.ubicacionPlan.productDefaultCode,
+      precioPlan:
+        src.ubicacionPlan?.precioPlan ??
+        src.pago?.precioPlan ??
+        base.ubicacionPlan.precioPlan,
+      preasignacion: asBool(
+        src.ubicacionPlan?.preasignacion,
+        base.ubicacionPlan.preasignacion,
+      ),
     },
     pago: { ...base.pago, ...(src.pago ?? {}) },
     declaraciones: { ...base.declaraciones, ...(src.declaraciones ?? {}) },
@@ -409,6 +459,7 @@ export function mergeSaleForm(raw: unknown): SaleFormData {
       ine: src.documentos?.ine ?? null,
       comprobanteDomicilio: src.documentos?.comprobanteDomicilio ?? null,
       firmaCliente: src.documentos?.firmaCliente ?? null,
+      ticketPago: src.documentos?.ticketPago ?? null,
     },
   };
 }

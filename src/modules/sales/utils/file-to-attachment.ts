@@ -1,11 +1,38 @@
 import type { SaleAttachment } from '../types/sale-form';
+import { isAllowedUploadFile } from './attachment-preview';
 
-const MAX_BYTES = 1.5 * 1024 * 1024;
+/** Fotos de celular suelen pesar más; tope por archivo. */
+export const MAX_UPLOAD_MB = 5;
+export const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024;
+
+const ACCEPT =
+  'image/jpeg,image/png,image/webp,image/gif,image/bmp,application/pdf,.pdf';
+
+export const UPLOAD_ACCEPT = ACCEPT;
+
+export function uploadSizeErrorMessage(file: File): string | null {
+  if (file.size > MAX_UPLOAD_BYTES) {
+    return `La foto o archivo supera el máximo de ${MAX_UPLOAD_MB} MB. Elige uno más ligero.`;
+  }
+  return null;
+}
 
 export async function fileToAttachment(file: File): Promise<SaleAttachment> {
-  if (file.size > MAX_BYTES) {
-    throw new Error('El archivo no puede superar 1.5 MB');
+  if (!isAllowedUploadFile(file)) {
+    throw new Error('Solo se permiten imágenes (JPG, PNG, WEBP, GIF) o PDF');
   }
+  const sizeErr = uploadSizeErrorMessage(file);
+  if (sizeErr) {
+    throw new Error(sizeErr);
+  }
+
+  let mime = file.type || '';
+  if (!mime) {
+    mime = file.name.toLowerCase().endsWith('.pdf')
+      ? 'application/pdf'
+      : 'image/jpeg';
+  }
+
   const dataBase64 = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
@@ -19,7 +46,7 @@ export async function fileToAttachment(file: File): Promise<SaleAttachment> {
 
   return {
     name: file.name,
-    mime: file.type || 'application/octet-stream',
+    mime,
     dataBase64,
   };
 }

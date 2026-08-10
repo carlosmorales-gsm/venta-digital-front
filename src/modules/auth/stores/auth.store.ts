@@ -91,6 +91,14 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  /** Limpia sesión local sin llamar al API (token vencido / refresh fallido). */
+  function clearSession() {
+    tokenStorage.clear();
+    user.value = null;
+    expiresAt.value = null;
+    error.value = null;
+  }
+
   async function logout() {
     const refreshToken = tokenStorage.getRefresh();
     try {
@@ -98,9 +106,7 @@ export const useAuthStore = defineStore('auth', () => {
     } catch {
       // ignore network errors on logout
     }
-    tokenStorage.clear();
-    user.value = null;
-    expiresAt.value = null;
+    clearSession();
   }
 
   function hasPermission(code: string) {
@@ -120,6 +126,7 @@ export const useAuthStore = defineStore('auth', () => {
     verifySellerPin,
     loginMonitor,
     logout,
+    clearSession,
     hasPermission,
   };
 });

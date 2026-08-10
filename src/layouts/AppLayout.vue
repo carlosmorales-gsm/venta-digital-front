@@ -3,7 +3,14 @@ import { computed, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../modules/auth/stores/auth.store';
 
-type NavIcon = 'inicio' | 'ventas' | 'usuarios' | 'bitacora' | 'reportes';
+type NavIcon =
+  | 'inicio'
+  | 'ventas'
+  | 'usuarios'
+  | 'bitacora'
+  | 'config'
+  | 'reportes'
+  | 'descuentos';
 
 type NavItem = {
   to: string;
@@ -51,6 +58,20 @@ const allItems: NavItem[] = [
     label: 'Bitácora',
     hint: 'Log de transacciones',
     icon: 'bitacora',
+    roles: ['ADMIN'],
+  },
+  {
+    to: '/admin/descuentos',
+    label: 'Descuentos',
+    hint: 'Especiales por vendedor',
+    icon: 'descuentos',
+    roles: ['ADMIN'],
+  },
+  {
+    to: '/admin/configuracion',
+    label: 'Configuración',
+    hint: 'Borradores y parámetros',
+    icon: 'config',
     roles: ['ADMIN'],
   },
 ];
@@ -224,6 +245,24 @@ function toggleSidebar() {
               />
               <path d="M15 3.5V7h3.5" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
               <path d="M9 12h6M9 15.5h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+            </svg>
+            <svg v-else-if="item.icon === 'config'" viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.8" />
+              <path
+                d="M12 3.5v2.2M12 18.3v2.2M3.5 12h2.2M18.3 12h2.2M6.2 6.2l1.6 1.6M16.2 16.2l1.6 1.6M17.8 6.2l-1.6 1.6M7.8 16.2l-1.6 1.6"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+              />
+            </svg>
+            <svg v-else-if="item.icon === 'descuentos'" viewBox="0 0 24 24" fill="none">
+              <path
+                d="M4.5 12.5 12.5 4.5h5.2L19.5 6.3v5.2L11.5 19.5 4.5 12.5Z"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linejoin="round"
+              />
+              <circle cx="15.2" cy="8.8" r="1.2" fill="currentColor" />
             </svg>
             <svg v-else viewBox="0 0 24 24" fill="none">
               <path d="M4 19h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
@@ -693,7 +732,7 @@ nav {
 }
 
 .content-inner {
-  width: min(1080px, 100%);
+  width: min(1360px, 100%);
   margin: 0 auto;
   animation: vd-enter 0.35s ease both;
 }

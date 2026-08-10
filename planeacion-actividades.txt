@@ -1,0 +1,25 @@
+Venta Digital — Actividades realizadas (resumen)
+
+1. Setup del front (Vue 3 + Vite + Pinia) y conexión al API
+2. Autenticación de vendedor con PIN por WhatsApp
+3. Autenticación de monitor/admin con usuario y contraseña
+4. Sesión JWT, refresh (monitor) y redirección al login al expirar token
+5. Captura de venta por pasos (contrato, titular, beneficiarios, 2.º contacto, plan, documentos)
+6. Guardado de borradores con límite y caducidad
+7. Validación de CURP al guardar
+8. Finalización de captura → pendiente de pago
+9. Modal de registro de pago y avance a pendiente de firma
+10. Firma del cliente y cierre de venta
+11. Generación de PDF / carátula del contrato
+12. Ajuste de posición de firma en el PDF
+13. Integración con Google Drive (OAuth)
+14. Subida de INE, comprobante, firma y carátula a Drive
+15. Estructura de carpetas Drive: AÑO / MES / FOLIO-nombrecliente
+16. Nomenclatura de archivos: FOLIO-INE, FOLIO-Comprobante, etc.
+17. Guardado de id, URL y ruta de carpeta Drive en la venta
+18. Persistencia de documentos: base64 temporal y limpieza tras subida exitosa a Drive
+19. Folio de solicitud = id de la venta (campo solo lectura)
+20. Bitácora / auditoría de acciones sobre ventas
+21. Vistas de listado para vendedor y monitor
+22. Datos de prueba / prefill para captura y pago
+23. Proxy Vite y ajustes de entorno local

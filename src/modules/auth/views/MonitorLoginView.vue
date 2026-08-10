@@ -1,16 +1,18 @@
 <script setup lang="ts">
-import { ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { computed, ref } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth.store';
 
 const auth = useAuthStore();
 const router = useRouter();
+const route = useRoute();
 
 /** En desarrollo se precargan las credenciales del admin semilla. */
 const username = ref(import.meta.env.DEV ? 'admin' : '');
 const password = ref(import.meta.env.DEV ? 'AdminVd2026!' : '');
 const showPassword = ref(false);
 const localError = ref<string | null>(null);
+const sessionExpired = computed(() => route.query.sesion === 'expirada');
 
 async function onSubmit() {
   localError.value = null;
@@ -40,6 +42,9 @@ async function onSubmit() {
         <img src="/logo-gsm-azul.svg" alt="GSM" class="logo-blue" />
         <h2>Iniciar sesión</h2>
         <p class="subtitle">Ingresa con tu usuario y contraseña</p>
+        <p v-if="sessionExpired" class="session-note" role="status">
+          Tu sesión expiró. Inicia sesión de nuevo.
+        </p>
 
         <div class="field">
           <label for="username">Usuario</label>
@@ -168,6 +173,16 @@ async function onSubmit() {
   margin: -0.35rem 0 0.35rem;
   color: var(--vd-muted);
   font-size: 0.95rem;
+}
+
+.session-note {
+  margin: 0 0 0.35rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: var(--vd-radius-sm, 8px);
+  background: #fff4e5;
+  color: #8a4b00;
+  font-size: 0.88rem;
+  font-weight: 600;
 }
 
 .password-row {

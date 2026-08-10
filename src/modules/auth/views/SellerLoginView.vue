@@ -1,16 +1,18 @@
 <script setup lang="ts">
-import { ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { computed, ref } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth.store';
 
 const auth = useAuthStore();
 const router = useRouter();
+const route = useRoute();
 
 const step = ref<'phone' | 'pin'>('phone');
 const cellphone = ref('');
 const nipId = ref<number | null>(null);
 const nip = ref('');
 const localError = ref<string | null>(null);
+const sessionExpired = computed(() => route.query.sesion === 'expirada');
 
 async function requestPin() {
   localError.value = null;
@@ -77,6 +79,9 @@ async function verifyPin() {
               ? 'Te enviaremos un PIN por WhatsApp'
               : `PIN enviado a ${cellphone}`
           }}
+        </p>
+        <p v-if="sessionExpired" class="session-note" role="status">
+          Tu sesión expiró. Inicia sesión de nuevo.
         </p>
 
         <div v-if="step === 'phone'" class="field">
@@ -228,6 +233,16 @@ async function verifyPin() {
   margin: -0.35rem 0 0.15rem;
   color: var(--vd-muted);
   font-size: 0.95rem;
+}
+
+.session-note {
+  margin: 0;
+  padding: 0.55rem 0.7rem;
+  border-radius: var(--vd-radius-sm, 8px);
+  background: #fff4e5;
+  color: #8a4b00;
+  font-size: 0.88rem;
+  font-weight: 600;
 }
 
 .submit,

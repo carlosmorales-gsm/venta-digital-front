@@ -580,9 +580,11 @@ function drawPlanPago(doc: Doc, form: SaleFormData) {
     pill(doc, 'PLAN A FUTURO', 360, top + 3, 120);
   }
   // N/A a la derecha del pill (antes se montaba encima del título).
+  // La captura usa bandera boolean; en carátula se mapea a N/A / activo sin cambiar layout.
+  const preasigLabel = u.preasignacion ? 'SI' : 'N/A';
   checkLabel(
     doc,
-    has(u.preasignacion, 'N/A') || !v(u.preasignacion),
+    has(preasigLabel, 'N/A') || !v(preasigLabel),
     445,
     top + 5.5,
     'N/A',
@@ -626,15 +628,12 @@ function drawPlanPago(doc: Doc, form: SaleFormData) {
   field(doc, 'NÚMERO:', u.numero, 253, y2, h2, 120, { labelSize: 5.2 });
   check(
     doc,
-    Boolean(v(u.preasignacion)) && !has(u.preasignacion, 'N/A'),
+    Boolean(v(preasigLabel)) && !has(preasigLabel, 'N/A'),
     405.3,
     y2 + 7,
     6.4,
   );
   label(doc, 'PREASIGNACIÓN:', 414.8, y2 + 7, 5.2);
-  if (v(u.preasignacion) && !has(u.preasignacion, 'N/A')) {
-    value(doc, u.preasignacion, 480, y2 + h2 - 4, 7, 90);
-  }
 
   pill(doc, 'IMPORTE Y CONDICIONES DE PAGO', 306, top + 70, 200);
 
@@ -651,7 +650,9 @@ function drawPlanPago(doc: Doc, form: SaleFormData) {
   field(
     doc,
     ['PROMOCIÓN VIGENTE /', 'DESCUENTO:'],
-    p.promocionDescuento,
+    p.promocionDescuento?.trim()
+      ? `${String(p.promocionDescuento).trim()}%`
+      : '',
     145,
     y3,
     h3,
@@ -769,26 +770,33 @@ async function drawPage2Official(doc: Doc, form: SaleFormData) {
   if (pub === 'SI') doc.text('X', 320.3, 491.2);
   if (pub === 'NO') doc.text('X', 345.5, 491.2);
 
-  // Nombre del titular sobre la línea de firma
+  // Firma manuscrita (si ya fue capturada al enviar)
+  const firmaX = 24;
+  const firmaW = 160;
+  const firmaY = 580;
+  const firmaH = 48;
+  const firmaCx = firmaX + firmaW / 2;
+
+  const firma = form.documentos.firmaCliente;
+  if (firma?.dataBase64?.trim()) {
+    const dataUrl = firma.dataBase64.startsWith('data:')
+      ? firma.dataBase64
+      : `data:${firma.mime || 'image/png'};base64,${firma.dataBase64}`;
+    try {
+      doc.addImage(dataUrl, 'PNG', firmaX, firmaY, firmaW, firmaH);
+    } catch {
+      /* ignore broken signature image */
+    }
+  }
+
+  // Nombre completo centrado sobre la línea / bajo la firma
   const nombre = fullName(form.contacto);
   if (v(nombre)) {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8);
     setInk(doc);
-    doc.text(nombre, 140, 628, { align: 'center', maxWidth: 160 });
-  }
-
-  // Firma manuscrita (si ya fue capturada al enviar)
-  const firma = form.documentos.firmaCliente;
-  if (firma?.dataBase64) {
-    const dataUrl = firma.dataBase64.startsWith('data:')
-      ? firma.dataBase64
-      : `data:${firma.mime || 'image/png'};base64,${firma.dataBase64}`;
-    try {
-      doc.addImage(dataUrl, 'PNG', 55, 580, 160, 48);
-    } catch {
-      /* ignore broken signature image */
-    }
+    const lines = doc.splitTextToSize(nombre, firmaW - 10);
+    doc.text(lines, firmaCx, 636, { align: 'center' });
   }
 }
 

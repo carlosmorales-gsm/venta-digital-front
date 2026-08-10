@@ -19,6 +19,8 @@ const ACTION_LABELS: Record<string, string> = {
   ACTIVATE: 'Habilitación',
   DEACTIVATE: 'Deshabilitación',
   DELETE: 'Eliminación',
+  CANCEL: 'Cancelación',
+  APPLY: 'Aplicación',
 };
 
 /** Campos internos que no aportan al lector de negocio. */
@@ -70,6 +72,13 @@ const FIELD_LABELS: Record<string, string> = {
   nombreAsesor: 'Asesor',
   nombreJefeVentas: 'Jefe de ventas',
   driveFolderUrl: 'Carpeta Drive',
+  percent: 'Porcentaje',
+  createdByName: 'Generó',
+  cancelledByName: 'Canceló',
+  appliedSaleId: 'Venta aplicada',
+  draftLimit: 'Límite de borradores',
+  draftTtlHours: 'Vigencia borrador (h)',
+  maxDiscountAmount: 'Descuento máximo (%)',
 };
 
 const TYPE_LABELS: Record<string, string> = {
@@ -78,6 +87,11 @@ const TYPE_LABELS: Record<string, string> = {
   ADMIN: 'Administrador',
   USER: 'Usuario',
   SALE: 'Venta',
+  DISCOUNT: 'Descuento especial',
+  SETTINGS: 'Configuración',
+  ACTIVE: 'Activo',
+  CANCELLED: 'Cancelado',
+  APPLIED: 'Aplicado',
   DRAFT: 'Borrador',
   PENDING_PAYMENT: 'Pendiente de pago',
   PENDING_SIGNATURE: 'Pendiente de firma',
@@ -189,11 +203,15 @@ const ACTION_VERBS: Record<string, string> = {
   ACTIVATE: 'Habilitó',
   DEACTIVATE: 'Deshabilitó',
   DELETE: 'Eliminó',
+  CANCEL: 'Canceló',
+  APPLY: 'Aplicó',
 };
 
 const ENTITY_WORDS: Record<string, string> = {
   USER: 'usuario',
   SALE: 'venta',
+  DISCOUNT: 'descuento especial',
+  SETTINGS: 'configuración',
   VENDEDOR: 'vendedor',
   MONITOR: 'monitor',
   ADMIN: 'administrador',

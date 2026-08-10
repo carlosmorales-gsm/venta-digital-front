@@ -1,19 +1,34 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { extractApiError, http } from '../../../shared/api/http';
 import { formatUtcToLocal } from '../../../shared/utils/datetime';
 import { useDialog } from '../../../shared/ui/dialog';
+import SaleAttachmentsModal from '../components/SaleAttachmentsModal.vue';
+import SaleFilePreviewModal from '../components/SaleFilePreviewModal.vue';
 import SalePdfPreviewModal from '../components/SalePdfPreviewModal.vue';
 import SalePaymentModal from '../components/SalePaymentModal.vue';
 import SaleManualSignModal from '../components/SaleManualSignModal.vue';
+import { useAuthStore } from '../../auth/stores/auth.store';
 import {
   mergeSaleForm,
+  type SaleAttachment,
   type SaleFormData,
   type SaleListItem,
   type SaleStatus,
 } from '../types/sale-form';
+import {
+  listSaleAttachments,
+  type AttachmentListItem,
+} from '../utils/attachment-preview';
+import { buildPaymentTicketPdf } from '../utils/payment-ticket-pdf';
 import { buildSalePreviewPdf } from '../utils/sale-pdf';
+import {
+  lastWeekRange,
+  matchesDateRange,
+  textEqualsNormalized,
+  textIncludesNormalized,
+} from '../utils/sales-list-filters';
 
 async function blobToBase64(blob: Blob): Promise<string> {
   const buf = await blob.arrayBuffer();
@@ -32,16 +47,107 @@ interface SalesResponse {
   submitted: SaleListItem[];
   draftCount: number;
   draftLimit: number;
+  draftTtlHours?: number;
   total: number;
   message: string;
 }
 
 const router = useRouter();
+const auth = useAuthStore();
 const { alert, confirm } = useDialog();
 
 const loading = ref(true);
 const data = ref<SalesResponse | null>(null);
 const error = ref<string | null>(null);
+
+const defaultDates = lastWeekRange();
+const filters = reactive({
+  dateFrom: defaultDates.dateFrom,
+  dateTo: defaultDates.dateTo,
+  client: '',
+});
+const clientQuery = ref('');
+const clientMenuOpen = ref(false);
+
+const allItems = computed(() => [
+  ...(data.value?.drafts ?? []),
+  ...(data.value?.submitted ?? []),
+]);
+
+const clientOptions = computed(() => {
+  const names = new Set<string>();
+  for (const item of allItems.value) {
+    const name = (item.titularName || '').trim();
+    if (name) names.add(name);
+  }
+  return [...names].sort((a, b) => a.localeCompare(b, 'es'));
+});
+
+const filteredClientOptions = computed(() => {
+  const q = clientQuery.value.trim();
+  if (!q) return clientOptions.value.slice(0, 12);
+  return clientOptions.value
+    .filter((name) => textIncludesNormalized(name, q))
+    .slice(0, 12);
+});
+
+function matchesClient(titularName: string | null | undefined): boolean {
+  if (filters.client) {
+    return textEqualsNormalized(titularName, filters.client);
+  }
+  return textIncludesNormalized(titularName, clientQuery.value);
+}
+
+function matchesSaleFilters(item: SaleListItem): boolean {
+  if (!matchesDateRange(item.createdAt, filters.dateFrom, filters.dateTo)) {
+    return false;
+  }
+  return matchesClient(item.titularName);
+}
+
+const filteredDrafts = computed(() =>
+  (data.value?.drafts ?? []).filter(matchesSaleFilters),
+);
+
+const filteredSubmitted = computed(() =>
+  (data.value?.submitted ?? []).filter(matchesSaleFilters),
+);
+
+const hasActiveFilters = computed(
+  () =>
+    !!filters.client.trim() ||
+    !!clientQuery.value.trim() ||
+    filters.dateFrom !== defaultDates.dateFrom ||
+    filters.dateTo !== defaultDates.dateTo,
+);
+
+function onClientInput() {
+  filters.client = '';
+  clientMenuOpen.value = true;
+}
+
+function selectClient(name: string) {
+  filters.client = name;
+  clientQuery.value = name;
+  clientMenuOpen.value = false;
+}
+
+function clearClient() {
+  filters.client = '';
+  clientQuery.value = '';
+  clientMenuOpen.value = true;
+}
+
+function clearFilters() {
+  const range = lastWeekRange();
+  filters.dateFrom = range.dateFrom;
+  filters.dateTo = range.dateTo;
+  filters.client = '';
+  clientQuery.value = '';
+  clientMenuOpen.value = false;
+  defaultDates.dateFrom = range.dateFrom;
+  defaultDates.dateTo = range.dateTo;
+}
 
 const previewOpen = ref(false);
 const previewForm = ref<SaleFormData>(mergeSaleForm({}));
@@ -56,6 +162,13 @@ const paymentSaving = ref(false);
 
 const signOpen = ref(false);
 const signSubmitting = ref(false);
+
+const attachmentsOpen = ref(false);
+const attachmentsLoading = ref(false);
+const attachmentItems = ref<AttachmentListItem[]>([]);
+const filePreviewOpen = ref(false);
+const filePreviewTitle = ref('Archivo');
+const filePreviewAttachment = ref<SaleAttachment | null>(null);
 
 async function load() {
   loading.value = true;
@@ -139,6 +252,33 @@ async function openPreview(item: SaleListItem) {
   }
 }
 
+async function openAttachments(item: SaleListItem) {
+  attachmentsOpen.value = true;
+  attachmentsLoading.value = true;
+  attachmentItems.value = [];
+  try {
+    const sale = await fetchSaleForm(item);
+    const form = mergeSaleForm(sale.payload);
+    attachmentItems.value = listSaleAttachments(form);
+  } catch (e: unknown) {
+    attachmentsOpen.value = false;
+    await alert({
+      title: 'Anexos',
+      message: extractApiError(e, 'No se pudieron cargar los archivos'),
+      variant: 'danger',
+    });
+  } finally {
+    attachmentsLoading.value = false;
+  }
+}
+
+function onSelectAttachment(item: AttachmentListItem) {
+  attachmentsOpen.value = false;
+  filePreviewTitle.value = item.label;
+  filePreviewAttachment.value = item.attachment;
+  filePreviewOpen.value = true;
+}
+
 async function openPayment(item: SaleListItem) {
   try {
     const sale = await fetchSaleForm(item);
@@ -158,11 +298,44 @@ async function savePayment(pago: SaleFormData['pago']) {
   if (!actionSaleId.value) return;
   paymentSaving.value = true;
   try {
-    await http.patch(`/sales/${actionSaleId.value}/payment`, { pago });
+    const formForTicket = mergeSaleForm({
+      ...actionForm.value,
+      pago: {
+        ...pago,
+        nombreAsesor:
+          pago.nombreAsesor?.trim() ||
+          auth.user?.fullName ||
+          actionForm.value.pago.nombreAsesor,
+      },
+    });
+
+    let ticketPdf:
+      | { name: string; mime: string; dataBase64: string }
+      | undefined;
+    try {
+      const blob = await buildPaymentTicketPdf(formForTicket, {
+        saleId: actionSaleId.value,
+        sellerName: auth.user?.fullName,
+      });
+      ticketPdf = {
+        name: `ticket-pago_${actionSaleId.value}.pdf`,
+        mime: 'application/pdf',
+        dataBase64: await blobToBase64(blob),
+      };
+    } catch (pdfErr) {
+      console.warn('No se pudo generar ticket de pago', pdfErr);
+    }
+
+    await http.patch(`/sales/${actionSaleId.value}/payment`, {
+      pago,
+      ...(ticketPdf ? { ticketPdf } : {}),
+    });
     paymentOpen.value = false;
     await alert({
       title: 'Pago registrado',
-      message: 'El pago se guardó correctamente.',
+      message: ticketPdf
+        ? 'El pago y el ticket PDF se guardaron en la venta.'
+        : 'El pago se guardó correctamente.',
       variant: 'success',
     });
     await load();
@@ -286,6 +459,72 @@ async function removeDraft(id: number) {
       </button>
     </header>
 
+    <div class="panel filters">
+      <div class="field">
+        <label for="seller-filter-from">Desde</label>
+        <input id="seller-filter-from" v-model="filters.dateFrom" type="date" />
+      </div>
+      <div class="field">
+        <label for="seller-filter-to">Hasta</label>
+        <input id="seller-filter-to" v-model="filters.dateTo" type="date" />
+      </div>
+      <div class="field field--wide client-ac">
+        <label for="seller-filter-client">Cliente</label>
+        <div class="client-ac__row">
+          <input
+            id="seller-filter-client"
+            v-model="clientQuery"
+            type="search"
+            autocomplete="off"
+            placeholder="Buscar o seleccionar cliente…"
+            @input="onClientInput"
+            @focus="clientMenuOpen = true"
+            @blur="clientMenuOpen = false"
+          />
+          <button
+            v-if="filters.client || clientQuery"
+            type="button"
+            class="btn btn-sm btn-ghost"
+            @mousedown.prevent="clearClient"
+          >
+            Limpiar
+          </button>
+        </div>
+        <ul
+          v-if="clientMenuOpen && filteredClientOptions.length"
+          class="client-ac__list"
+          role="listbox"
+        >
+          <li v-for="name in filteredClientOptions" :key="name">
+            <button
+              type="button"
+              class="client-ac__item"
+              :class="{ active: name === filters.client }"
+              @mousedown.prevent="selectClient(name)"
+            >
+              {{ name }}
+            </button>
+          </li>
+        </ul>
+        <p
+          v-else-if="clientMenuOpen && clientQuery.trim()"
+          class="client-ac__empty"
+        >
+          Sin coincidencias
+        </p>
+      </div>
+      <div class="filter-actions">
+        <button
+          type="button"
+          class="btn btn-ghost"
+          :disabled="!hasActiveFilters"
+          @click="clearFilters"
+        >
+          Restablecer filtros
+        </button>
+      </div>
+    </div>
+
     <div v-if="loading" class="panel loading">
       <span class="spinner" />
       Cargando…
@@ -296,15 +535,19 @@ async function removeDraft(id: number) {
     </div>
 
     <template v-else>
-      <div v-if="data?.drafts?.length" class="panel">
+      <div v-if="filteredDrafts.length" class="panel">
         <div class="section-head">
           <h2>Borradores</h2>
           <span class="muted">
-            {{ data.draftCount }} / {{ data.draftLimit }}
+            {{ filteredDrafts.length }}
+            <template v-if="(data?.drafts?.length ?? 0) !== filteredDrafts.length">
+              de {{ data?.drafts?.length }}
+            </template>
+            · {{ data?.draftCount }} / {{ data?.draftLimit }}
           </span>
         </div>
         <ul class="card-list">
-          <li v-for="d in data.drafts" :key="d.id" class="sale-card">
+          <li v-for="d in filteredDrafts" :key="d.id" class="sale-card">
             <div class="sale-card__main">
               <strong>{{ d.titularName || 'Sin titular' }}</strong>
               <span class="muted">
@@ -312,6 +555,20 @@ async function removeDraft(id: number) {
               </span>
             </div>
             <div class="sale-card__actions">
+              <button
+                type="button"
+                class="icon-btn"
+                title="Archivos anexados"
+                aria-label="Archivos anexados"
+                @click="openAttachments(d)"
+              >
+                <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                  <path
+                    fill="currentColor"
+                    d="M16.5 6.5v10.25a4.25 4.25 0 1 1-8.5 0V5.75a2.75 2.75 0 1 1 5.5 0v10.5a1.25 1.25 0 1 1-2.5 0V7.25h-1.5v9a2.75 2.75 0 1 0 5.5 0V5.75a4.25 4.25 0 1 0-8.5 0v11a5.75 5.75 0 1 0 11.5 0V6.5h-1.5z"
+                  />
+                </svg>
+              </button>
               <button
                 type="button"
                 class="icon-btn"
@@ -340,7 +597,14 @@ async function removeDraft(id: number) {
       <div class="panel">
         <div class="section-head">
           <h2>En proceso</h2>
-          <span class="muted">{{ data?.submitted?.length ?? 0 }}</span>
+          <span class="muted">
+            {{ filteredSubmitted.length }}
+            <template
+              v-if="(data?.submitted?.length ?? 0) !== filteredSubmitted.length"
+            >
+              de {{ data?.submitted?.length }}
+            </template>
+          </span>
         </div>
 
         <div v-if="!data?.submitted?.length" class="empty-state">
@@ -348,8 +612,16 @@ async function removeDraft(id: number) {
           Usa <em>Nueva venta</em> para capturar la carátula.
         </div>
 
+        <div
+          v-else-if="!filteredSubmitted.length"
+          class="empty-state"
+        >
+          <strong>Sin resultados</strong>
+          No hay ventas en proceso con los filtros actuales.
+        </div>
+
         <ul v-else class="card-list">
-          <li v-for="item in data.submitted" :key="item.id" class="sale-card">
+          <li v-for="item in filteredSubmitted" :key="item.id" class="sale-card">
             <div class="sale-card__main">
               <div class="sale-card__title">
                 <strong>#{{ item.id }} · {{ item.titularName || 'Sin titular' }}</strong>
@@ -378,6 +650,20 @@ async function removeDraft(id: number) {
               </span>
             </div>
             <div class="sale-card__actions">
+              <button
+                type="button"
+                class="icon-btn"
+                title="Archivos anexados"
+                aria-label="Archivos anexados"
+                @click="openAttachments(item)"
+              >
+                <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+                  <path
+                    fill="currentColor"
+                    d="M16.5 6.5v10.25a4.25 4.25 0 1 1-8.5 0V5.75a2.75 2.75 0 1 1 5.5 0v10.5a1.25 1.25 0 1 1-2.5 0V7.25h-1.5v9a2.75 2.75 0 1 0 5.5 0V5.75a4.25 4.25 0 1 0-8.5 0v11a5.75 5.75 0 1 0 11.5 0V6.5h-1.5z"
+                  />
+                </svg>
+              </button>
               <button
                 v-if="item.status === 'PENDING_PAYMENT'"
                 type="button"
@@ -428,6 +714,21 @@ async function removeDraft(id: number) {
       </div>
     </template>
 
+    <SaleAttachmentsModal
+      :open="attachmentsOpen"
+      :items="attachmentItems"
+      :loading="attachmentsLoading"
+      @close="attachmentsOpen = false"
+      @select="onSelectAttachment"
+    />
+
+    <SaleFilePreviewModal
+      :open="filePreviewOpen"
+      :title="filePreviewTitle"
+      :attachment="filePreviewAttachment"
+      @close="filePreviewOpen = false"
+    />
+
     <SalePdfPreviewModal
       :open="previewOpen"
       :form="previewForm"
@@ -471,6 +772,103 @@ async function removeDraft(id: number) {
 
 .head-row .btn {
   flex-shrink: 0;
+}
+
+.filters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  align-items: end;
+  margin-bottom: 0.85rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.field label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--vd-muted);
+}
+
+.field--wide {
+  grid-column: 1 / -1;
+}
+
+.field input[type='date'],
+.client-ac__row input {
+  min-height: 44px;
+  border: 1px solid var(--vd-line);
+  border-radius: 8px;
+  padding: 0.5rem 0.7rem;
+  font: inherit;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.client-ac {
+  position: relative;
+}
+
+.client-ac__row {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.client-ac__row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.client-ac__list {
+  list-style: none;
+  margin: 0.3rem 0 0;
+  padding: 0.25rem;
+  border: 1px solid var(--vd-line);
+  border-radius: 8px;
+  max-height: 220px;
+  overflow: auto;
+  background: #fff;
+  position: absolute;
+  z-index: 20;
+  left: 0;
+  right: 0;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+}
+
+.client-ac__item {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 0.55rem 0.65rem;
+  border-radius: 6px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.client-ac__item:hover,
+.client-ac__item.active {
+  background: #f0f5f8;
+  color: var(--gsm-blue);
+}
+
+.client-ac__empty {
+  margin: 0.3rem 0 0;
+  font-size: 0.82rem;
+  color: var(--vd-muted);
+}
+
+.filter-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
 .loading {

@@ -1,0 +1,195 @@
+================================================================================
+Venta Digital — Guía de APIs
+================================================================================
+Base URL:  http://localhost:3022/api
+Auth:      Header Authorization: Bearer <accessToken>
+Roles:     VENDEDOR | MONITOR | ADMIN
+
+Estados de venta:
+  DRAFT → PENDING_PAYMENT → PENDING_SIGNATURE → COMPLETED
+
+
+--------------------------------------------------------------------------------
+1. AUTENTICACIÓN  (/api/auth)
+--------------------------------------------------------------------------------
+Públicas (sin token):
+
+  POST /auth/vendedor/solicitar-pin
+      Body: { cellphone }
+      Envía PIN por WhatsApp al vendedor.
+
+  POST /auth/vendedor/verificar-pin
+      Body: { nipId, nip, cellphone }
+      Devuelve accessToken (vence al fin del día). Sin refresh.
+
+  POST /auth/monitor/login
+      Body: { username, password }
+      Login MONITOR/ADMIN. Devuelve accessToken + refreshToken.
+
+  POST /auth/refresh
+      Body: { refreshToken }
+      Renueva sesión (solo monitor/admin).
+
+  POST /auth/logout
+      Body: { refreshToken? }
+      Cierra sesión / revoca refresh.
+
+Con token:
+
+  GET  /auth/me
+      Usuario de la sesión actual.
+
+
+--------------------------------------------------------------------------------
+2. VENTAS — VENDEDOR  (/api/sales)
+--------------------------------------------------------------------------------
+Requieren JWT + rol VENDEDOR.
+
+  GET    /sales/mias
+      Lista mis ventas (borradores + pipeline).
+
+  GET    /sales/referencias
+      Ventas previas para reutilizar datos (titular, etc.).
+
+  GET    /sales/:id
+      Detalle de una venta propia.
+
+  POST   /sales/drafts
+      Crear borrador.
+      Body: { payload, titularName? }
+
+  PATCH  /sales/:id/draft
+      Actualizar borrador.
+
+  POST   /sales/finalize
+      Finalizar captura nueva → PENDING_PAYMENT.
+      Body: { payload, titularName? }
+
+  POST   /sales/:id/finalize
+      Finalizar captura desde borrador → PENDING_PAYMENT.
+
+  PATCH  /sales/:id/payment
+      Registrar pago → PENDING_SIGNATURE.
+      Body: { pago: { ... }, ticketPdf? }
+      Genera y anexa ticket de pago PDF a la venta.
+
+  POST   /sales/:id/sign
+      Firmar venta → COMPLETED + subida a Drive.
+      Body: { firmaCliente, caratulaPdf? }
+
+  DELETE /sales/:id
+      Eliminar borrador (solo DRAFT).
+
+Compat (mismo efecto que finalize):
+  POST /sales/submit
+  POST /sales/:id/submit
+
+
+--------------------------------------------------------------------------------
+3. VENTAS — MONITOR / ADMIN  (/api/sales)
+--------------------------------------------------------------------------------
+Requieren JWT + rol MONITOR o ADMIN (+ permiso ventas.ver en listado).
+
+  GET /sales/todas
+      Listado global de ventas.
+
+  GET /sales/:id
+      Detalle de cualquier venta.
+
+
+--------------------------------------------------------------------------------
+4. USUARIOS — ADMIN  (/api/users)
+--------------------------------------------------------------------------------
+Requieren JWT + rol ADMIN + permiso usuarios.gestionar.
+
+  GET    /users
+      Listado (query opcional: ?type=VENDEDOR|MONITOR|ADMIN).
+
+  GET    /users/:id
+      Detalle de usuario.
+
+  GET    /users/permissions/catalog
+      Catálogo de permisos.
+
+  POST   /users
+      Crear usuario.
+
+  PATCH  /users/:id
+      Actualizar usuario.
+
+  PATCH  /users/:id/active
+      Activar / desactivar.
+      Body: { active: true|false }
+
+
+--------------------------------------------------------------------------------
+5. ODOO / PLANES  (/api/odoo) — vía api-odoo-gsm
+--------------------------------------------------------------------------------
+  GET /odoo/planes?planKind=PARQUE|PLAN_FUTURO&q=texto
+      Proxy a GET /productos/planes de api-odoo-gsm
+      PARQUE → companyId 1 · PLAN_FUTURO → companyId 2
+      Filtro: is_plan_product + autocomplete por name
+      Devuelve: id, name, listPrice, …
+
+
+--------------------------------------------------------------------------------
+6. CONFIGURACIÓN — ADMIN  (/api/settings)
+--------------------------------------------------------------------------------
+  GET  /settings/drafts
+      Cualquier sesión (vendedor/monitor/admin).
+      Respuesta: { draftLimit, draftTtlHours }
+
+  GET  /settings
+      Solo ADMIN. Configuración completa.
+
+  PATCH /settings
+      Solo ADMIN.
+      Body: { draftLimit, draftTtlHours }  (horas)
+
+
+--------------------------------------------------------------------------------
+7. BITÁCORA — ADMIN  (/api/audit-logs)
+--------------------------------------------------------------------------------
+Requieren JWT + rol ADMIN.
+
+  GET /audit-logs
+      Listado de eventos (filtros por query).
+
+
+--------------------------------------------------------------------------------
+8. GOOGLE DRIVE — OAuth (sin JWT)  (/api/drive)
+--------------------------------------------------------------------------------
+Para autorizar la cuenta de Drive del servidor (operación de setup).
+
+  GET /drive/oauth/status
+      Estado: enabled, mode, needsConsent.
+
+  GET /drive/oauth/start
+      Redirige a Google para consentimiento.
+
+  GET /drive/oauth/callback
+      Callback de Google (guarda refresh token).
+
+Nota: la subida de archivos de venta ocurre dentro de POST /sales/:id/sign
+(no hay endpoint aparte de upload).
+
+
+--------------------------------------------------------------------------------
+9. FLUJO TÍPICO VENDEDOR
+--------------------------------------------------------------------------------
+  1. solicitar-pin → verificar-pin
+  2. POST /sales/drafts  (opcional, guardar avance)
+  3. POST /sales/:id/finalize  (o /sales/finalize)
+  4. PATCH /sales/:id/payment
+  5. POST /sales/:id/sign  → Drive + COMPLETED
+
+
+--------------------------------------------------------------------------------
+10. NOTAS
+--------------------------------------------------------------------------------
+- Folio de solicitud = id de la venta.
+- Documentos: base64 en BD hasta firma; luego Drive y se limpia base64.
+- Ruta Drive: AÑO/MES/FOLIO-nombrecliente (mes ej. 01-enero)
+- Archivos: FOLIO-INE, FOLIO-Comprobante, FOLIO-Ticket, FOLIO-Firma, FOLIO-Caratula
+- En venta firmada se guardan: driveFolderId, driveFolderUrl, driveFolderPath
+================================================================================

@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { reactive, ref, watch } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 import VdModal from '../../../shared/ui/modal/VdModal.vue';
+import {
+  BANK_OPTIONS,
+  BANK_OTHER,
+  isOtherBank,
+} from '../constants/mexican-banks';
 import { createPrefillPago, type SaleFormData } from '../types/sale-form';
-
-type PaymentTab = 'plan' | 'pago';
 
 const props = defineProps<{
   open: boolean;
@@ -16,22 +19,100 @@ const emit = defineEmits<{
   save: [pago: SaleFormData['pago']];
 }>();
 
-const tab = ref<PaymentTab>('plan');
 const pago = reactive({ ...props.form.pago });
+const bancoChoice = ref('');
+const bancoOtro = ref('');
+
+const showBancoOtro = computed(() => isOtherBank(bancoChoice.value));
+
+function formatMoneyLabel(raw: string) {
+  const n = Number(String(raw).replace(/[^0-9.-]/g, ''));
+  if (!Number.isFinite(n) || !String(raw).trim()) return '—';
+  return n.toLocaleString('es-MX', {
+    style: 'currency',
+    currency: 'MXN',
+    minimumFractionDigits: 2,
+  });
+}
+
+const anticipoLabel = computed(() =>
+  formatMoneyLabel(props.form.pago.anticipo || pago.anticipo),
+);
 
 watch(
   () => props.open,
   (open) => {
-    if (open) {
-      const src = props.form.pago;
-      Object.assign(
-        pago,
-        src.precioPlan?.trim() ? src : { ...src, ...createPrefillPago() },
-      );
-      tab.value = 'plan';
+    if (!open) return;
+    const src = props.form.pago;
+    const merged = src.precioPlan?.trim()
+      ? { ...src }
+      : { ...src, ...createPrefillPago(), ...src };
+    Object.assign(pago, merged, {
+      precioPlan: props.form.ubicacionPlan.precioPlan || merged.precioPlan,
+      anticipo: props.form.pago.anticipo || merged.anticipo,
+      pagoInicial: props.form.pago.pagoInicial || merged.pagoInicial,
+      importeCadaPago: props.form.pago.importeCadaPago || merged.importeCadaPago,
+      saldo: props.form.pago.saldo || merged.saldo,
+      frecuencia: props.form.pago.frecuencia || merged.frecuencia,
+      plazo: props.form.pago.plazo || merged.plazo,
+      promocionDescuento:
+        props.form.pago.promocionDescuento || merged.promocionDescuento,
+      fechaProximoPago:
+        props.form.pago.fechaProximoPago || merged.fechaProximoPago,
+      diasEspecificosPago:
+        props.form.pago.diasEspecificosPago || merged.diasEspecificosPago,
+    });
+
+    const bank = (pago.banco || '').trim();
+    if (!bank) {
+      bancoChoice.value = '';
+      bancoOtro.value = '';
+    } else if ((BANK_OPTIONS as readonly string[]).includes(bank)) {
+      bancoChoice.value = bank;
+      bancoOtro.value = '';
+    } else {
+      bancoChoice.value = BANK_OTHER;
+      bancoOtro.value = bank;
     }
   },
 );
+
+function resolveBanco() {
+  if (isOtherBank(bancoChoice.value)) return bancoOtro.value.trim();
+  return bancoChoice.value.trim();
+}
+
+function onSave() {
+  const fromPlan = props.form.pago;
+  emit('save', {
+    ...pago,
+    precioPlan:
+      props.form.ubicacionPlan.precioPlan ||
+      fromPlan.precioPlan ||
+      pago.precioPlan,
+    anticipo: fromPlan.anticipo || pago.anticipo,
+    pagoInicial: fromPlan.pagoInicial || pago.pagoInicial,
+    importeCadaPago: fromPlan.importeCadaPago || pago.importeCadaPago,
+    saldo: fromPlan.saldo || pago.saldo,
+    frecuencia: fromPlan.frecuencia || pago.frecuencia,
+    plazo: fromPlan.plazo || pago.plazo,
+    promocionDescuento: fromPlan.promocionDescuento || pago.promocionDescuento,
+    fechaProximoPago: fromPlan.fechaProximoPago || pago.fechaProximoPago,
+    diasEspecificosPago:
+      fromPlan.diasEspecificosPago || pago.diasEspecificosPago,
+    banco: resolveBanco(),
+  });
+}
+
+const canSave = computed(() => {
+  const precio =
+    props.form.ubicacionPlan.precioPlan ||
+    props.form.pago.precioPlan ||
+    pago.precioPlan;
+  if (!String(precio || '').trim()) return false;
+  if (isOtherBank(bancoChoice.value) && !bancoOtro.value.trim()) return false;
+  return true;
+});
 </script>
 
 <template>
@@ -43,74 +124,17 @@ watch(
     @close="emit('close')"
   >
     <div class="payment-form">
-      <div class="tabs" role="tablist" aria-label="Secciones de pago">
-        <button
-          type="button"
-          class="tab"
-          :class="{ active: tab === 'plan' }"
-          @click="tab = 'plan'"
-        >
-          Datos del plan
-        </button>
-        <button
-          type="button"
-          class="tab"
-          :class="{ active: tab === 'pago' }"
-          @click="tab = 'pago'"
-        >
-          Datos del pago
-        </button>
+      <p class="hint">
+        Plan y financiamiento se capturan en la venta. Aquí solo registras la
+        forma de pago.
+      </p>
+
+      <div class="amount-label">
+        <span>Anticipo</span>
+        <strong>{{ anticipoLabel }}</strong>
       </div>
 
-      <div v-show="tab === 'plan'" class="fields">
-        <label class="span-2">
-          Precio del plan
-          <input v-model="pago.precioPlan" inputmode="decimal" />
-        </label>
-        <label>
-          Frecuencia
-          <select v-model="pago.frecuencia">
-            <option value="">—</option>
-            <option>SEMANAL</option>
-            <option>QUINCENAL</option>
-            <option>MENSUAL</option>
-          </select>
-        </label>
-        <label>
-          Plazo
-          <input v-model="pago.plazo" />
-        </label>
-        <label class="span-2">
-          Promoción / descuento
-          <input v-model="pago.promocionDescuento" />
-        </label>
-        <label>
-          Próximo pago
-          <input v-model="pago.fechaProximoPago" type="date" />
-        </label>
-        <label>
-          Días específicos
-          <input v-model="pago.diasEspecificosPago" />
-        </label>
-      </div>
-
-      <div v-show="tab === 'pago'" class="fields">
-        <label>
-          Anticipo
-          <input v-model="pago.anticipo" inputmode="decimal" />
-        </label>
-        <label>
-          Pago inicial
-          <input v-model="pago.pagoInicial" inputmode="decimal" />
-        </label>
-        <label>
-          Importe de cada pago
-          <input v-model="pago.importeCadaPago" inputmode="decimal" />
-        </label>
-        <label>
-          Saldo
-          <input v-model="pago.saldo" inputmode="decimal" />
-        </label>
+      <div class="fields">
         <label class="span-2">
           Forma de pago
           <select v-model="pago.formaPago">
@@ -126,7 +150,20 @@ watch(
         </label>
         <label>
           Banco
-          <input v-model="pago.banco" />
+          <select v-model="bancoChoice">
+            <option value="">—</option>
+            <option v-for="b in BANK_OPTIONS" :key="b" :value="b">
+              {{ b }}
+            </option>
+          </select>
+        </label>
+        <label v-if="showBancoOtro" class="span-2">
+          Nombre del banco
+          <input
+            v-model="bancoOtro"
+            placeholder="Escribe el banco"
+            autocomplete="organization"
+          />
         </label>
         <label class="span-2">
           Jefe de ventas
@@ -147,8 +184,8 @@ watch(
       <button
         type="button"
         class="btn btn-primary"
-        :disabled="saving || !pago.precioPlan.trim()"
-        @click="emit('save', { ...pago })"
+        :disabled="saving || !canSave"
+        @click="onSave"
       >
         {{ saving ? 'Guardando…' : 'Guardar pago' }}
       </button>
@@ -163,28 +200,32 @@ watch(
   gap: 0.85rem;
 }
 
-.tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-}
-
-.tab {
-  border: 1px solid var(--vd-line);
-  background: var(--vd-surface, #fff);
+.hint {
+  margin: 0;
   color: var(--vd-muted);
-  border-radius: 10px;
-  padding: 0.45rem 0.85rem;
-  font-size: 0.84rem;
-  font-weight: 600;
-  min-height: 40px;
-  cursor: pointer;
+  font-size: 0.88rem;
+  line-height: 1.4;
 }
 
-.tab.active {
-  background: var(--gsm-blue);
-  border-color: var(--gsm-blue);
-  color: #fff;
+.amount-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--vd-line);
+  border-radius: 10px;
+  background: #f7f9fb;
+}
+
+.amount-label > span {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--gsm-blue);
+}
+
+.amount-label > strong {
+  font-size: 1.2rem;
+  color: var(--vd-ink, #1a2430);
 }
 
 .fields {

@@ -16,6 +16,10 @@ function isPublicAuthRequest(url?: string): boolean {
   return PUBLIC_AUTH_PATHS.some((path) => url.includes(path));
 }
 
+function isLoginRoute(path: string): boolean {
+  return path === '/' || path.startsWith('/login');
+}
+
 export function extractApiError(
   error: unknown,
   fallback = 'Ocurrió un error',
@@ -75,6 +79,50 @@ http.interceptors.request.use((config: InternalAxiosRequestConfig) => {
 });
 
 let refreshing: Promise<string | null> | null = null;
+let sessionExpiredHandling = false;
+
+/** Cierra sesión local y manda al login (vendedor / monitor / home). */
+export async function redirectToLoginOnSessionExpired() {
+  if (sessionExpiredHandling) return;
+  const path = window.location.pathname;
+  if (isLoginRoute(path)) {
+    tokenStorage.clear();
+    return;
+  }
+
+  sessionExpiredHandling = true;
+
+  let userType: string | null = null;
+  try {
+    const raw = localStorage.getItem('vd_user');
+    if (raw) userType = (JSON.parse(raw) as { type?: string }).type ?? null;
+  } catch {
+    /* ignore */
+  }
+
+  try {
+    const { useAuthStore } = await import('../../modules/auth/stores/auth.store');
+    useAuthStore().clearSession();
+  } catch {
+    tokenStorage.clear();
+  }
+
+  try {
+    const { default: router } = await import('../../router');
+    const name =
+      userType === 'VENDEDOR' || path.startsWith('/vendedor')
+        ? 'login-vendedor'
+        : userType === 'MONITOR' ||
+            userType === 'ADMIN' ||
+            path.startsWith('/monitor') ||
+            path.startsWith('/admin')
+          ? 'login-monitor'
+          : 'home';
+    await router.replace({ name, query: { sesion: 'expirada' } });
+  } finally {
+    sessionExpiredHandling = false;
+  }
+}
 
 async function refreshAccessToken(): Promise<string | null> {
   const refreshToken = tokenStorage.getRefresh();
@@ -89,9 +137,16 @@ async function refreshAccessToken(): Promise<string | null> {
     tokenStorage.setTokens(data.accessToken, data.refreshToken);
     localStorage.setItem('vd_user', JSON.stringify(data.user));
     localStorage.setItem('vd_expires_at', data.expiresAt);
+    try {
+      const { useAuthStore } = await import('../../modules/auth/stores/auth.store');
+      const auth = useAuthStore();
+      auth.user = data.user;
+      auth.expiresAt = data.expiresAt;
+    } catch {
+      /* store aún no montado */
+    }
     return data.accessToken as string;
   } catch {
-    tokenStorage.clear();
     return null;
   }
 }
@@ -119,6 +174,9 @@ http.interceptors.response.use(
         original.headers.Authorization = `Bearer ${newToken}`;
         return http(original);
       }
+
+      // Sin refresh (vendedor) o refresh vencido → login
+      await redirectToLoginOnSessionExpired();
     }
 
     return Promise.reject(error);

@@ -5,10 +5,22 @@ import vue from '@vitejs/plugin-vue'
 export default defineConfig({
   plugins: [vue()],
   server: {
+    // 0.0.0.0: accesible desde celulares en la misma red Wi‑Fi
+    host: true,
     port: 5173,
     open: true,
     proxy: {
-      // 127.0.0.1 evita fallos de IPv6 (::1) con localhost en Windows
+      // El teléfono pega al front; Vite reenvía /api al backend local
+      '/api': {
+        target: 'http://127.0.0.1:3022',
+        changeOrigin: true,
+      },
+    },
+  },
+  preview: {
+    host: true,
+    port: 4173,
+    proxy: {
       '/api': {
         target: 'http://127.0.0.1:3022',
         changeOrigin: true,
