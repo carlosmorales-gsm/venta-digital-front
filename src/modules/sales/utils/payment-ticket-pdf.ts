@@ -1,7 +1,7 @@
 import { jsPDF } from 'jspdf';
 import { fullName, type SaleFormData } from '../types/sale-form';
+import { paymentDueAmount, parseMoney } from './sale-finance';
 
-/** Ancho tipo ticket térmico ~80 mm */
 const PAGE_W = 226;
 const PAGE_H = 460;
 const M = 14;
@@ -170,15 +170,19 @@ export async function buildPaymentTicketPdf(
   dashLine(doc, y);
   y += 14;
 
+  const due = paymentDueAmount(p);
+  const dueLabel =
+    due > 0 && parseMoney(p.pagoInicial) > 0 ? 'PAGO INICIAL' : 'ANTICIPO';
+
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
   doc.setTextColor(...MUTED);
-  doc.text('ANTICIPO', PAGE_W / 2, y, { align: 'center' });
+  doc.text(dueLabel, PAGE_W / 2, y, { align: 'center' });
   y += 16;
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(16);
   doc.setTextColor(...INK);
-  doc.text(money(p.anticipo), PAGE_W / 2, y, { align: 'center' });
+  doc.text(money(String(due)), PAGE_W / 2, y, { align: 'center' });
   y += 14;
   dashLine(doc, y);
   y += 14;

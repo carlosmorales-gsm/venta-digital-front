@@ -1,3 +1,19 @@
+/** Texto normalizado de un campo monetario (input number o text). */
+export function moneyInputText(raw: unknown): string {
+  if (raw == null) return '';
+  return String(raw).trim();
+}
+
+/** Importe a cobrar al registrar pago: pago inicial si existe, si no anticipo. */
+export function paymentDueAmount(pago: {
+  pagoInicial?: string | number | null;
+  anticipo?: string | number | null;
+}): number {
+  const inicial = parseMoney(pago.pagoInicial);
+  if (inicial > 0) return inicial;
+  return parseMoney(pago.anticipo);
+}
+
 /** Parsea montos/porcentajes desde texto de captura. */
 export function parseMoney(raw: string | number | null | undefined): number {
   const n = Number(

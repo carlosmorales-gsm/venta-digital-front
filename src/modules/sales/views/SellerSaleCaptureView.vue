@@ -13,7 +13,7 @@ import SaleLocationSearchModal, {
 } from '../components/SaleLocationSearchModal.vue';
 import { SALE_ORIGIN_OPTIONS } from '../constants/sale-origins';
 import {
-  createPrefillSaleForm,
+  createEmptySaleForm,
   emptyBeneficiary,
   mergeSaleForm,
   syncBeneficiariosToDerechos,
@@ -50,7 +50,7 @@ const route = useRoute();
 const router = useRouter();
 const { alert, confirm } = useDialog();
 
-const form = reactive<SaleFormData>(createPrefillSaleForm());
+const form = reactive<SaleFormData>(createEmptySaleForm());
 const step = ref(0);
 const saleId = ref<number | null>(null);
 const status = ref<SaleStatus | 'NEW'>('NEW');

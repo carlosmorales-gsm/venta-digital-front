@@ -7,6 +7,7 @@ Roles:     VENDEDOR | MONITOR | ADMIN
 
 Estados de venta:
   DRAFT → PENDING_PAYMENT → PENDING_SIGNATURE → COMPLETED
+  (Odoo puede rechazar → REJECTED si no hay cotización vinculada)
 
 
 --------------------------------------------------------------------------------

@@ -3,6 +3,7 @@ export type SaleStatus =
   | 'PENDING_PAYMENT'
   | 'PENDING_SIGNATURE'
   | 'COMPLETED'
+  | 'REJECTED'
   | 'SUBMITTED'; // compat
 
 export type PlanKind = 'PARQUE' | 'PLAN_FUTURO';

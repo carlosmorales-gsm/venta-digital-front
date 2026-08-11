@@ -7,7 +7,7 @@ import {
   isOtherBank,
 } from '../constants/mexican-banks';
 import { createPrefillPago, type SaleFormData } from '../types/sale-form';
-import { parseMoney } from '../utils/sale-finance';
+import { moneyInputText, parseMoney, paymentDueAmount } from '../utils/sale-finance';
 
 const props = defineProps<{
   open: boolean;
@@ -38,16 +38,6 @@ const showBankFields = computed(
 const showCashFields = computed(() => isEfectivo.value);
 const requiresCuenta = computed(() => formaPagoNorm.value === 'TRANSFERENCIA');
 
-function formatMoneyLabel(raw: string) {
-  const n = Number(String(raw).replace(/[^0-9.-]/g, ''));
-  if (!Number.isFinite(n) || !String(raw).trim()) return '—';
-  return n.toLocaleString('es-MX', {
-    style: 'currency',
-    currency: 'MXN',
-    minimumFractionDigits: 2,
-  });
-}
-
 function formatMoneyNumber(n: number) {
   return n.toLocaleString('es-MX', {
     style: 'currency',
@@ -56,35 +46,46 @@ function formatMoneyNumber(n: number) {
   });
 }
 
-const anticipoDue = computed(() =>
-  parseMoney(props.form.pago.anticipo || pago.anticipo),
+const amountDue = computed(() =>
+  paymentDueAmount({
+    pagoInicial: props.form.pago.pagoInicial || pago.pagoInicial,
+    anticipo: props.form.pago.anticipo || pago.anticipo,
+  }),
 );
 
-const anticipoLabel = computed(() =>
-  formatMoneyLabel(props.form.pago.anticipo || pago.anticipo),
-);
+const amountDueLabel = computed(() => formatMoneyNumber(amountDue.value));
+
+const amountDueCaption = computed(() => {
+  const inicial = parseMoney(props.form.pago.pagoInicial || pago.pagoInicial);
+  const anticipo = parseMoney(props.form.pago.anticipo || pago.anticipo);
+  if (inicial > 0 && anticipo > 0 && inicial !== anticipo) {
+    return `Pago inicial (anticipo en contrato: ${formatMoneyNumber(anticipo)})`;
+  }
+  if (inicial > 0) return 'Pago inicial';
+  return 'Anticipo';
+});
 
 const cambioAmount = computed(() => {
   if (!showCashFields.value) return 0;
-  const received = parseMoney(pago.montoRecibido);
+  const received = parseMoney(moneyInputText(pago.montoRecibido));
   if (!received) return 0;
-  return Math.max(0, received - anticipoDue.value);
+  return Math.max(0, received - amountDue.value);
 });
 
 const cambioLabel = computed(() => {
   if (!showCashFields.value) return '—';
-  const received = parseMoney(pago.montoRecibido);
+  const received = parseMoney(moneyInputText(pago.montoRecibido));
   if (!received) return '—';
-  if (received < anticipoDue.value) {
-    return `Faltan ${formatMoneyNumber(anticipoDue.value - received)}`;
+  if (received + 0.001 < amountDue.value) {
+    return `Faltan ${formatMoneyNumber(amountDue.value - received)}`;
   }
   return formatMoneyNumber(cambioAmount.value);
 });
 
 const cambioInsufficient = computed(() => {
   if (!showCashFields.value) return false;
-  const received = parseMoney(pago.montoRecibido);
-  return received > 0 && received < anticipoDue.value;
+  const received = parseMoney(moneyInputText(pago.montoRecibido));
+  return received > 0 && received + 0.001 < amountDue.value;
 });
 
 watch(
@@ -133,6 +134,7 @@ watch(
     const forma = String(method || '').trim().toUpperCase();
     if (forma === 'EFECTIVO') {
       pago.cuenta = '';
+      pago.banco = '';
       bancoChoice.value = '';
       bancoOtro.value = '';
       return;
@@ -151,14 +153,17 @@ function resolveBanco() {
 }
 
 function resolveCambio() {
-  const received = parseMoney(pago.montoRecibido);
-  const change = received - anticipoDue.value;
+  const received = parseMoney(moneyInputText(pago.montoRecibido));
+  const change = received - amountDue.value;
   if (!Number.isFinite(change) || change <= 0) return '0';
   return String(Number(change.toFixed(2)));
 }
 
 function onSave() {
+  if (saveBlockReason.value) return;
+
   const fromPlan = props.form.pago;
+  const montoRecibido = moneyInputText(pago.montoRecibido);
   emit('save', {
     ...pago,
     precioPlan:
@@ -177,36 +182,53 @@ function onSave() {
       fromPlan.diasEspecificosPago || pago.diasEspecificosPago,
     cuenta: isEfectivo.value ? '' : requiresCuenta.value ? pago.cuenta.trim() : '',
     banco: isEfectivo.value ? '' : resolveBanco(),
-    montoRecibido: isEfectivo.value ? pago.montoRecibido.trim() : '',
+    montoRecibido: isEfectivo.value ? montoRecibido : '',
     cambio: isEfectivo.value ? resolveCambio() : '',
   });
 }
 
-const canSave = computed(() => {
+const canSave = computed(() => saveBlockReason.value === null);
+
+const saveBlockReason = computed((): string | null => {
+  if (!props.open) return 'Completa los datos de pago.';
+
   const precio =
     props.form.ubicacionPlan.precioPlan ||
     props.form.pago.precioPlan ||
     pago.precioPlan;
-  if (!String(precio || '').trim()) return false;
+  if (!String(precio || '').trim()) {
+    return 'La venta no tiene precio de plan; revisa la captura.';
+  }
 
   const forma = formaPagoNorm.value;
-  if (!forma) return false;
-  if (anticipoDue.value <= 0) return false;
+  if (!forma) return 'Selecciona la forma de pago.';
+
+  if (amountDue.value <= 0) {
+    return 'Captura pago inicial o anticipo en la venta antes de registrar el pago.';
+  }
 
   if (forma === 'EFECTIVO') {
-    const received = parseMoney(pago.montoRecibido);
-    return received >= anticipoDue.value;
+    const received = parseMoney(moneyInputText(pago.montoRecibido));
+    if (!received) return 'Indica el efectivo recibido.';
+    if (received + 0.001 < amountDue.value) {
+      return `El efectivo debe cubrir al menos ${amountDueLabel.value}.`;
+    }
+    return null;
   }
 
   if (forma === 'TRANSFERENCIA' || forma === 'CHEQUE') {
     const banco = resolveBanco();
-    if (!banco) return false;
-    if (isOtherBank(bancoChoice.value) && !bancoOtro.value.trim()) return false;
-    if (requiresCuenta.value && !pago.cuenta.trim()) return false;
-    return true;
+    if (!banco) return 'Selecciona el banco.';
+    if (isOtherBank(bancoChoice.value) && !bancoOtro.value.trim()) {
+      return 'Escribe el nombre del banco.';
+    }
+    if (requiresCuenta.value && !pago.cuenta.trim()) {
+      return 'Indica la cuenta de transferencia.';
+    }
+    return null;
   }
 
-  return false;
+  return 'Forma de pago no válida.';
 });
 </script>
 
@@ -225,9 +247,13 @@ const canSave = computed(() => {
       </p>
 
       <div class="amount-label">
-        <span>Importe a pagar (anticipo)</span>
-        <strong>{{ anticipoLabel }}</strong>
+        <span>{{ amountDueCaption }}</span>
+        <strong>{{ amountDueLabel }}</strong>
       </div>
+
+      <p v-if="!canSave" class="validation-hint">
+        {{ saveBlockReason }}
+      </p>
 
       <div class="fields">
         <label class="span-2">
@@ -246,10 +272,8 @@ const canSave = computed(() => {
             <input
               v-model="pago.montoRecibido"
               inputmode="decimal"
-              type="number"
-              min="0"
-              step="0.01"
               placeholder="0.00"
+              autocomplete="off"
             />
           </label>
           <div class="cash-change">
@@ -300,7 +324,7 @@ const canSave = computed(() => {
       <button
         type="button"
         class="btn btn-primary"
-        :disabled="saving || !canSave"
+        :disabled="saving"
         @click="onSave"
       >
         {{ saving ? 'Guardando…' : 'Guardar pago' }}
@@ -321,6 +345,16 @@ const canSave = computed(() => {
   color: var(--vd-muted);
   font-size: 0.88rem;
   line-height: 1.4;
+}
+
+.validation-hint {
+  margin: 0;
+  padding: 0.55rem 0.7rem;
+  border-radius: 8px;
+  background: rgba(196, 40, 28, 0.08);
+  color: #a82218;
+  font-size: 0.84rem;
+  line-height: 1.35;
 }
 
 .amount-label {
