@@ -1,10 +1,16 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { extractApiError, http } from '../../../shared/api/http';
 import { useDialog } from '../../../shared/ui/dialog';
 import VdModal from '../../../shared/ui/modal/VdModal.vue';
 import SalePdfPreviewModal from '../components/SalePdfPreviewModal.vue';
+import SalePlanSearchModal, {
+  type PlanProduct,
+} from '../components/SalePlanSearchModal.vue';
+import SaleLocationSearchModal, {
+  type ParkLocationSelection,
+} from '../components/SaleLocationSearchModal.vue';
 import { SALE_ORIGIN_OPTIONS } from '../constants/sale-origins';
 import {
   createPrefillSaleForm,
@@ -18,7 +24,14 @@ import {
   type SaleStatus,
 } from '../types/sale-form';
 import { isValidCurp } from '../utils/curp';
+import { pickRandomDevSaleMock } from '../utils/dev-sale-mocks';
+import { computeSaldo, parseDiscountPct, parseMoney } from '../utils/sale-finance';
 import { fileToAttachment } from '../utils/file-to-attachment';
+import { useAuthStore } from '../../auth/stores/auth.store';
+
+const isDev = import.meta.env.DEV;
+const auth = useAuthStore();
+const sellerAsesorName = computed(() => auth.user?.fullName?.trim() || '');
 
 const STEPS = [
   { key: 'meta', title: 'Contrato', short: 'Contrato' },
@@ -31,6 +44,7 @@ const STEPS = [
 
 type StepKey = (typeof STEPS)[number]['key'];
 type InnerTab = 'personales' | 'domicilio';
+type PlanInnerTab = 'plan' | 'financiamiento';
 
 const route = useRoute();
 const router = useRouter();
@@ -45,6 +59,15 @@ const submitting = ref(false);
 const loading = ref(false);
 const previewOpen = ref(false);
 const reuseOpen = ref(false);
+const devPrefillOpen = ref(false);
+const devPrefillSteps = reactive({
+  meta: true,
+  titular: true,
+  beneficiarios: true,
+  segundo: true,
+  plan: true,
+  docs: true,
+});
 const references = ref<SaleListItem[]>([]);
 const reuseGroups = reactive<Record<ReuseGroup, boolean>>({
   contacto: true,
@@ -52,9 +75,15 @@ const reuseGroups = reactive<Record<ReuseGroup, boolean>>({
   beneficiarios: true,
 });
 const selectedRefId = ref<number | null>(null);
+const draftLimit = ref(3);
+const draftTtlHours = ref(24);
+const allowedDiscountMax = ref(0);
+const maxDiscountAmount = ref(0);
+const descuentoEspecial = ref(0);
 
 const titularInnerTab = ref<InnerTab>('personales');
 const segundoInnerTab = ref<InnerTab>('personales');
+const planInnerTab = ref<PlanInnerTab>('plan');
 const formOpen = ref(false);
 
 const stepTitle = computed(() => STEPS[step.value]?.title ?? '');
@@ -64,6 +93,120 @@ const canEdit = computed(
 const isParque = computed(
   () => form.ubicacionPlan.planKind === 'PARQUE',
 );
+const isPlanFuturo = computed(
+  () => form.ubicacionPlan.planKind === 'PLAN_FUTURO',
+);
+
+const planSearchOpen = ref(false);
+const locationSearchOpen = ref(false);
+
+function clearParkLocation() {
+  const plan = form.ubicacionPlan;
+  plan.parqueFuneral = '';
+  plan.seccion = '';
+  plan.cuadrante = '';
+  plan.numero = '';
+  plan.parkId = null;
+  plan.sectionId = null;
+  plan.quadrantId = null;
+  plan.spaceId = null;
+}
+
+/** Al cambiar tipo de plan se limpia el plan Odoo y la ubicación. */
+function onPlanKindChange() {
+  const plan = form.ubicacionPlan;
+  plan.nombrePlan = '';
+  plan.productId = null;
+  plan.productDefaultCode = '';
+  plan.precioPlan = '';
+  if (plan.planKind !== 'PARQUE') {
+    plan.preasignacion = false;
+    clearParkLocation();
+  } else {
+    plan.servicioFunerario = '';
+  }
+}
+
+function onPreasignacionChange() {
+  if (!form.ubicacionPlan.preasignacion) clearParkLocation();
+}
+
+function onPlanSelected(plan: PlanProduct) {
+  const dest = form.ubicacionPlan;
+  dest.nombrePlan = plan.name;
+  dest.productId = plan.id;
+  dest.productDefaultCode = plan.defaultCode ?? '';
+  const price = plan.listPrice > 0 ? String(plan.listPrice) : '';
+  dest.precioPlan = price;
+  if (price) form.pago.precioPlan = price;
+  recomputeSaldo();
+  planSearchOpen.value = false;
+}
+
+function formatMoneyLabel(raw: string) {
+  const n = Number(String(raw).replace(/[^0-9.-]/g, ''));
+  if (!Number.isFinite(n) || !String(raw).trim()) return '—';
+  return n.toLocaleString('es-MX', {
+    style: 'currency',
+    currency: 'MXN',
+    minimumFractionDigits: 2,
+  });
+}
+
+function recomputeSaldo() {
+  const precio = form.ubicacionPlan.precioPlan || form.pago.precioPlan;
+  form.pago.saldo = computeSaldo(
+    precio,
+    form.pago.promocionDescuento,
+    form.pago.anticipo,
+  );
+}
+
+function clampDescuento() {
+  let pct = parseDiscountPct(form.pago.promocionDescuento);
+  if (pct < 0) pct = 0;
+  if (pct > 100) pct = 100;
+  if (allowedDiscountMax.value > 0 && pct > allowedDiscountMax.value) {
+    pct = Math.trunc(allowedDiscountMax.value);
+  }
+  form.pago.promocionDescuento = pct > 0 ? String(pct) : '';
+  recomputeSaldo();
+}
+
+function discountError(): string | null {
+  const pct = parseDiscountPct(form.pago.promocionDescuento);
+  if (pct < 0) return 'El descuento no puede ser negativo.';
+  if (pct > 100) return 'El descuento no puede ser mayor a 100%.';
+  if (pct > allowedDiscountMax.value + 0.001) {
+    return `El descuento no puede exceder ${allowedDiscountMax.value}%.`;
+  }
+  return null;
+}
+
+watch(
+  [
+    () => form.ubicacionPlan.precioPlan,
+    () => form.pago.precioPlan,
+    () => form.pago.promocionDescuento,
+    () => form.pago.anticipo,
+  ],
+  () => {
+    recomputeSaldo();
+  },
+);
+
+function onLocationSelected(loc: ParkLocationSelection) {
+  const dest = form.ubicacionPlan;
+  dest.parkId = loc.parkId;
+  dest.parqueFuneral = loc.parkName;
+  dest.sectionId = loc.sectionId;
+  dest.seccion = loc.sectionName;
+  dest.quadrantId = loc.quadrantId;
+  dest.cuadrante = loc.quadrantName;
+  dest.spaceId = loc.spaceId;
+  dest.numero = loc.spaceName;
+  locationSearchOpen.value = false;
+}
 
 function hasText(v?: string | null) {
   return Boolean(v && String(v).trim());
@@ -84,12 +227,23 @@ const stepComplete = computed<Record<StepKey, boolean>>(() => {
   const c = form.contacto;
   const sc = form.segundoContacto;
   const plan = form.ubicacionPlan;
+  const pago = form.pago;
   const parkOk =
     plan.planKind !== 'PARQUE' ||
-    (hasText(plan.parqueFuneral) &&
-      hasText(plan.seccion) &&
-      hasText(plan.cuadrante) &&
-      hasText(plan.numero));
+    !plan.preasignacion ||
+    Boolean(
+      plan.parkId &&
+        plan.sectionId &&
+        plan.quadrantId &&
+        plan.spaceId,
+    );
+  const precioOk = parseMoney(plan.precioPlan || pago.precioPlan) > 0;
+  const finOk =
+    hasText(pago.frecuencia) &&
+    hasText(pago.plazo) &&
+    hasText(pago.fechaProximoPago) &&
+    hasText(pago.anticipo);
+  const descOk = discountError() === null;
 
   return {
     meta: hasText(form.meta.fecha) && hasText(form.meta.origenVenta),
@@ -108,7 +262,13 @@ const stepComplete = computed<Record<StepKey, boolean>>(() => {
       hasText(sc.nombres) &&
       hasText(sc.apellidoPaterno) &&
       hasText(sc.celular),
-    plan: hasText(plan.nombrePlan) && hasText(plan.servicioFunerario) && parkOk,
+    plan:
+      Boolean(plan.productId) &&
+      parkOk &&
+      (plan.planKind !== 'PLAN_FUTURO' || hasText(plan.servicioFunerario)) &&
+      precioOk &&
+      finOk &&
+      descOk,
     docs:
       Boolean(form.documentos.ine) &&
       Boolean(form.documentos.comprobanteDomicilio) &&
@@ -155,6 +315,7 @@ function openStep(index: number) {
   step.value = index;
   if (index === 1) titularInnerTab.value = 'personales';
   if (index === 3) segundoInnerTab.value = 'personales';
+  if (index === 4) planInnerTab.value = 'plan';
   formOpen.value = true;
 }
 
@@ -162,7 +323,14 @@ function closeStepForm() {
   formOpen.value = false;
 }
 
+function syncNombreAsesor() {
+  if (sellerAsesorName.value) {
+    form.pago.nombreAsesor = sellerAsesorName.value;
+  }
+}
+
 function payloadMeta() {
+  syncNombreAsesor();
   // Mantener compat PDF local; el API solo acepta beneficiarios.
   syncBeneficiariosToDerechos(form);
   const { derechohabientes: _omit, ...payload } = form;
@@ -188,6 +356,37 @@ function validateCurpIfPresent(): string | null {
   return null;
 }
 
+async function loadDraftPolicy() {
+  try {
+    const { data } = await http.get<{
+      draftLimit: number;
+      draftTtlHours: number;
+      maxDiscountAmount?: number;
+      descuentoEspecial?: number;
+      allowedDiscountMax?: number;
+    }>('/settings/drafts');
+    draftLimit.value = data.draftLimit;
+    draftTtlHours.value = data.draftTtlHours;
+    maxDiscountAmount.value = Number(data.maxDiscountAmount) || 0;
+    descuentoEspecial.value = Number(data.descuentoEspecial) || 0;
+    allowedDiscountMax.value =
+      Number(data.allowedDiscountMax) ||
+      Math.max(maxDiscountAmount.value, descuentoEspecial.value);
+    applyDescuentoEspecialDefault();
+  } catch {
+    if (isDev) allowedDiscountMax.value = 100;
+  }
+}
+
+/** Si hay descuento especial activo, mostrarlo y prellenar si aún no hay % capturado. */
+function applyDescuentoEspecialDefault() {
+  if (descuentoEspecial.value <= 0 || !canEdit.value) return;
+  const current = parseDiscountPct(form.pago.promocionDescuento);
+  if (current > 0) return;
+  form.pago.promocionDescuento = String(Math.trunc(descuentoEspecial.value));
+  recomputeSaldo();
+}
+
 async function loadSale(id: number) {
   loading.value = true;
   try {
@@ -196,6 +395,9 @@ async function loadSale(id: number) {
     status.value = data.status;
     Object.assign(form, mergeSaleForm(data.payload));
     ensureBeneficiarios();
+    clampDescuento();
+    recomputeSaldo();
+    syncNombreAsesor();
   } catch (e: unknown) {
     await alert({
       title: 'Venta',
@@ -209,12 +411,14 @@ async function loadSale(id: number) {
 }
 
 onMounted(async () => {
+  void loadDraftPolicy();
   const idParam = route.params.id;
   if (idParam && idParam !== 'nueva') {
     await loadSale(Number(idParam));
   } else {
     ensureBeneficiarios();
   }
+  syncNombreAsesor();
 });
 
 function addBeneficiario() {
@@ -257,6 +461,19 @@ async function saveDraft() {
     return;
   }
 
+  recomputeSaldo();
+  const descErr = discountError();
+  if (descErr) {
+    await alert({
+      title: 'Descuento',
+      message: descErr,
+      variant: 'warning',
+    });
+    openStep(4);
+    planInnerTab.value = 'financiamiento';
+    return;
+  }
+
   saving.value = true;
   try {
     const body = payloadMeta();
@@ -278,7 +495,7 @@ async function saveDraft() {
     }
     await alert({
       title: 'Borrador',
-      message: 'Guardado. Caduca en 24 horas (máx. 3 borradores).',
+      message: `Guardado. Caduca en ${draftTtlHours.value} h (máx. ${draftLimit.value} borradores).`,
       variant: 'success',
     });
   } catch (e: unknown) {
@@ -315,6 +532,19 @@ async function finalizeSale() {
     });
     openStep(1);
     titularInnerTab.value = 'personales';
+    return;
+  }
+
+  recomputeSaldo();
+  const descErr = discountError();
+  if (descErr) {
+    await alert({
+      title: 'Descuento',
+      message: descErr,
+      variant: 'warning',
+    });
+    openStep(4);
+    planInnerTab.value = 'financiamiento';
     return;
   }
 
@@ -390,6 +620,66 @@ function applyReuse() {
   reuseOpen.value = false;
 }
 
+function openDevPrefill() {
+  if (!isDev || !canEdit.value) return;
+  devPrefillOpen.value = true;
+}
+
+function toggleAllDevPrefill(on: boolean) {
+  for (const key of Object.keys(devPrefillSteps) as Array<
+    keyof typeof devPrefillSteps
+  >) {
+    devPrefillSteps[key] = on;
+  }
+}
+
+async function applyDevPrefill() {
+  if (!isDev || !canEdit.value) return;
+  const selected = STEPS.filter((s) => devPrefillSteps[s.key]);
+  if (!selected.length) {
+    await alert({
+      title: 'Prellenar (dev)',
+      message: 'Marca al menos un paso para rellenar.',
+      variant: 'warning',
+    });
+    return;
+  }
+
+  const { label, form: mock } = pickRandomDevSaleMock();
+  if (devPrefillSteps.meta) Object.assign(form.meta, mock.meta);
+  if (devPrefillSteps.titular) Object.assign(form.contacto, mock.contacto);
+  if (devPrefillSteps.beneficiarios) {
+    form.beneficiarios.splice(
+      0,
+      form.beneficiarios.length,
+      ...mock.beneficiarios.map((b) => ({ ...emptyBeneficiary(), ...b })),
+    );
+    ensureBeneficiarios();
+    syncBeneficiariosToDerechos(form);
+  }
+  if (devPrefillSteps.segundo) {
+    Object.assign(form.segundoContacto, mock.segundoContacto);
+  }
+  if (devPrefillSteps.plan) {
+    Object.assign(form.ubicacionPlan, mock.ubicacionPlan);
+    Object.assign(form.pago, mock.pago);
+    clampDescuento();
+    recomputeSaldo();
+  }
+  if (devPrefillSteps.docs) {
+    form.documentos.ine = mock.documentos.ine;
+    form.documentos.comprobanteDomicilio = mock.documentos.comprobanteDomicilio;
+    Object.assign(form.declaraciones, mock.declaraciones);
+  }
+
+  devPrefillOpen.value = false;
+  await alert({
+    title: 'Prellenar (dev)',
+    message: `Mock: ${label}. Pasos: ${selected.map((s) => s.short).join(', ')}.`,
+    variant: 'success',
+  });
+}
+
 async function onFile(
   kind: 'ine' | 'comprobanteDomicilio',
   ev: Event,
@@ -452,21 +742,48 @@ async function goBack() {
         </p>
       </div>
       <div class="capture__head-actions">
-        <button
-          v-if="canEdit"
-          type="button"
-          class="btn btn-ghost btn-compact"
-          @click="openReuse"
-        >
-          Cotización
-        </button>
-        <button
-          type="button"
-          class="btn btn-accent btn-compact"
-          @click="previewOpen = true"
-        >
-          Vista previa
-        </button>
+        <div class="capture__head-actions-row">
+          <button
+            v-if="canEdit"
+            type="button"
+            class="btn btn-ghost btn-compact"
+            @click="openReuse"
+          >
+            Cotización
+          </button>
+          <button
+            type="button"
+            class="btn btn-accent btn-compact"
+            @click="previewOpen = true"
+          >
+            Vista previa
+          </button>
+        </div>
+        <div v-if="isDev" class="capture__head-actions-row">
+          <button
+            v-if="canEdit"
+            type="button"
+            class="btn btn-ghost btn-compact"
+            title="Elige qué pasos rellenar con un mock al azar"
+            @click="openDevPrefill"
+          >
+            Prellenar (dev)
+          </button>
+          <button
+            type="button"
+            class="icon-btn"
+            title="Credencial (próximamente)"
+            aria-label="Credencial (próximamente)"
+            disabled
+          >
+            <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+              <path
+                fill="currentColor"
+                d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5v-13zM6 8.5a2.5 2.5 0 1 0 5 0 2.5 2.5 0 0 0-5 0zM6.5 14h4a.75.75 0 0 0 0-1.5h-4a.75.75 0 0 0 0 1.5zm0 2.75h3a.75.75 0 0 0 0-1.5h-3a.75.75 0 0 0 0 1.5zM13 9.25h4.5a.75.75 0 0 0 0-1.5H13a.75.75 0 0 0 0 1.5zm0 3h4.5a.75.75 0 0 0 0-1.5H13a.75.75 0 0 0 0 1.5zm0 3h3a.75.75 0 0 0 0-1.5H13a.75.75 0 0 0 0 1.5z"
+              />
+            </svg>
+          </button>
+        </div>
       </div>
     </header>
 
@@ -978,60 +1295,250 @@ async function goBack() {
       </div>
 
       <!-- 4 · Plan -->
-      <div v-show="step === 4" class="fields">
-        <label class="span-2">
-          Tipo de plan
-          <select v-model="form.ubicacionPlan.planKind" :disabled="!canEdit">
-            <option value="PLAN_FUTURO">Plan futuro</option>
-            <option value="PARQUE">Parque</option>
-          </select>
-        </label>
-        <label class="span-2">
-          Nombre del plan
-          <input
-            v-model="form.ubicacionPlan.nombrePlan"
-            :disabled="!canEdit"
-          />
-        </label>
-        <label class="span-2">
-          Servicio funerario
-          <input
-            v-model="form.ubicacionPlan.servicioFunerario"
-            :disabled="!canEdit"
-          />
-        </label>
+      <div v-show="step === 4" class="titular-step">
+        <div class="tabs" role="tablist" aria-label="Plan y financiamiento">
+          <button
+            type="button"
+            class="tab"
+            :class="{ active: planInnerTab === 'plan' }"
+            @click="planInnerTab = 'plan'"
+          >
+            Plan
+          </button>
+          <button
+            type="button"
+            class="tab"
+            :class="{ active: planInnerTab === 'financiamiento' }"
+            @click="planInnerTab = 'financiamiento'"
+          >
+            Financiamiento
+          </button>
+        </div>
 
-        <template v-if="isParque">
-          <label>
-            Sección
-            <input v-model="form.ubicacionPlan.seccion" :disabled="!canEdit" />
-          </label>
-          <label>
-            Cuadrante
-            <input
-              v-model="form.ubicacionPlan.cuadrante"
-              :disabled="!canEdit"
-            />
-          </label>
-          <label>
-            Número
-            <input v-model="form.ubicacionPlan.numero" :disabled="!canEdit" />
-          </label>
-          <label>
-            Parque funeral
-            <input
-              v-model="form.ubicacionPlan.parqueFuneral"
-              :disabled="!canEdit"
-            />
-          </label>
+        <div v-show="planInnerTab === 'plan'" class="fields">
           <label class="span-2">
-            Preasignación
+            Tipo de plan
+            <select
+              v-model="form.ubicacionPlan.planKind"
+              :disabled="!canEdit"
+              @change="onPlanKindChange"
+            >
+              <option value="PLAN_FUTURO">Plan futuro</option>
+              <option value="PARQUE">Parque</option>
+            </select>
+          </label>
+          <div class="span-2 plan-name">
+            <label class="plan-name__field">
+              Nombre del plan
+              <input
+                v-model="form.ubicacionPlan.nombrePlan"
+                readonly
+                :placeholder="
+                  canEdit ? 'Selecciona un plan con Buscar en Odoo…' : '—'
+                "
+                class="plan-name__readonly"
+              />
+            </label>
+            <button
+              type="button"
+              class="btn btn-ghost plan-name__search"
+              :disabled="!canEdit"
+              @click="planSearchOpen = true"
+            >
+              Buscar en Odoo
+            </button>
+          </div>
+          <p
+            v-if="form.ubicacionPlan.productId"
+            class="hint span-2 plan-name__meta"
+          >
+            Plan Odoo #{{ form.ubicacionPlan.productId
+            }}<template v-if="form.ubicacionPlan.productDefaultCode">
+              · {{ form.ubicacionPlan.productDefaultCode }}</template
+            >
+          </p>
+          <label v-if="isPlanFuturo" class="span-2">
+            Servicio funerario
             <input
-              v-model="form.ubicacionPlan.preasignacion"
+              v-model="form.ubicacionPlan.servicioFunerario"
               :disabled="!canEdit"
             />
           </label>
-        </template>
+
+          <template v-if="isParque">
+            <label class="check span-2">
+              <input
+                v-model="form.ubicacionPlan.preasignacion"
+                type="checkbox"
+                :disabled="!canEdit"
+                @change="onPreasignacionChange"
+              />
+              Preasignación de ubicación
+            </label>
+
+            <template v-if="form.ubicacionPlan.preasignacion">
+              <div class="span-2 plan-name">
+                <button
+                  type="button"
+                  class="btn btn-ghost plan-name__search"
+                  :disabled="!canEdit"
+                  @click="locationSearchOpen = true"
+                >
+                  Buscar ubicación en Odoo
+                </button>
+              </div>
+              <label>
+                Parque
+                <input
+                  :value="form.ubicacionPlan.parqueFuneral"
+                  readonly
+                  class="plan-name__readonly"
+                  placeholder="—"
+                />
+              </label>
+              <label>
+                Sección
+                <input
+                  :value="form.ubicacionPlan.seccion"
+                  readonly
+                  class="plan-name__readonly"
+                  placeholder="—"
+                />
+              </label>
+              <label>
+                Cuadrante
+                <input
+                  :value="form.ubicacionPlan.cuadrante"
+                  readonly
+                  class="plan-name__readonly"
+                  placeholder="—"
+                />
+              </label>
+              <label>
+                Ubicación
+                <input
+                  :value="form.ubicacionPlan.numero"
+                  readonly
+                  class="plan-name__readonly"
+                  placeholder="—"
+                />
+              </label>
+            </template>
+          </template>
+        </div>
+
+        <div v-show="planInnerTab === 'financiamiento'" class="fields">
+          <div class="span-2 plan-readonly">
+            <div class="plan-readonly__item">
+              <span>Precio del plan</span>
+              <strong>{{
+                formatMoneyLabel(
+                  form.ubicacionPlan.precioPlan || form.pago.precioPlan,
+                )
+              }}</strong>
+            </div>
+            <div class="plan-readonly__item">
+              <span>Saldo</span>
+              <strong>{{ formatMoneyLabel(form.pago.saldo) }}</strong>
+            </div>
+          </div>
+
+          <div v-if="descuentoEspecial > 0" class="span-2 descuento-especial">
+            <div class="plan-readonly__item">
+              <span>Descuento especial autorizado</span>
+              <strong>{{ Math.trunc(descuentoEspecial) }}%</strong>
+            </div>
+            <p class="field-hint">
+              Tope estándar: {{ maxDiscountAmount }}%.
+              <template v-if="descuentoEspecial > maxDiscountAmount">
+                Se marcará como utilizado al generar la venta.
+              </template>
+            </p>
+          </div>
+
+          <label>
+            Descuento (%)
+            <input
+              v-model="form.pago.promocionDescuento"
+              inputmode="numeric"
+              type="number"
+              min="0"
+              max="100"
+              step="1"
+              :disabled="!canEdit"
+              placeholder="0"
+              @blur="clampDescuento"
+            />
+            <small class="field-hint">
+              Máximo permitido: {{ allowedDiscountMax }}%
+            </small>
+          </label>
+          <label>
+            Anticipo
+            <input
+              v-model="form.pago.anticipo"
+              inputmode="decimal"
+              :disabled="!canEdit"
+              placeholder="0.00"
+            />
+          </label>
+          <label>
+            Pago inicial
+            <input
+              v-model="form.pago.pagoInicial"
+              inputmode="decimal"
+              :disabled="!canEdit"
+            />
+          </label>
+          <label>
+            Importe de cada pago
+            <input
+              v-model="form.pago.importeCadaPago"
+              inputmode="decimal"
+              :disabled="!canEdit"
+            />
+          </label>
+          <label>
+            Frecuencia
+            <select v-model="form.pago.frecuencia" :disabled="!canEdit">
+              <option value="">—</option>
+              <option>SEMANAL</option>
+              <option>QUINCENAL</option>
+              <option>MENSUAL</option>
+            </select>
+          </label>
+          <label>
+            Plazo
+            <input v-model="form.pago.plazo" :disabled="!canEdit" />
+          </label>
+          <label>
+            Próximo pago
+            <input
+              v-model="form.pago.fechaProximoPago"
+              type="date"
+              :disabled="!canEdit"
+            />
+          </label>
+          <label>
+            Días específicos
+            <input
+              v-model="form.pago.diasEspecificosPago"
+              :disabled="!canEdit"
+              placeholder="Ej. 15 de cada mes"
+            />
+          </label>
+          <div class="plan-readonly__item">
+            <span>Nombre del asesor</span>
+            <strong>{{ sellerAsesorName || '—' }}</strong>
+          </div>
+          <label>
+            Nombre del jefe de ventas
+            <input
+              v-model="form.pago.nombreJefeVentas"
+              :disabled="!canEdit"
+            />
+          </label>
+        </div>
       </div>
 
       <!-- 5 · Documentos + declaraciones -->
@@ -1292,6 +1799,65 @@ async function goBack() {
       @close="previewOpen = false"
     />
 
+    <SalePlanSearchModal
+      :open="planSearchOpen"
+      :plan-kind="form.ubicacionPlan.planKind"
+      @close="planSearchOpen = false"
+      @select="onPlanSelected"
+    />
+
+    <SaleLocationSearchModal
+      :open="locationSearchOpen"
+      @close="locationSearchOpen = false"
+      @select="onLocationSelected"
+    />
+
+    <VdModal
+      v-if="isDev"
+      :open="devPrefillOpen"
+      title="Prellenar (dev)"
+      @close="devPrefillOpen = false"
+    >
+      <div class="dev-prefill">
+        <p class="hint">
+          Marca los pasos a rellenar. Se usará un cliente/venta al azar de los
+          10 mocks.
+        </p>
+        <div class="dev-prefill__actions">
+          <button
+            type="button"
+            class="btn btn-ghost btn-compact"
+            @click="toggleAllDevPrefill(true)"
+          >
+            Todos
+          </button>
+          <button
+            type="button"
+            class="btn btn-ghost btn-compact"
+            @click="toggleAllDevPrefill(false)"
+          >
+            Ninguno
+          </button>
+        </div>
+        <label v-for="s in STEPS" :key="s.key" class="check">
+          <input v-model="devPrefillSteps[s.key]" type="checkbox" />
+          {{ s.title }}
+        </label>
+      </div>
+      <template #footer>
+        <button
+          type="button"
+          class="btn btn-ghost"
+          @click="devPrefillOpen = false"
+        >
+          Cancelar
+        </button>
+        <button type="button" class="btn btn-primary" @click="applyDevPrefill">
+          Prellenar
+        </button>
+      </template>
+    </VdModal>
+
     <VdModal
       :open="reuseOpen"
       title="Usar cotización de referencia"
@@ -1392,8 +1958,18 @@ async function goBack() {
 
 .capture__head-actions {
   display: flex;
+  flex-direction: column;
   flex-shrink: 0;
+  align-items: stretch;
   gap: 0.4rem;
+}
+
+.capture__head-actions-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  flex-wrap: wrap;
 }
 
 .btn-compact {
@@ -1605,6 +2181,102 @@ async function goBack() {
   font-weight: 600;
   color: var(--gsm-blue);
   min-width: 0;
+}
+
+.fields label.check {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.55rem;
+  color: var(--vd-ink);
+  font-weight: 500;
+}
+
+.fields label.check input[type='checkbox'] {
+  width: 1.15rem;
+  height: 1.15rem;
+  min-height: 0;
+  margin: 0;
+  accent-color: var(--gsm-blue);
+}
+
+.plan-name {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.6rem;
+}
+
+.plan-name__field {
+  flex: 1;
+}
+
+.plan-name__search {
+  min-height: 46px;
+  white-space: nowrap;
+}
+
+.plan-name__readonly {
+  cursor: default;
+  background: var(--vd-surface, #f4f7f9);
+  color: var(--vd-ink);
+}
+
+.plan-name__readonly:read-only:focus {
+  outline: none;
+  border-color: var(--vd-line);
+}
+
+.plan-name__meta {
+  margin-top: -0.35rem;
+}
+
+.plan-readonly {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.65rem;
+}
+
+.plan-readonly__item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--vd-line);
+  border-radius: 10px;
+  background: #f7f9fb;
+}
+
+.plan-readonly__item span {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--gsm-blue);
+}
+
+.plan-readonly__item strong {
+  font-size: 1.05rem;
+  color: var(--vd-ink, #1a2430);
+}
+
+.descuento-especial {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.descuento-especial .field-hint {
+  margin: 0;
+}
+
+.field-hint {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--vd-muted);
+  line-height: 1.35;
+}
+
+@media (max-width: 600px) {
+  .plan-readonly {
+    grid-template-columns: 1fr;
+  }
 }
 
 .fields input,
@@ -2019,6 +2691,34 @@ async function goBack() {
   gap: 0.55rem;
   color: var(--vd-ink);
   font-weight: 500;
+}
+
+.dev-prefill {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.dev-prefill__actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.dev-prefill .check {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.55rem;
+  min-height: 44px;
+  color: var(--vd-ink);
+  font-weight: 500;
+  font-size: 0.95rem;
+}
+
+.dev-prefill .check input {
+  width: 1.15rem;
+  height: 1.15rem;
 }
 
 @media (min-width: 720px) {

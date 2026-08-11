@@ -27,6 +27,104 @@ function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+type ParkLocationMock = {
+  parkId: number;
+  parqueFuneral: string;
+  sectionId: number;
+  seccion: string;
+  quadrantId: number;
+  cuadrante: string;
+  spaceId: number;
+  numero: string;
+};
+
+/** Plan parque: sin servicio funerario; ubicación solo si hay preasignación. */
+function mockPlanParque(opts: {
+  nombrePlan: string;
+  productId: number;
+  productDefaultCode: string;
+  precioPlan: string;
+  preasignacion?: boolean;
+  park?: ParkLocationMock;
+}): Partial<SaleFormData['ubicacionPlan']> {
+  const preasignacion = opts.preasignacion ?? false;
+  const park = preasignacion ? opts.park : undefined;
+  return {
+    planKind: 'PARQUE',
+    nombrePlan: opts.nombrePlan,
+    productId: opts.productId,
+    productDefaultCode: opts.productDefaultCode,
+    precioPlan: opts.precioPlan,
+    servicioFunerario: '',
+    preasignacion,
+    parqueFuneral: park?.parqueFuneral ?? '',
+    seccion: park?.seccion ?? '',
+    cuadrante: park?.cuadrante ?? '',
+    numero: park?.numero ?? '',
+    parkId: park?.parkId ?? null,
+    sectionId: park?.sectionId ?? null,
+    quadrantId: park?.quadrantId ?? null,
+    spaceId: park?.spaceId ?? null,
+  };
+}
+
+/** Plan a futuro: servicio funerario obligatorio; sin datos de parque. */
+function mockPlanFuturo(opts: {
+  nombrePlan: string;
+  productId: number;
+  productDefaultCode: string;
+  precioPlan: string;
+  servicioFunerario: string;
+}): Partial<SaleFormData['ubicacionPlan']> {
+  return {
+    planKind: 'PLAN_FUTURO',
+    nombrePlan: opts.nombrePlan,
+    productId: opts.productId,
+    productDefaultCode: opts.productDefaultCode,
+    precioPlan: opts.precioPlan,
+    servicioFunerario: opts.servicioFunerario,
+    preasignacion: false,
+    parqueFuneral: '',
+    seccion: '',
+    cuadrante: '',
+    numero: '',
+    parkId: null,
+    sectionId: null,
+    quadrantId: null,
+    spaceId: null,
+  };
+}
+
+function normalizeUbicacionPlan(
+  plan: SaleFormData['ubicacionPlan'],
+): SaleFormData['ubicacionPlan'] {
+  if (plan.planKind === 'PLAN_FUTURO') {
+    plan.preasignacion = false;
+    plan.parqueFuneral = '';
+    plan.seccion = '';
+    plan.cuadrante = '';
+    plan.numero = '';
+    plan.parkId = null;
+    plan.sectionId = null;
+    plan.quadrantId = null;
+    plan.spaceId = null;
+    return plan;
+  }
+
+  plan.servicioFunerario = '';
+  if (!plan.preasignacion) {
+    plan.parqueFuneral = '';
+    plan.seccion = '';
+    plan.cuadrante = '';
+    plan.numero = '';
+    plan.parkId = null;
+    plan.sectionId = null;
+    plan.quadrantId = null;
+    plan.spaceId = null;
+  }
+  return plan;
+}
+
 type DevSaleSeed = {
   label: string;
   meta: Partial<SaleFormData['meta']>;
@@ -40,7 +138,7 @@ type DevSaleSeed = {
 
 /**
  * 10 ventas/clientes de prueba (CURP válidas).
- * Cubren todos los pasos para que queden en check.
+ * Plan: parque (con/sin preasignación + ids Odoo) o plan a futuro (servicio funerario).
  */
 const SEEDS: DevSaleSeed[] = [
   {
@@ -98,19 +196,23 @@ const SEEDS: DevSaleSeed[] = [
         fechaNacimiento: '2010-11-08',
       },
     ],
-    ubicacionPlan: {
-      planKind: 'PARQUE',
+    ubicacionPlan: mockPlanParque({
       nombrePlan: 'Plan Familiar Premium',
       productId: 9001,
       productDefaultCode: 'PFAM-001',
       precioPlan: '45000',
-      servicioFunerario: 'Servicio completo',
       preasignacion: true,
-      parqueFuneral: 'Parque San Martín Culiacán',
-      seccion: 'A',
-      cuadrante: '3',
-      numero: '128',
-    },
+      park: {
+        parkId: 101,
+        parqueFuneral: 'Parque San Martín Culiacán',
+        sectionId: 201,
+        seccion: 'A',
+        quadrantId: 301,
+        cuadrante: '3',
+        spaceId: 401,
+        numero: '128',
+      },
+    }),
     pago: {
       precioPlan: '45000',
       promocionDescuento: '5',
@@ -183,19 +285,13 @@ const SEEDS: DevSaleSeed[] = [
         fechaNacimiento: '2018-09-20',
       },
     ],
-    ubicacionPlan: {
-      planKind: 'PLAN_FUTURO',
+    ubicacionPlan: mockPlanFuturo({
       nombrePlan: 'Plan Futuro Básico',
       productId: 9002,
       productDefaultCode: 'PFUT-010',
       precioPlan: '28000',
       servicioFunerario: 'Servicio estándar',
-      preasignacion: false,
-      parqueFuneral: '',
-      seccion: '',
-      cuadrante: '',
-      numero: '',
-    },
+    }),
     pago: {
       precioPlan: '28000',
       promocionDescuento: '0',
@@ -258,15 +354,13 @@ const SEEDS: DevSaleSeed[] = [
         fechaNacimiento: '2000-03-14',
       },
     ],
-    ubicacionPlan: {
-      planKind: 'PARQUE',
+    ubicacionPlan: mockPlanParque({
       nombrePlan: 'Jardín Familiar',
       productId: 9003,
       productDefaultCode: 'JARD-003',
       precioPlan: '52000',
-      servicioFunerario: 'Servicio premium',
       preasignacion: false,
-    },
+    }),
     pago: {
       precioPlan: '52000',
       promocionDescuento: '10',
@@ -330,15 +424,13 @@ const SEEDS: DevSaleSeed[] = [
         fechaNacimiento: '2019-04-18',
       },
     ],
-    ubicacionPlan: {
-      planKind: 'PLAN_FUTURO',
+    ubicacionPlan: mockPlanFuturo({
       nombrePlan: 'Plan Futuro Plus',
       productId: 9004,
       productDefaultCode: 'PFUT-020',
       precioPlan: '35000',
       servicioFunerario: 'Servicio intermedio',
-      preasignacion: false,
-    },
+    }),
     pago: {
       precioPlan: '35000',
       promocionDescuento: '3',
@@ -402,19 +494,23 @@ const SEEDS: DevSaleSeed[] = [
         fechaNacimiento: '2012-08-09',
       },
     ],
-    ubicacionPlan: {
-      planKind: 'PARQUE',
+    ubicacionPlan: mockPlanParque({
       nombrePlan: 'Capilla Familiar',
       productId: 9005,
       productDefaultCode: 'CAP-005',
       precioPlan: '68000',
-      servicioFunerario: 'Servicio completo',
       preasignacion: true,
-      parqueFuneral: 'Parque San Martín Navolato',
-      seccion: 'B',
-      cuadrante: '1',
-      numero: '45',
-    },
+      park: {
+        parkId: 102,
+        parqueFuneral: 'Parque San Martín Navolato',
+        sectionId: 202,
+        seccion: 'B',
+        quadrantId: 302,
+        cuadrante: '1',
+        spaceId: 402,
+        numero: '45',
+      },
+    }),
     pago: {
       precioPlan: '68000',
       promocionDescuento: '8',
@@ -477,15 +573,13 @@ const SEEDS: DevSaleSeed[] = [
         fechaNacimiento: '2005-02-28',
       },
     ],
-    ubicacionPlan: {
-      planKind: 'PLAN_FUTURO',
+    ubicacionPlan: mockPlanFuturo({
       nombrePlan: 'Plan Futuro Oro',
       productId: 9006,
       productDefaultCode: 'PFUT-030',
       precioPlan: '42000',
       servicioFunerario: 'Servicio completo',
-      preasignacion: false,
-    },
+    }),
     pago: {
       precioPlan: '42000',
       promocionDescuento: '0',
@@ -546,19 +640,23 @@ const SEEDS: DevSaleSeed[] = [
         fechaNacimiento: '2020-10-10',
       },
     ],
-    ubicacionPlan: {
-      planKind: 'PARQUE',
+    ubicacionPlan: mockPlanParque({
       nombrePlan: 'Lote Familiar Guasave',
       productId: 9007,
       productDefaultCode: 'PARQ-GSV',
       precioPlan: '39000',
-      servicioFunerario: 'Servicio estándar',
       preasignacion: true,
-      parqueFuneral: 'Parque Guasave',
-      seccion: 'C',
-      cuadrante: '2',
-      numero: '9',
-    },
+      park: {
+        parkId: 103,
+        parqueFuneral: 'Parque Guasave',
+        sectionId: 203,
+        seccion: 'C',
+        quadrantId: 303,
+        cuadrante: '2',
+        spaceId: 403,
+        numero: '9',
+      },
+    }),
     pago: {
       precioPlan: '39000',
       promocionDescuento: '5',
@@ -621,15 +719,13 @@ const SEEDS: DevSaleSeed[] = [
         fechaNacimiento: '2011-12-12',
       },
     ],
-    ubicacionPlan: {
-      planKind: 'PLAN_FUTURO',
+    ubicacionPlan: mockPlanFuturo({
       nombrePlan: 'Plan Futuro Mazatlán',
       productId: 9008,
       productDefaultCode: 'PFUT-MZT',
       precioPlan: '31000',
       servicioFunerario: 'Servicio estándar',
-      preasignacion: false,
-    },
+    }),
     pago: {
       precioPlan: '31000',
       promocionDescuento: '2',
@@ -692,19 +788,23 @@ const SEEDS: DevSaleSeed[] = [
         fechaNacimiento: '1995-09-09',
       },
     ],
-    ubicacionPlan: {
-      planKind: 'PARQUE',
+    ubicacionPlan: mockPlanParque({
       nombrePlan: 'Nicho Familiar',
       productId: 9009,
       productDefaultCode: 'NICH-009',
       precioPlan: '25000',
-      servicioFunerario: 'Servicio básico',
       preasignacion: true,
-      parqueFuneral: 'Parque San Martín Culiacán',
-      seccion: 'D',
-      cuadrante: '4',
-      numero: '210',
-    },
+      park: {
+        parkId: 101,
+        parqueFuneral: 'Parque San Martín Culiacán',
+        sectionId: 204,
+        seccion: 'D',
+        quadrantId: 304,
+        cuadrante: '4',
+        spaceId: 404,
+        numero: '210',
+      },
+    }),
     pago: {
       precioPlan: '25000',
       promocionDescuento: '0',
@@ -765,15 +865,13 @@ const SEEDS: DevSaleSeed[] = [
         fechaNacimiento: '1968-06-06',
       },
     ],
-    ubicacionPlan: {
-      planKind: 'PLAN_FUTURO',
+    ubicacionPlan: mockPlanFuturo({
       nombrePlan: 'Plan Empleado',
       productId: 9010,
       productDefaultCode: 'PFUT-EMP',
       precioPlan: '22000',
       servicioFunerario: 'Servicio estándar',
-      preasignacion: false,
-    },
+    }),
     pago: {
       precioPlan: '22000',
       promocionDescuento: '15',
@@ -803,10 +901,10 @@ function buildFromSeed(seed: DevSaleSeed): SaleFormData {
       ...seed.segundoContacto,
     },
     beneficiarios: seed.beneficiarios,
-    ubicacionPlan: {
+    ubicacionPlan: normalizeUbicacionPlan({
       ...createEmptySaleForm().ubicacionPlan,
       ...seed.ubicacionPlan,
-    },
+    }),
     pago: { ...createEmptySaleForm().pago, ...seed.pago },
     declaraciones: seed.declaraciones,
     documentos: {

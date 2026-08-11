@@ -184,8 +184,14 @@ export async function buildPaymentTicketPdf(
   y += 14;
 
   y = kvInline(doc, 'Forma de pago', p.formaPago || '—', y);
-  y = kvInline(doc, 'Cuenta', p.cuenta || '—', y);
-  y = kvInline(doc, 'Banco', p.banco || '—', y);
+  const isCash = v(p.formaPago).toUpperCase() === 'EFECTIVO';
+  if (isCash) {
+    y = kvInline(doc, 'Recibido', money(p.montoRecibido), y);
+    y = kvInline(doc, 'Cambio', money(p.cambio), y);
+  } else {
+    y = kvInline(doc, 'Cuenta', p.cuenta || '—', y);
+    y = kvInline(doc, 'Banco', p.banco || '—', y);
+  }
 
   y += 2;
   dashLine(doc, y);

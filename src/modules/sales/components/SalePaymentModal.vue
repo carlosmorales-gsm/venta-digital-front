@@ -7,6 +7,7 @@ import {
   isOtherBank,
 } from '../constants/mexican-banks';
 import { createPrefillPago, type SaleFormData } from '../types/sale-form';
+import { parseMoney } from '../utils/sale-finance';
 
 const props = defineProps<{
   open: boolean;
@@ -25,6 +26,18 @@ const bancoOtro = ref('');
 
 const showBancoOtro = computed(() => isOtherBank(bancoChoice.value));
 
+const isEfectivo = computed(
+  () => String(pago.formaPago || '').trim().toUpperCase() === 'EFECTIVO',
+);
+const formaPagoNorm = computed(() =>
+  String(pago.formaPago || '').trim().toUpperCase(),
+);
+const showBankFields = computed(
+  () => formaPagoNorm.value === 'TRANSFERENCIA' || formaPagoNorm.value === 'CHEQUE',
+);
+const showCashFields = computed(() => isEfectivo.value);
+const requiresCuenta = computed(() => formaPagoNorm.value === 'TRANSFERENCIA');
+
 function formatMoneyLabel(raw: string) {
   const n = Number(String(raw).replace(/[^0-9.-]/g, ''));
   if (!Number.isFinite(n) || !String(raw).trim()) return '—';
@@ -35,9 +48,44 @@ function formatMoneyLabel(raw: string) {
   });
 }
 
+function formatMoneyNumber(n: number) {
+  return n.toLocaleString('es-MX', {
+    style: 'currency',
+    currency: 'MXN',
+    minimumFractionDigits: 2,
+  });
+}
+
+const anticipoDue = computed(() =>
+  parseMoney(props.form.pago.anticipo || pago.anticipo),
+);
+
 const anticipoLabel = computed(() =>
   formatMoneyLabel(props.form.pago.anticipo || pago.anticipo),
 );
+
+const cambioAmount = computed(() => {
+  if (!showCashFields.value) return 0;
+  const received = parseMoney(pago.montoRecibido);
+  if (!received) return 0;
+  return Math.max(0, received - anticipoDue.value);
+});
+
+const cambioLabel = computed(() => {
+  if (!showCashFields.value) return '—';
+  const received = parseMoney(pago.montoRecibido);
+  if (!received) return '—';
+  if (received < anticipoDue.value) {
+    return `Faltan ${formatMoneyNumber(anticipoDue.value - received)}`;
+  }
+  return formatMoneyNumber(cambioAmount.value);
+});
+
+const cambioInsufficient = computed(() => {
+  if (!showCashFields.value) return false;
+  const received = parseMoney(pago.montoRecibido);
+  return received > 0 && received < anticipoDue.value;
+});
 
 watch(
   () => props.open,
@@ -61,6 +109,8 @@ watch(
         props.form.pago.fechaProximoPago || merged.fechaProximoPago,
       diasEspecificosPago:
         props.form.pago.diasEspecificosPago || merged.diasEspecificosPago,
+      montoRecibido: props.form.pago.montoRecibido || merged.montoRecibido || '',
+      cambio: props.form.pago.cambio || merged.cambio || '',
     });
 
     const bank = (pago.banco || '').trim();
@@ -77,9 +127,34 @@ watch(
   },
 );
 
+watch(
+  () => pago.formaPago,
+  (method) => {
+    const forma = String(method || '').trim().toUpperCase();
+    if (forma === 'EFECTIVO') {
+      pago.cuenta = '';
+      bancoChoice.value = '';
+      bancoOtro.value = '';
+      return;
+    }
+    pago.montoRecibido = '';
+    pago.cambio = '';
+    if (forma === 'CHEQUE') {
+      pago.cuenta = '';
+    }
+  },
+);
+
 function resolveBanco() {
   if (isOtherBank(bancoChoice.value)) return bancoOtro.value.trim();
   return bancoChoice.value.trim();
+}
+
+function resolveCambio() {
+  const received = parseMoney(pago.montoRecibido);
+  const change = received - anticipoDue.value;
+  if (!Number.isFinite(change) || change <= 0) return '0';
+  return String(Number(change.toFixed(2)));
 }
 
 function onSave() {
@@ -100,7 +175,10 @@ function onSave() {
     fechaProximoPago: fromPlan.fechaProximoPago || pago.fechaProximoPago,
     diasEspecificosPago:
       fromPlan.diasEspecificosPago || pago.diasEspecificosPago,
-    banco: resolveBanco(),
+    cuenta: isEfectivo.value ? '' : requiresCuenta.value ? pago.cuenta.trim() : '',
+    banco: isEfectivo.value ? '' : resolveBanco(),
+    montoRecibido: isEfectivo.value ? pago.montoRecibido.trim() : '',
+    cambio: isEfectivo.value ? resolveCambio() : '',
   });
 }
 
@@ -110,8 +188,25 @@ const canSave = computed(() => {
     props.form.pago.precioPlan ||
     pago.precioPlan;
   if (!String(precio || '').trim()) return false;
-  if (isOtherBank(bancoChoice.value) && !bancoOtro.value.trim()) return false;
-  return true;
+
+  const forma = formaPagoNorm.value;
+  if (!forma) return false;
+  if (anticipoDue.value <= 0) return false;
+
+  if (forma === 'EFECTIVO') {
+    const received = parseMoney(pago.montoRecibido);
+    return received >= anticipoDue.value;
+  }
+
+  if (forma === 'TRANSFERENCIA' || forma === 'CHEQUE') {
+    const banco = resolveBanco();
+    if (!banco) return false;
+    if (isOtherBank(bancoChoice.value) && !bancoOtro.value.trim()) return false;
+    if (requiresCuenta.value && !pago.cuenta.trim()) return false;
+    return true;
+  }
+
+  return false;
 });
 </script>
 
@@ -130,7 +225,7 @@ const canSave = computed(() => {
       </p>
 
       <div class="amount-label">
-        <span>Anticipo</span>
+        <span>Importe a pagar (anticipo)</span>
         <strong>{{ anticipoLabel }}</strong>
       </div>
 
@@ -144,11 +239,32 @@ const canSave = computed(() => {
             <option>CHEQUE</option>
           </select>
         </label>
-        <label>
+
+        <template v-if="showCashFields">
+          <label>
+            Efectivo recibido
+            <input
+              v-model="pago.montoRecibido"
+              inputmode="decimal"
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder="0.00"
+            />
+          </label>
+          <div class="cash-change">
+            <span>Cambio</span>
+            <strong :class="{ 'cash-change--warn': cambioInsufficient }">
+              {{ cambioLabel }}
+            </strong>
+          </div>
+        </template>
+
+        <label v-if="showBankFields && requiresCuenta">
           Cuenta
           <input v-model="pago.cuenta" />
         </label>
-        <label>
+        <label v-if="showBankFields">
           Banco
           <select v-model="bancoChoice">
             <option value="">—</option>
@@ -157,7 +273,7 @@ const canSave = computed(() => {
             </option>
           </select>
         </label>
-        <label v-if="showBancoOtro" class="span-2">
+        <label v-if="showBankFields && showBancoOtro" class="span-2">
           Nombre del banco
           <input
             v-model="bancoOtro"
@@ -226,6 +342,32 @@ const canSave = computed(() => {
 .amount-label > strong {
   font-size: 1.2rem;
   color: var(--vd-ink, #1a2430);
+}
+
+.cash-change {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--vd-line);
+  border-radius: 10px;
+  background: #fff;
+  justify-content: center;
+}
+
+.cash-change > span {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--gsm-blue);
+}
+
+.cash-change > strong {
+  font-size: 1.05rem;
+  color: var(--vd-ink, #1a2430);
+}
+
+.cash-change--warn {
+  color: #b42318;
 }
 
 .fields {

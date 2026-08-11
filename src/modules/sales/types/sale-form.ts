@@ -92,6 +92,11 @@ export interface SaleFormData {
     numero: string;
     servicioFunerario: string;
     parqueFuneral: string;
+    /** Ids Odoo park.park / park.section / park.quadrant / park.space */
+    parkId: number | null;
+    sectionId: number | null;
+    quadrantId: number | null;
+    spaceId: number | null;
     /** Bandera: muestra/exige ubicación parque */
     preasignacion: boolean;
   };
@@ -110,6 +115,9 @@ export interface SaleFormData {
     formaPago: string;
     cuenta: string;
     banco: string;
+    /** Pago en efectivo: billetes recibidos y cambio entregado. */
+    montoRecibido: string;
+    cambio: string;
     nombreJefeVentas: string;
     nombreAsesor: string;
   };
@@ -228,6 +236,10 @@ export function createEmptySaleForm(): SaleFormData {
       numero: '',
       servicioFunerario: '',
       parqueFuneral: '',
+      parkId: null,
+      sectionId: null,
+      quadrantId: null,
+      spaceId: null,
       preasignacion: false,
     },
     pago: {
@@ -244,6 +256,8 @@ export function createEmptySaleForm(): SaleFormData {
       formaPago: '',
       cuenta: '',
       banco: '',
+      montoRecibido: '',
+      cambio: '',
       nombreJefeVentas: '',
       nombreAsesor: '',
     },
@@ -280,6 +294,8 @@ export function createPrefillPago(): SaleFormData['pago'] {
     formaPago: 'TRANSFERENCIA',
     cuenta: '0123456789',
     banco: 'BBVA',
+    montoRecibido: '',
+    cambio: '',
     nombreJefeVentas: 'Carlos Mendoza',
     nombreAsesor: '',
   };
@@ -356,6 +372,10 @@ export function createPrefillSaleForm(): SaleFormData {
     numero: '128',
     servicioFunerario: 'Servicio completo',
     parqueFuneral: 'Parque San Martín Culiacán',
+    parkId: null,
+    sectionId: null,
+    quadrantId: null,
+    spaceId: null,
     preasignacion: true,
   };
   base.pago = {
@@ -452,6 +472,22 @@ export function mergeSaleForm(raw: unknown): SaleFormData {
         src.ubicacionPlan?.preasignacion,
         base.ubicacionPlan.preasignacion,
       ),
+      parkId:
+        src.ubicacionPlan?.parkId != null
+          ? Number(src.ubicacionPlan.parkId)
+          : (base.ubicacionPlan.parkId ?? null),
+      sectionId:
+        src.ubicacionPlan?.sectionId != null
+          ? Number(src.ubicacionPlan.sectionId)
+          : (base.ubicacionPlan.sectionId ?? null),
+      quadrantId:
+        src.ubicacionPlan?.quadrantId != null
+          ? Number(src.ubicacionPlan.quadrantId)
+          : (base.ubicacionPlan.quadrantId ?? null),
+      spaceId:
+        src.ubicacionPlan?.spaceId != null
+          ? Number(src.ubicacionPlan.spaceId)
+          : (base.ubicacionPlan.spaceId ?? null),
     },
     pago: { ...base.pago, ...(src.pago ?? {}) },
     declaraciones: { ...base.declaraciones, ...(src.declaraciones ?? {}) },
