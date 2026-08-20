@@ -130,6 +130,7 @@ type DevSaleSeed = {
   meta: Partial<SaleFormData['meta']>;
   contacto: Partial<SaleFormData['contacto']>;
   segundoContacto: Partial<SaleFormData['segundoContacto']>;
+  titularSustituto: SaleFormData['derechohabientes']['titularSustituto'];
   beneficiarios: SaleFormData['beneficiarios'];
   ubicacionPlan: Partial<SaleFormData['ubicacionPlan']>;
   pago: Partial<SaleFormData['pago']>;
@@ -169,7 +170,7 @@ const SEEDS: DevSaleSeed[] = [
       sindicalizado: 'NO',
       celular1: '6671234567',
       celular2: '6679876543',
-      correo: 'maria.garcia.mock@email.com',
+      correo: 'sistemas@sanmartin.com.mx',
       estadoCivil: 'CASADO',
       domicilioEntregaDocumentacion: 'Mismo domicilio',
       observaciones: 'Prefiere WhatsApp por la tarde',
@@ -185,6 +186,14 @@ const SEEDS: DevSaleSeed[] = [
       cp: '80000',
       entreCalles: 'Juárez y Morelos',
       fechaNacimiento: '1982-07-22',
+    },
+    titularSustituto: {
+      apellidoPaterno: 'López',
+      apellidoMaterno: 'Martínez',
+      nombres: 'Carlos',
+      parentesco: 'Hermano',
+      celular: '6673332211',
+      fechaNacimiento: '1983-09-21',
     },
     beneficiarios: [
       {
@@ -255,7 +264,7 @@ const SEEDS: DevSaleSeed[] = [
       tipoCobranza: 'DOMICILIADO',
       sindicalizado: 'SI',
       celular1: '6671112233',
-      correo: 'juan.perez.mock@email.com',
+      correo: 'sistemas@sanmartin.com.mx',
       estadoCivil: 'SOLTERO',
       domicilioEntregaDocumentacion: 'Oficina',
     },
@@ -266,6 +275,14 @@ const SEEDS: DevSaleSeed[] = [
       celular: '6672223344',
       parentesco: 'Hermana',
       fechaNacimiento: '1992-01-10',
+    },
+    titularSustituto: {
+      apellidoPaterno: 'Pérez',
+      apellidoMaterno: 'Díaz',
+      nombres: 'Roberto',
+      parentesco: 'Padre',
+      celular: '6671112244',
+      fechaNacimiento: '1964-08-03',
     },
     beneficiarios: [
       {
@@ -333,7 +350,7 @@ const SEEDS: DevSaleSeed[] = [
       tipoCobranza: 'VENTANILLA',
       sindicalizado: 'NO',
       celular1: '6674445566',
-      correo: 'rosa.lopez.mock@email.com',
+      correo: 'sistemas@sanmartin.com.mx',
       estadoCivil: 'VIUDO',
     },
     segundoContacto: {
@@ -343,6 +360,14 @@ const SEEDS: DevSaleSeed[] = [
       celular: '6677778899',
       parentesco: 'Hermano',
       fechaNacimiento: '1975-05-05',
+    },
+    titularSustituto: {
+      apellidoPaterno: 'Hernández',
+      apellidoMaterno: 'Soto',
+      nombres: 'Teresa',
+      parentesco: 'Madre',
+      celular: '6674445577',
+      fechaNacimiento: '1956-11-12',
     },
     beneficiarios: [
       {
@@ -403,7 +428,7 @@ const SEEDS: DevSaleSeed[] = [
       tipoCobranza: 'VENTANILLA',
       sindicalizado: 'NO',
       celular1: '6679988776',
-      correo: 'xavier.ramirez.mock@email.com',
+      correo: 'sistemas@sanmartin.com.mx',
       estadoCivil: 'UNION LIBRE',
     },
     segundoContacto: {
@@ -413,6 +438,14 @@ const SEEDS: DevSaleSeed[] = [
       celular: '6671122334',
       parentesco: 'Esposa',
       fechaNacimiento: '1994-12-02',
+    },
+    titularSustituto: {
+      apellidoPaterno: 'Ramírez',
+      apellidoMaterno: 'Xol',
+      nombres: 'Héctor',
+      parentesco: 'Hermano',
+      celular: '6679988777',
+      fechaNacimiento: '1989-02-17',
     },
     beneficiarios: [
       {
@@ -473,7 +506,7 @@ const SEEDS: DevSaleSeed[] = [
       sindicalizado: 'SI',
       celular1: '6675556677',
       celular2: '6675556678',
-      correo: 'claudia.herrera.mock@email.com',
+      correo: 'sistemas@sanmartin.com.mx',
       estadoCivil: 'CASADO',
     },
     segundoContacto: {
@@ -483,6 +516,14 @@ const SEEDS: DevSaleSeed[] = [
       celular: '6678889900',
       parentesco: 'Esposo',
       fechaNacimiento: '1986-01-25',
+    },
+    titularSustituto: {
+      apellidoPaterno: 'Vega',
+      apellidoMaterno: 'Nava',
+      nombres: 'Patricia',
+      parentesco: 'Madre',
+      celular: '6675556699',
+      fechaNacimiento: '1962-04-08',
     },
     beneficiarios: [
       {
@@ -552,7 +593,7 @@ const SEEDS: DevSaleSeed[] = [
       tipoCobranza: 'VENTANILLA',
       sindicalizado: 'NO',
       celular1: '6681112233',
-      correo: 'carlos.morales.mock@email.com',
+      correo: 'sistemas@sanmartin.com.mx',
       estadoCivil: 'DIVORCIADO',
     },
     segundoContacto: {
@@ -562,6 +603,14 @@ const SEEDS: DevSaleSeed[] = [
       celular: '6682223344',
       parentesco: 'Hermana',
       fechaNacimiento: '1978-11-11',
+    },
+    titularSustituto: {
+      apellidoPaterno: 'Morales',
+      apellidoMaterno: 'Cruz',
+      nombres: 'Francisco',
+      parentesco: 'Hermano',
+      celular: '6681112244',
+      fechaNacimiento: '1972-06-19',
     },
     beneficiarios: [
       {
@@ -619,7 +668,7 @@ const SEEDS: DevSaleSeed[] = [
       tipoCobranza: 'VENTANILLA',
       sindicalizado: 'NO',
       celular1: '6875554411',
-      correo: 'gabriela.santos.mock@email.com',
+      correo: 'sistemas@sanmartin.com.mx',
       estadoCivil: 'SOLTERO',
     },
     segundoContacto: {
@@ -629,6 +678,14 @@ const SEEDS: DevSaleSeed[] = [
       celular: '6875554422',
       parentesco: 'Hermano',
       fechaNacimiento: '1993-07-07',
+    },
+    titularSustituto: {
+      apellidoPaterno: 'Torres',
+      apellidoMaterno: 'Peña',
+      nombres: 'Alicia',
+      parentesco: 'Madre',
+      celular: '6875554444',
+      fechaNacimiento: '1971-01-30',
     },
     beneficiarios: [
       {
@@ -698,7 +755,7 @@ const SEEDS: DevSaleSeed[] = [
       tipoCobranza: 'DOMICILIADO',
       sindicalizado: 'SI',
       celular1: '6691002003',
-      correo: 'pedro.castro.mock@email.com',
+      correo: 'sistemas@sanmartin.com.mx',
       estadoCivil: 'CASADO',
     },
     segundoContacto: {
@@ -708,6 +765,14 @@ const SEEDS: DevSaleSeed[] = [
       celular: '6691002004',
       parentesco: 'Esposa',
       fechaNacimiento: '1985-04-04',
+    },
+    titularSustituto: {
+      apellidoPaterno: 'Castro',
+      apellidoMaterno: 'Ulloa',
+      nombres: 'Ricardo',
+      parentesco: 'Hermano',
+      celular: '6691002006',
+      fechaNacimiento: '1980-05-22',
     },
     beneficiarios: [
       {
@@ -767,7 +832,7 @@ const SEEDS: DevSaleSeed[] = [
       tipoCobranza: 'VENTANILLA',
       sindicalizado: 'NO',
       celular1: '6673030404',
-      correo: 'dolores.vargas.mock@email.com',
+      correo: 'sistemas@sanmartin.com.mx',
       estadoCivil: 'VIUDO',
     },
     segundoContacto: {
@@ -777,6 +842,14 @@ const SEEDS: DevSaleSeed[] = [
       celular: '6673030405',
       parentesco: 'Hijo',
       fechaNacimiento: '1995-09-09',
+    },
+    titularSustituto: {
+      apellidoPaterno: 'Ríos',
+      apellidoMaterno: 'Beltrán',
+      nombres: 'Josefina',
+      parentesco: 'Hermana',
+      celular: '6673030406',
+      fechaNacimiento: '1973-12-01',
     },
     beneficiarios: [
       {
@@ -844,7 +917,7 @@ const SEEDS: DevSaleSeed[] = [
       tipoCobranza: 'VENTANILLA',
       sindicalizado: 'SI',
       celular1: '6679090807',
-      correo: 'luis.nolasco.mock@email.com',
+      correo: 'sistemas@sanmartin.com.mx',
       estadoCivil: 'SOLTERO',
     },
     segundoContacto: {
@@ -854,6 +927,14 @@ const SEEDS: DevSaleSeed[] = [
       celular: '6679090808',
       parentesco: 'Madre',
       fechaNacimiento: '1968-06-06',
+    },
+    titularSustituto: {
+      apellidoPaterno: 'Nolasco',
+      apellidoMaterno: 'López',
+      nombres: 'Jorge',
+      parentesco: 'Hermano',
+      celular: '6679090809',
+      fechaNacimiento: '1988-10-14',
     },
     beneficiarios: [
       {
@@ -901,6 +982,11 @@ function buildFromSeed(seed: DevSaleSeed): SaleFormData {
       ...seed.segundoContacto,
     },
     beneficiarios: seed.beneficiarios,
+    derechohabientes: {
+      titularSustituto: seed.titularSustituto,
+      primerBeneficiario: seed.beneficiarios[0],
+      segundoBeneficiario: seed.beneficiarios[1],
+    },
     ubicacionPlan: normalizeUbicacionPlan({
       ...createEmptySaleForm().ubicacionPlan,
       ...seed.ubicacionPlan,
@@ -912,6 +998,7 @@ function buildFromSeed(seed: DevSaleSeed): SaleFormData {
       comprobanteDomicilio: mockDoc('comprobante-mock.png'),
       firmaCliente: null,
       ticketPago: null,
+      caratulaPdf: null,
     },
   });
   return form;

@@ -1,6 +1,8 @@
 import { jsPDF } from 'jspdf';
 import { fullName, type SaleFormData } from '../types/sale-form';
 import { saleOriginLabel } from '../constants/sale-origins';
+import { saleCompanyName } from '../constants/sale-companies';
+import { formatMoneyDisplay } from './sale-finance';
 
 /** Tamaño exacto de la carátula oficial (pt). */
 const PAGE_W = 612.28;
@@ -252,21 +254,41 @@ function drawHeader(doc: Doc, logo: LogoAsset | null) {
 
 function drawMeta(doc: Doc, form: SaleFormData) {
   const { meta } = form;
-  box(doc, 20.9, 62.6, 569.4, 75);
+  const metaX = 20.9;
+  const metaY = 62.6;
+  const metaW = 569.4;
+  box(doc, metaX, metaY, metaW, 75);
 
-  label(doc, 'ORIGEN DE VENTA:', 25.2, 72);
-  value(doc, saleOriginLabel(meta.origenVenta), 100, 80, 7.5, 90);
-  label(doc, 'FOLIO DE SOLICITUD:', 195.4, 72);
-  value(doc, meta.folioSolicitud, 275, 80, 7.5, 95);
+  const rowTop = 64;
+  const rowH = 22;
+
+  field(doc, 'ORIGEN DE VENTA:', saleOriginLabel(meta.origenVenta), 25.2, rowTop, rowH, 158, {
+    labelSize: 5.2,
+    valueSize: 7.2,
+  });
+  field(doc, 'FOLIO DE SOLICITUD:', meta.folioSolicitud, 195.4, rowTop, rowH, 68, {
+    labelSize: 5.2,
+    valueSize: 7.2,
+  });
+
+  const company = saleCompanyName(form.ubicacionPlan.planKind);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.4);
+  setInk(doc);
+  const companyLines = doc.splitTextToSize(company, metaW - 278) as string[];
+  let companyY = rowTop + 10;
+  for (const line of companyLines.slice(0, 2)) {
+    doc.text(line, metaX + metaW - 6, companyY, { align: 'right' });
+    companyY += 8.5;
+  }
 
   box(doc, 270.4, 87.4, 315.6, 20.8, [250, 252, 253]);
-  label(doc, 'FECHA:', 275.4, 99);
+  label(doc, 'FECHA:', 275.4, 99, 5.2);
   dateParts(doc, meta.fecha, 322, 100, 8);
-  label(doc, 'CONTRATO:', 421, 99);
-  value(doc, meta.contrato, 470, 100, 8, 105);
+  fieldInline(doc, 'CONTRATO:', meta.contrato, 421, 100, 44, 108, 8);
 
   box(doc, 25.2, 113.1, 560.8, 19.4);
-  label(doc, 'FECHA DE SERVICIO:', 29.7, 125);
+  label(doc, 'FECHA DE SERVICIO:', 29.7, 125, 5.2);
   dateParts(doc, meta.fechaServicio, 114, 126, 8);
 
   label(doc, 'ESTATUS:', 208.4, 125);
@@ -283,18 +305,16 @@ function drawMeta(doc: Doc, form: SaleFormData) {
   );
   checkLabel(
     doc,
-    has(meta.estatus, 'RENOV'),
+    has(meta.estatus, 'MINOR'),
     307.6,
     125.5,
-    'RENOVACIÓN',
+    'MINORÍA',
     3.6,
     4,
   );
 
-  label(doc, 'ANTERIOR:', 353.8, 125);
-  value(doc, meta.anterior, 400, 126, 7, 95);
-  label(doc, 'VERIFICACIÓN:', 500, 119);
-  value(doc, meta.verificacion, 500, 128, 6.5, 80);
+  fieldInline(doc, 'ANTERIOR:', meta.anterior, 353.8, 126, 42, 95, 7);
+  fieldInline(doc, 'VERIFICACIÓN:', meta.verificacion, 500, 126, 52, 80, 7);
 }
 
 function drawNameRow(
@@ -569,16 +589,11 @@ function drawDerechohabientes(doc: Doc, form: SaleFormData) {
 function drawPlanPago(doc: Doc, form: SaleFormData) {
   const u = form.ubicacionPlan;
   const p = form.pago;
-  const isPark = (u as { planKind?: string }).planKind === 'PARQUE';
   const top = 678;
   box(doc, 21.5, top, 569.8, 168);
 
   pill(doc, 'DATOS DEL PLAN', 145, top + 3, 120);
-  if (isPark) {
-    pill(doc, 'DATOS DE LA UBICACIÓN', 360, top + 3, 140);
-  } else {
-    pill(doc, 'PLAN A FUTURO', 360, top + 3, 120);
-  }
+  pill(doc, 'DATOS DE LA UBICACIÓN', 360, top + 3, 140);
   // N/A a la derecha del pill (antes se montaba encima del título).
   // La captura usa bandera boolean; en carátula se mapea a N/A / activo sin cambiar layout.
   const preasigLabel = u.preasignacion ? 'SI' : 'N/A';
@@ -644,8 +659,9 @@ function drawPlanPago(doc: Doc, form: SaleFormData) {
   vLine(doc, 290, y3, y3 + h3);
   vLine(doc, 380, y3, y3 + h3);
   vLine(doc, 470, y3, y3 + h3);
-  field(doc, 'PRECIO DEL PLAN:', p.precioPlan, 30, y3, h3, 100, {
+  field(doc, 'PRECIO DEL PLAN:', formatMoneyDisplay(p.precioPlan), 30, y3, h3, 100, {
     labelSize: 5,
+    valueSize: 6.8,
   });
   field(
     doc,
@@ -659,9 +675,18 @@ function drawPlanPago(doc: Doc, form: SaleFormData) {
     135,
     { labelSize: 4.8, valueSize: 6.4 },
   );
-  field(doc, 'ANTICIPO:', p.anticipo, 295, y3, h3, 75, { labelSize: 5 });
-  field(doc, 'PAGO INICIAL:', p.pagoInicial, 385, y3, h3, 75, { labelSize: 5 });
-  field(doc, 'SALDO:', p.saldo, 475, y3, h3, 95, { labelSize: 5 });
+  field(doc, 'ANTICIPO:', formatMoneyDisplay(p.anticipo), 295, y3, h3, 75, {
+    labelSize: 5,
+    valueSize: 6.4,
+  });
+  field(doc, 'PAGO INICIAL:', formatMoneyDisplay(p.pagoInicial), 385, y3, h3, 75, {
+    labelSize: 5,
+    valueSize: 6.4,
+  });
+  field(doc, 'SALDO:', formatMoneyDisplay(p.saldo), 475, y3, h3, 95, {
+    labelSize: 5,
+    valueSize: 6.4,
+  });
 
   const y4 = top + 113;
   const h4 = 34;
@@ -680,9 +705,9 @@ function drawPlanPago(doc: Doc, form: SaleFormData) {
   checkLabel(doc, has(p.frecuencia, 'MENSUAL'), 31, y4 + 26, 'MENSUAL', 3.9, 4.2);
 
   field(doc, 'PLAZO:', p.plazo, 90, y4, 16, 40, { labelSize: 5.2 });
-  field(doc, 'IMPORTE DE CADA PAGO:', p.importeCadaPago, 135, y4, 16, 70, {
+  field(doc, 'IMPORTE DE CADA PAGO:', formatMoneyDisplay(p.importeCadaPago), 135, y4, 16, 70, {
     labelSize: 5,
-    valueSize: 7,
+    valueSize: 6.6,
   });
   // Columna central: fecha arriba, días abajo (sin solape).
   label(doc, 'FECHA DE PRÓXIMO PAGO:', 215, y4 + 6.5, 4.8);
@@ -837,35 +862,13 @@ export async function buildSalePreviewBundle(
   opts?: { saleId?: number | null; status?: string },
 ): Promise<{ blob: Blob; pages: string[] }> {
   const blob = await buildSalePreviewPdf(form, opts);
-  const data = new Uint8Array(await blob.arrayBuffer());
-
-  const pdfjs = await import('pdfjs-dist');
-  const worker = await import('pdfjs-dist/build/pdf.worker.min.mjs?url');
-  pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
-
-  const pdf = await pdfjs.getDocument({ data }).promise;
-  const scale = Math.max(2.75, (window.devicePixelRatio || 1) * 2);
-  const pages: string[] = [];
-
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await pdf.getPage(i);
-    const viewport = page.getViewport({ scale });
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.floor(viewport.width);
-    canvas.height = Math.floor(viewport.height);
-    const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('Canvas no disponible');
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    await page.render({
-      canvasContext: ctx,
-      viewport,
-      canvas,
-    } as Parameters<typeof page.render>[0]).promise;
-    pages.push(canvas.toDataURL('image/png'));
+  const { renderPdfToPageImages } = await import('./pdf-page-renderer');
+  try {
+    const pages = await renderPdfToPageImages(blob);
+    return { blob, pages };
+  } catch {
+    return { blob, pages: [] };
   }
-
-  return { blob, pages };
 }
 
 /** @deprecated usa buildSalePreviewBundle */

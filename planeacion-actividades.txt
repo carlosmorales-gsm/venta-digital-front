@@ -23,3 +23,33 @@ Venta Digital — Actividades realizadas (resumen)
 21. Vistas de listado para vendedor y monitor
 22. Datos de prueba / prefill para captura y pago
 23. Proxy Vite y ajustes de entorno local
+24. Diálogos propios (alert/confirm) en lugar de nativos del navegador
+25. Alta, edición y habilitar/deshabilitar usuarios (admin)
+26. Bitácora admin con filtros y exportación a PDF
+27. Búsqueda y selección de planes Odoo en la captura
+28. Preasignación de ubicación (parque, sección, cuadrante, espacio)
+29. IDs de ubicación Odoo guardados en la venta
+30. Financiamiento automático (frecuencia, plazo, con/sin intereses)
+31. Servicio funerario por defecto en plan a futuro
+32. Nombre del asesor = vendedor logueado (sin captura manual)
+33. Orígenes de venta alineados con el catálogo de Odoo
+34. Filtros en listados de vendedor y monitor (fechas, cliente, estatus)
+35. Exportación a PDF del listado de ventas del monitor
+36. Pago en efectivo: monto recibido y cálculo de cambio
+37. Ticket de pago en PDF
+38. Vista previa de PDF en tablet (páginas como imagen)
+39. Modal de adjuntos (INE, comprobante, firma, ticket, carátula)
+40. Firma del cliente en canvas (tablet / táctil)
+41. Overlay de carga global en peticiones HTTP
+42. Apartado de espacio de parque en Odoo al finalizar venta preasignada
+43. Ligado de cliente Odoo (partner) y cotización a la venta VD
+44. Rechazo de venta desde Mesa de Control (sin cotización ligada)
+45. Carátula en Drive y envío al expediente Odoo
+46. Sincronización de expediente virtual VD → Odoo (finalize / pago / firma)
+47. Generar cotización desde expediente con wizard de previsualización
+48. Firma completada en VD → expediente virtual Validado
+49. Cancelar venta o expediente con motivo obligatorio
+50. Expediente virtual: sin checklist físico ni vincular venta
+51. Valores predeterminados del vendedor (sucursal y planes favoritos)
+52. Sucursal y tipo de servicio obligatorios en datos de contrato
+53. Sucursal y tipo de servicio enviados y mostrados en expediente Odoo y en el wizard de cotización

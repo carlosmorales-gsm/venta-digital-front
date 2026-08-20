@@ -4,7 +4,8 @@ export type AttachmentKind =
   | 'ine'
   | 'comprobanteDomicilio'
   | 'ticketPago'
-  | 'firmaCliente';
+  | 'firmaCliente'
+  | 'caratulaPdf';
 
 export type AttachmentListItem = {
   kind: AttachmentKind;
@@ -17,6 +18,7 @@ const LABELS: Record<AttachmentKind, string> = {
   comprobanteDomicilio: 'Comprobante de domicilio',
   ticketPago: 'Ticket de pago',
   firmaCliente: 'Firma del cliente',
+  caratulaPdf: 'Carátula del contrato',
 };
 
 export function isAllowedUploadFile(file: File): boolean {
@@ -53,6 +55,7 @@ export function isImageAttachment(att: SaleAttachment): boolean {
 export function listSaleAttachments(form: SaleFormData): AttachmentListItem[] {
   const docs = form.documentos;
   const keys: AttachmentKind[] = [
+    'caratulaPdf',
     'ine',
     'comprobanteDomicilio',
     'ticketPago',

@@ -535,8 +535,8 @@ function onSelectAttachment(item: AttachmentListItem) {
                   <button
                     type="button"
                     class="icon-btn"
-                    title="Vista previa"
-                    aria-label="Vista previa"
+                    title="Vista previa carátula"
+                    aria-label="Vista previa carátula"
                     @click="openPreview(item)"
                   >
                     <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
@@ -602,8 +602,8 @@ function onSelectAttachment(item: AttachmentListItem) {
               <button
                 type="button"
                 class="icon-btn"
-                title="Vista previa"
-                aria-label="Vista previa"
+                title="Vista previa carátula"
+                aria-label="Vista previa carátula"
                 @click="openPreview(item)"
               >
                 <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">

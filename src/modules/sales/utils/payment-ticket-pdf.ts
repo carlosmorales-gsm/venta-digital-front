@@ -1,6 +1,6 @@
 import { jsPDF } from 'jspdf';
 import { fullName, type SaleFormData } from '../types/sale-form';
-import { paymentDueAmount, parseMoney } from './sale-finance';
+import { paymentDueAmount, parseMoney, formatMoneyDisplay } from './sale-finance';
 
 const PAGE_W = 226;
 const PAGE_H = 460;
@@ -13,15 +13,7 @@ function v(t: string | null | undefined) {
 }
 
 function money(raw: string) {
-  const t = v(raw);
-  if (!t) return '—';
-  const n = Number(String(t).replace(/[^0-9.-]/g, ''));
-  if (!Number.isFinite(n)) return t;
-  return n.toLocaleString('es-MX', {
-    style: 'currency',
-    currency: 'MXN',
-    minimumFractionDigits: 2,
-  });
+  return formatMoneyDisplay(raw) || '—';
 }
 
 function dashLine(doc: jsPDF, y: number) {

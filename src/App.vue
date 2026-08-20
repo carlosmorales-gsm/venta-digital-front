@@ -2,6 +2,7 @@
 import { useRoute } from 'vue-router';
 import AppLayout from './layouts/AppLayout.vue';
 import VdDialogHost from './shared/ui/dialog/VdDialogHost.vue';
+import VdLoadingHost from './shared/ui/loading/VdLoadingHost.vue';
 
 const route = useRoute();
 </script>
@@ -16,4 +17,5 @@ const route = useRoute();
 
   <!-- Host global: alert / confirm reutilizables (nunca window.alert/confirm) -->
   <VdDialogHost />
+  <VdLoadingHost />
 </template>

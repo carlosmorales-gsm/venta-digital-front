@@ -3,6 +3,8 @@ import { ref, watch } from 'vue';
 import { extractApiError, http } from '../../../shared/api/http';
 import VdModal from '../../../shared/ui/modal/VdModal.vue';
 import type { PlanKind } from '../types/sale-form';
+import type { SellerDefaultPlan } from '../types/seller-defaults';
+import { fetchPlanesByIds, mapPlanProduct } from '../utils/odoo-plans';
 
 export type PlanProduct = {
   id: number;
@@ -10,11 +12,14 @@ export type PlanProduct = {
   listPrice: number;
   defaultCode: string | null;
   companyId: number;
+  /** product.template.without_interest */
+  withoutInterest: boolean;
 };
 
 const props = defineProps<{
   open: boolean;
   planKind: PlanKind;
+  favoritePlans?: SellerDefaultPlan[];
 }>();
 
 const emit = defineEmits<{
@@ -26,7 +31,22 @@ const q = ref('');
 const loading = ref(false);
 const error = ref<string | null>(null);
 const results = ref<PlanProduct[]>([]);
+const liveFavorites = ref<PlanProduct[]>([]);
+const pickingId = ref<number | null>(null);
 let timer: ReturnType<typeof setTimeout> | null = null;
+
+async function hydrateFavorites() {
+  const ids = (props.favoritePlans ?? []).map((plan) => plan.id);
+  if (!ids.length) {
+    liveFavorites.value = [];
+    return;
+  }
+  try {
+    liveFavorites.value = await fetchPlanesByIds(props.planKind, ids);
+  } catch {
+    liveFavorites.value = [];
+  }
+}
 
 watch(
   () => props.open,
@@ -35,6 +55,8 @@ watch(
       q.value = '';
       results.value = [];
       error.value = null;
+      pickingId.value = null;
+      void hydrateFavorites();
     }
   },
 );
@@ -49,14 +71,17 @@ async function search() {
   error.value = null;
   try {
     const { data } = await http.get<
-      Array<PlanProduct & { default_code?: string | null }>
+      Array<
+        PlanProduct & {
+          default_code?: string | null;
+          without_interest?: boolean;
+        }
+      >
     >('/odoo/planes', {
       params: { planKind: props.planKind, q: term, limit: 20 },
+      skipGlobalLoading: true,
     });
-    results.value = (data || []).map((p) => ({
-      ...p,
-      defaultCode: p.defaultCode ?? p.default_code ?? null,
-    }));
+    results.value = (data || []).map((p) => mapPlanProduct(p));
     if (!results.value.length) error.value = 'Sin coincidencias';
   } catch (e: unknown) {
     results.value = [];
@@ -73,6 +98,25 @@ function onInput() {
   }, 350);
 }
 
+async function selectFavorite(planId: number) {
+  pickingId.value = planId;
+  error.value = null;
+  try {
+    const [fresh] = await fetchPlanesByIds(props.planKind, [planId]);
+    if (!fresh) {
+      error.value =
+        'Ese plan ya no está disponible o cambió. Elígelo de nuevo en la búsqueda.';
+      liveFavorites.value = liveFavorites.value.filter((p) => p.id !== planId);
+      return;
+    }
+    emit('select', fresh);
+  } catch (e: unknown) {
+    error.value = extractApiError(e, 'No se pudo leer el plan actual en Odoo');
+  } finally {
+    pickingId.value = null;
+  }
+}
+
 function money(n: number) {
   return n.toLocaleString('es-MX', {
     style: 'currency',
@@ -85,6 +129,22 @@ function money(n: number) {
 <template>
   <VdModal :open="open" title="Buscar plan" @close="emit('close')">
     <div class="plan-search">
+      <div v-if="favoritePlans?.length" class="favorites">
+        <p>Tus planes predeterminados</p>
+        <div class="chips">
+          <button
+            v-for="plan in liveFavorites"
+            :key="plan.id"
+            type="button"
+            class="chip"
+            :disabled="pickingId === plan.id"
+            @click="selectFavorite(plan.id)"
+          >
+            {{ plan.name }}
+          </button>
+        </div>
+      </div>
+
       <label>
         Nombre del plan
         <input
@@ -117,6 +177,34 @@ function money(n: number) {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+}
+
+.favorites p {
+  margin: 0 0 0.4rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--gsm-blue);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.chip {
+  border: 1px solid var(--gsm-blue);
+  background: #eef5f8;
+  color: var(--gsm-blue);
+  border-radius: 999px;
+  padding: 0.35rem 0.7rem;
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.chip:hover {
+  background: #dceaf1;
 }
 
 .plan-search label {

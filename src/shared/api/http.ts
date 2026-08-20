@@ -1,4 +1,22 @@
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios';
+import { trackHttpLoadingStart, trackHttpLoadingStop } from './http-loading';
+
+declare module 'axios' {
+  export interface AxiosRequestConfig {
+    /** No muestra el loading global de pantalla completa. */
+    skipGlobalLoading?: boolean;
+  }
+}
+
+function trackLoading(config?: InternalAxiosRequestConfig) {
+  if (config?.skipGlobalLoading) return;
+  trackHttpLoadingStart();
+}
+
+function untrackLoading(config?: InternalAxiosRequestConfig) {
+  if (config?.skipGlobalLoading) return;
+  trackHttpLoadingStop();
+}
 
 const STORAGE_ACCESS = 'vd_access_token';
 const STORAGE_REFRESH = 'vd_refresh_token';
@@ -67,6 +85,8 @@ export const http = axios.create({
 });
 
 http.interceptors.request.use((config: InternalAxiosRequestConfig) => {
+  trackLoading(config);
+
   if (isPublicAuthRequest(config.url)) {
     return config;
   }
@@ -152,8 +172,13 @@ async function refreshAccessToken(): Promise<string | null> {
 }
 
 http.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    untrackLoading(response.config);
+    return response;
+  },
   async (error: AxiosError) => {
+    untrackLoading(error.config);
+
     const original = error.config as InternalAxiosRequestConfig & {
       _retry?: boolean;
     };

@@ -9,6 +9,7 @@ import SaleFilePreviewModal from '../components/SaleFilePreviewModal.vue';
 import SalePdfPreviewModal from '../components/SalePdfPreviewModal.vue';
 import SalePaymentModal from '../components/SalePaymentModal.vue';
 import SaleManualSignModal from '../components/SaleManualSignModal.vue';
+import SellerDefaultsModal from '../components/SellerDefaultsModal.vue';
 import { useAuthStore } from '../../auth/stores/auth.store';
 import {
   mergeSaleForm,
@@ -162,6 +163,7 @@ const paymentSaving = ref(false);
 
 const signOpen = ref(false);
 const signSubmitting = ref(false);
+const defaultsOpen = ref(false);
 
 const attachmentsOpen = ref(false);
 const attachmentsLoading = ref(false);
@@ -330,18 +332,29 @@ async function savePayment(pago: SaleFormData['pago']) {
       console.warn('No se pudo generar ticket de pago', pdfErr);
     }
 
-    await http.patch(`/sales/${actionSaleId.value}/payment`, {
-      pago,
-      ...(ticketPdf ? { ticketPdf } : {}),
-    });
+    const { data } = await http.patch<SaleListItem>(
+      `/sales/${actionSaleId.value}/payment`,
+      {
+        pago,
+        ...(ticketPdf ? { ticketPdf } : {}),
+      },
+    );
     paymentOpen.value = false;
-    await alert({
-      title: 'Pago registrado',
-      message: ticketPdf
-        ? 'El pago y el ticket PDF se guardaron en la venta.'
-        : 'El pago se guardó correctamente.',
-      variant: 'success',
-    });
+    if (data.odooSyncError) {
+      await alert({
+        title: 'Pago registrado',
+        message: `El pago se guardó, pero no se actualizó el expediente en Odoo: ${data.odooSyncError}`,
+        variant: 'warning',
+      });
+    } else {
+      await alert({
+        title: 'Pago registrado',
+        message: ticketPdf
+          ? 'El pago y el ticket se guardaron en la venta y en el expediente de Odoo.'
+          : 'El pago se guardó y se actualizó el expediente en Odoo.',
+        variant: 'success',
+      });
+    }
     await load();
   } catch (e: unknown) {
     await alert({
@@ -405,18 +418,29 @@ async function confirmSign(dataUrl: string) {
       console.warn('No se pudo generar carátula para Drive', pdfErr);
     }
 
-    await http.post(`/sales/${actionSaleId.value}/sign`, {
-      firmaCliente,
-      ...(caratulaPdf ? { caratulaPdf } : {}),
-    });
+    const { data } = await http.post<SaleListItem>(
+      `/sales/${actionSaleId.value}/sign`,
+      {
+        firmaCliente,
+        ...(caratulaPdf ? { caratulaPdf } : {}),
+      },
+    );
     signOpen.value = false;
-    await alert({
-      title: 'Firma registrada',
-      message: caratulaPdf
-        ? 'La firma y la vista previa del contrato se guardaron (incluye Drive).'
-        : 'La firma se guardó correctamente.',
-      variant: 'success',
-    });
+    if (data.odooSyncError) {
+      await alert({
+        title: 'Firma registrada',
+        message: `La firma se guardó, pero no se actualizó el expediente en Odoo: ${data.odooSyncError}`,
+        variant: 'warning',
+      });
+    } else {
+      await alert({
+        title: 'Firma registrada',
+        message: caratulaPdf
+          ? 'La firma y el contrato se guardaron (Drive) y se actualizó el expediente en Odoo.'
+          : 'La firma se guardó y se actualizó el expediente en Odoo.',
+        variant: 'success',
+      });
+    }
     await load();
   } catch (e: unknown) {
     await alert({
@@ -458,9 +482,14 @@ async function removeDraft(id: number) {
         <h1>Mis ventas</h1>
         <p>Borradores, pagos, firmas y ventas en proceso.</p>
       </div>
-      <button type="button" class="btn btn-primary" @click="goNew">
-        Nueva venta
-      </button>
+      <div class="head-actions">
+        <button type="button" class="btn btn-secondary" @click="defaultsOpen = true">
+          Valores predeterminados
+        </button>
+        <button type="button" class="btn btn-primary" @click="goNew">
+          Nueva venta
+        </button>
+      </div>
     </header>
 
     <div class="panel filters">
@@ -576,8 +605,8 @@ async function removeDraft(id: number) {
               <button
                 type="button"
                 class="icon-btn"
-                title="Ver"
-                aria-label="Ver"
+                title="Vista previa carátula"
+                aria-label="Vista previa carátula"
                 @click="openPreview(d)"
               >
                 <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
@@ -701,8 +730,8 @@ async function removeDraft(id: number) {
               <button
                 type="button"
                 class="icon-btn"
-                title="Ver"
-                aria-label="Ver venta"
+                title="Vista previa carátula"
+                aria-label="Vista previa carátula"
                 @click="openPreview(item)"
               >
                 <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
@@ -756,6 +785,8 @@ async function removeDraft(id: number) {
       @close="signOpen = false"
       @confirm="confirmSign"
     />
+
+    <SellerDefaultsModal :open="defaultsOpen" @close="defaultsOpen = false" />
   </section>
 </template>
 
@@ -776,6 +807,12 @@ async function removeDraft(id: number) {
 
 .head-row .btn {
   flex-shrink: 0;
+}
+
+.head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
 }
 
 .filters {

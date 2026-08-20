@@ -3,6 +3,9 @@ const CURP_RE =
 
 const DICT = '0123456789ABCDEFGHIJKLMNÑOPQRSTUVWXYZ';
 
+/** Portal oficial del gobierno de México para consultar u obtener la CURP. */
+export const CURP_OFFICIAL_URL = 'https://www.gob.mx/curp/';
+
 export function normalizeCurp(raw: string | null | undefined): string {
   return (raw ?? '').trim().toUpperCase().replace(/\s+/g, '');
 }

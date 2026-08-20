@@ -12,10 +12,14 @@ import SaleLocationSearchModal, {
   type ParkLocationSelection,
 } from '../components/SaleLocationSearchModal.vue';
 import { SALE_ORIGIN_OPTIONS } from '../constants/sale-origins';
+import type { SaleBranch, SellerDefaults } from '../types/seller-defaults';
+import { emptySellerDefaults } from '../types/seller-defaults';
 import {
   createEmptySaleForm,
+  DEFAULT_SERVICIO_FUNERARIO,
   emptyBeneficiary,
   mergeSaleForm,
+  normalizePagoDefaults,
   syncBeneficiariosToDerechos,
   titularDisplayName,
   type ReuseGroup,
@@ -23,11 +27,23 @@ import {
   type SaleListItem,
   type SaleStatus,
 } from '../types/sale-form';
-import { isValidCurp } from '../utils/curp';
+import { CURP_OFFICIAL_URL, isValidCurp } from '../utils/curp';
 import { pickRandomDevSaleMock } from '../utils/dev-sale-mocks';
-import { computeSaldo, parseDiscountPct, parseMoney } from '../utils/sale-finance';
+import {
+  computeFinancingBreakdown,
+  formatMoneyDisplay,
+  formatMoneyField,
+  normalizeFrequency,
+  parseDiscountPct,
+  parseMoney,
+} from '../utils/sale-finance';
 import { fileToAttachment } from '../utils/file-to-attachment';
 import { useAuthStore } from '../../auth/stores/auth.store';
+import {
+  clampIsoDateMin,
+  isIsoDateBefore,
+  todayIsoDate,
+} from '../../../shared/utils/datetime';
 
 const isDev = import.meta.env.DEV;
 const auth = useAuthStore();
@@ -35,7 +51,8 @@ const sellerAsesorName = computed(() => auth.user?.fullName?.trim() || '');
 
 const STEPS = [
   { key: 'meta', title: 'Contrato', short: 'Contrato' },
-  { key: 'titular', title: 'Titular', short: 'Titular' },
+  { key: 'titular', title: 'Datos de contacto', short: 'Contacto' },
+  { key: 'titularSustituto', title: 'Titular sustituto', short: 'Tit. sust.' },
   { key: 'beneficiarios', title: 'Beneficiarios', short: 'Benef.' },
   { key: 'segundo', title: '2.º contacto', short: '2.º cont.' },
   { key: 'plan', title: 'Plan', short: 'Plan' },
@@ -63,6 +80,7 @@ const devPrefillOpen = ref(false);
 const devPrefillSteps = reactive({
   meta: true,
   titular: true,
+  titularSustituto: true,
   beneficiarios: true,
   segundo: true,
   plan: true,
@@ -72,6 +90,7 @@ const references = ref<SaleListItem[]>([]);
 const reuseGroups = reactive<Record<ReuseGroup, boolean>>({
   contacto: true,
   segundoContacto: true,
+  titularSustituto: true,
   beneficiarios: true,
 });
 const selectedRefId = ref<number | null>(null);
@@ -96,9 +115,60 @@ const isParque = computed(
 const isPlanFuturo = computed(
   () => form.ubicacionPlan.planKind === 'PLAN_FUTURO',
 );
+const planSelected = computed(() => Boolean(form.ubicacionPlan.productId));
 
 const planSearchOpen = ref(false);
 const locationSearchOpen = ref(false);
+const branches = ref<SaleBranch[]>([]);
+const serviceTypes = ref<SaleBranch[]>([]);
+const sellerDefaults = ref<SellerDefaults>(emptySellerDefaults());
+
+const favoritePlans = computed(() =>
+  form.ubicacionPlan.planKind === 'PARQUE'
+    ? sellerDefaults.value.defaultParkPlans
+    : sellerDefaults.value.defaultFuturePlans,
+);
+
+function applyDefaultBranch() {
+  if (form.meta.branchId) return;
+  const id = sellerDefaults.value.defaultBranchId;
+  if (!id) return;
+  form.meta.branchId = id;
+  form.meta.branchName =
+    sellerDefaults.value.defaultBranchName ||
+    branches.value.find((b) => b.id === id)?.name ||
+    '';
+}
+
+function onBranchChange() {
+  const selected = branches.value.find((b) => b.id === form.meta.branchId);
+  form.meta.branchName = selected?.name ?? '';
+}
+
+function onServiceTypeChange() {
+  const selected = serviceTypes.value.find(
+    (t) => t.id === form.meta.serviceTypeId,
+  );
+  form.meta.serviceTypeName = selected?.name ?? '';
+}
+
+async function loadSellerDefaults() {
+  try {
+    const [{ data: branchData }, { data: typeData }, { data: defaults }] =
+      await Promise.all([
+        http.get<SaleBranch[]>('/odoo/sucursales'),
+        http.get<SaleBranch[]>('/odoo/tipos-servicio'),
+        http.get<SellerDefaults>('/users/me/defaults'),
+      ]);
+    branches.value = branchData || [];
+    serviceTypes.value = typeData || [];
+    sellerDefaults.value = { ...emptySellerDefaults(), ...defaults };
+    if (!saleId.value) applyDefaultBranch();
+  } catch {
+    branches.value = [];
+    serviceTypes.value = [];
+  }
+}
 
 function clearParkLocation() {
   const plan = form.ubicacionPlan;
@@ -119,12 +189,22 @@ function onPlanKindChange() {
   plan.productId = null;
   plan.productDefaultCode = '';
   plan.precioPlan = '';
+  plan.withoutInterest = false;
   if (plan.planKind !== 'PARQUE') {
     plan.preasignacion = false;
     clearParkLocation();
+    if (plan.planKind === 'PLAN_FUTURO' && !plan.servicioFunerario.trim()) {
+      plan.servicioFunerario = DEFAULT_SERVICIO_FUNERARIO;
+    }
   } else {
     plan.servicioFunerario = '';
   }
+  planInnerTab.value = 'plan';
+}
+
+function openPlanFinanciamientoTab() {
+  if (!planSelected.value) return;
+  planInnerTab.value = 'financiamiento';
 }
 
 function onPreasignacionChange() {
@@ -136,6 +216,7 @@ function onPlanSelected(plan: PlanProduct) {
   dest.nombrePlan = plan.name;
   dest.productId = plan.id;
   dest.productDefaultCode = plan.defaultCode ?? '';
+  dest.withoutInterest = plan.withoutInterest;
   const price = plan.listPrice > 0 ? String(plan.listPrice) : '';
   dest.precioPlan = price;
   if (price) form.pago.precioPlan = price;
@@ -144,22 +225,102 @@ function onPlanSelected(plan: PlanProduct) {
 }
 
 function formatMoneyLabel(raw: string) {
-  const n = Number(String(raw).replace(/[^0-9.-]/g, ''));
-  if (!Number.isFinite(n) || !String(raw).trim()) return '—';
-  return n.toLocaleString('es-MX', {
-    style: 'currency',
-    currency: 'MXN',
-    minimumFractionDigits: 2,
-  });
+  return formatMoneyDisplay(raw) || '—';
 }
 
-function recomputeSaldo() {
+function planFinancingConfig() {
+  return {
+    withoutInterest: form.ubicacionPlan.withoutInterest,
+  };
+}
+
+function recomputeFinancing() {
   const precio = form.ubicacionPlan.precioPlan || form.pago.precioPlan;
-  form.pago.saldo = computeSaldo(
-    precio,
-    form.pago.promocionDescuento,
-    form.pago.anticipo,
-  );
+  const breakdown = computeFinancingBreakdown({
+    precioPlan: precio,
+    descuentoPct: form.pago.promocionDescuento,
+    anticipo: form.pago.anticipo,
+    frecuencia: form.pago.frecuencia,
+    plazo: form.pago.plazo,
+    config: planFinancingConfig(),
+  });
+  form.pago.saldo = String(Number(breakdown.saldo.toFixed(2)));
+  form.pago.importeCadaPago = formatMoneyField(breakdown.importeCadaPago);
+  syncPagoInicialCuota();
+}
+
+const pagoInicialActivo = ref(false);
+
+function syncPagoInicialCuota() {
+  if (pagoInicialActivo.value) {
+    form.pago.pagoInicial = form.pago.importeCadaPago;
+  }
+}
+
+function restorePagoInicialActivoFromForm() {
+  pagoInicialActivo.value = parseMoney(form.pago.pagoInicial) > 0;
+  syncPagoInicialCuota();
+}
+
+watch(pagoInicialActivo, (active) => {
+  if (active) {
+    form.pago.pagoInicial = form.pago.importeCadaPago;
+  } else {
+    form.pago.pagoInicial = '';
+  }
+});
+
+watch(
+  () => form.ubicacionPlan.productId,
+  (productId) => {
+    if (!productId && planInnerTab.value === 'financiamiento') {
+      planInnerTab.value = 'plan';
+    }
+  },
+);
+
+/** @deprecated alias interno */
+function recomputeSaldo() {
+  recomputeFinancing();
+}
+
+const financingHint = computed(() => {
+  const code = normalizeFrequency(form.pago.frecuencia);
+  if (!code) return '';
+  const n = computeFinancingBreakdown({
+    precioPlan: form.ubicacionPlan.precioPlan || form.pago.precioPlan,
+    descuentoPct: form.pago.promocionDescuento,
+    anticipo: form.pago.anticipo,
+    frecuencia: form.pago.frecuencia,
+    plazo: form.pago.plazo,
+    config: planFinancingConfig(),
+  }).numberFrequencies;
+  if (code === 'CONTADO') {
+    return 'Un solo pago por el precio de contado.';
+  }
+  if (!n) return 'Indica el plazo en meses para calcular la cuota.';
+  return `${n} pagos programados`;
+});
+
+const financingHintLabel = computed(() =>
+  financingHint.value ? `· ${financingHint.value}` : '',
+);
+
+const pagoInicialHint = computed(() =>
+  pagoInicialActivo.value && form.pago.pagoInicial
+    ? `· ${formatMoneyLabel(form.pago.pagoInicial)}`
+    : '',
+);
+
+const isPagoContado = computed(
+  () => normalizeFrequency(form.pago.frecuencia) === 'CONTADO',
+);
+
+function onFrecuenciaChange() {
+  if (isPagoContado.value) {
+    form.pago.plazo = '0';
+  }
+  recomputeFinancing();
 }
 
 function clampDescuento() {
@@ -169,7 +330,13 @@ function clampDescuento() {
   if (allowedDiscountMax.value > 0 && pct > allowedDiscountMax.value) {
     pct = Math.trunc(allowedDiscountMax.value);
   }
-  form.pago.promocionDescuento = pct > 0 ? String(pct) : '';
+  form.pago.promocionDescuento = String(pct);
+  recomputeSaldo();
+}
+
+function clampAnticipo() {
+  const n = Math.max(0, parseMoney(form.pago.anticipo));
+  form.pago.anticipo = n > 0 ? String(Number(n.toFixed(2))) : '0';
   recomputeSaldo();
 }
 
@@ -189,9 +356,12 @@ watch(
     () => form.pago.precioPlan,
     () => form.pago.promocionDescuento,
     () => form.pago.anticipo,
+    () => form.pago.frecuencia,
+    () => form.pago.plazo,
+    () => form.ubicacionPlan.withoutInterest,
   ],
   () => {
-    recomputeSaldo();
+    recomputeFinancing();
   },
 );
 
@@ -212,14 +382,21 @@ function hasText(v?: string | null) {
   return Boolean(v && String(v).trim());
 }
 
-function firstBeneficiaryHasName(): boolean {
-  const b = form.beneficiarios[0];
-  if (!b) return false;
+function personHasName(p?: {
+  nombres?: string;
+  apellidoPaterno?: string;
+  apellidoMaterno?: string;
+}): boolean {
+  if (!p) return false;
   return Boolean(
-    b.nombres.trim() ||
-      b.apellidoPaterno.trim() ||
-      b.apellidoMaterno.trim(),
+    p.nombres?.trim() ||
+      p.apellidoPaterno?.trim() ||
+      p.apellidoMaterno?.trim(),
   );
+}
+
+function firstBeneficiaryHasName(): boolean {
+  return personHasName(form.beneficiarios[0]);
 }
 
 /** Completitud por sección (check en el menú de pasos). */
@@ -238,15 +415,21 @@ const stepComplete = computed<Record<StepKey, boolean>>(() => {
         plan.spaceId,
     );
   const precioOk = parseMoney(plan.precioPlan || pago.precioPlan) > 0;
+  const contado = normalizeFrequency(pago.frecuencia) === 'CONTADO';
   const finOk =
     hasText(pago.frecuencia) &&
-    hasText(pago.plazo) &&
+    (contado || hasText(pago.plazo)) &&
     hasText(pago.fechaProximoPago) &&
-    hasText(pago.anticipo);
+    parseMoney(pago.importeCadaPago) > 0 &&
+    (contado || hasText(pago.anticipo));
   const descOk = discountError() === null;
 
   return {
-    meta: hasText(form.meta.fecha) && hasText(form.meta.origenVenta),
+    meta:
+      hasText(form.meta.fecha) &&
+      hasText(form.meta.origenVenta) &&
+      Boolean(form.meta.branchId) &&
+      Boolean(form.meta.serviceTypeId),
     titular:
       hasText(c.nombres) &&
       hasText(c.apellidoPaterno) &&
@@ -257,6 +440,7 @@ const stepComplete = computed<Record<StepKey, boolean>>(() => {
       hasText(c.colonia) &&
       hasText(c.municipio) &&
       hasText(c.estado),
+    titularSustituto: personHasName(form.derechohabientes.titularSustituto),
     beneficiarios: firstBeneficiaryHasName(),
     segundo:
       hasText(sc.nombres) &&
@@ -329,13 +513,29 @@ function syncNombreAsesor() {
   }
 }
 
+function syncFolioFromSaleId() {
+  if (saleId.value) {
+    form.meta.folioSolicitud = String(saleId.value);
+  }
+}
+
 function payloadMeta() {
   syncNombreAsesor();
-  // Mantener compat PDF local; el API solo acepta beneficiarios.
+  syncFolioFromSaleId();
+  normalizeFinancingDefaults();
   syncBeneficiariosToDerechos(form);
-  const { derechohabientes: _omit, ...payload } = form;
   return {
-    payload,
+    payload: {
+      meta: form.meta,
+      contacto: form.contacto,
+      segundoContacto: form.segundoContacto,
+      beneficiarios: form.beneficiarios,
+      derechohabientes: form.derechohabientes,
+      ubicacionPlan: form.ubicacionPlan,
+      pago: form.pago,
+      declaraciones: form.declaraciones,
+      documentos: form.documentos,
+    },
     titularName: titularDisplayName(form),
     amount: form.pago.precioPlan || '0',
   };
@@ -352,6 +552,41 @@ function validateCurpIfPresent(): string | null {
   if (!curp) return null;
   if (!isValidCurp(curp)) {
     return 'La CURP no es válida. Verifica el formato de 18 caracteres.';
+  }
+  return null;
+}
+
+const minDateToday = computed(() => todayIsoDate());
+
+function clampScheduleDates() {
+  const min = todayIsoDate();
+  if (form.meta.fecha) {
+    form.meta.fecha = clampIsoDateMin(form.meta.fecha, min);
+  }
+  if (form.meta.fechaServicio) {
+    form.meta.fechaServicio = clampIsoDateMin(form.meta.fechaServicio, min);
+  }
+  if (!form.pago.fechaProximoPago?.trim()) {
+    form.pago.fechaProximoPago = min;
+  } else {
+    form.pago.fechaProximoPago = clampIsoDateMin(form.pago.fechaProximoPago, min);
+  }
+}
+
+function normalizeFinancingDefaults() {
+  Object.assign(form.pago, normalizePagoDefaults(form.pago));
+}
+
+function validateScheduleDates(): string | null {
+  const min = todayIsoDate();
+  if (isIsoDateBefore(form.meta.fecha, min)) {
+    return 'La fecha del contrato no puede ser anterior a hoy.';
+  }
+  if (form.meta.fechaServicio && isIsoDateBefore(form.meta.fechaServicio, min)) {
+    return 'La fecha de servicio no puede ser anterior a hoy.';
+  }
+  if (isIsoDateBefore(form.pago.fechaProximoPago, min)) {
+    return 'La fecha del próximo pago no puede ser anterior a hoy.';
   }
   return null;
 }
@@ -394,9 +629,12 @@ async function loadSale(id: number) {
     saleId.value = data.id;
     status.value = data.status;
     Object.assign(form, mergeSaleForm(data.payload));
+    syncFolioFromSaleId();
     ensureBeneficiarios();
     clampDescuento();
+    clampScheduleDates();
     recomputeSaldo();
+    restorePagoInicialActivoFromForm();
     syncNombreAsesor();
   } catch (e: unknown) {
     await alert({
@@ -419,6 +657,7 @@ onMounted(async () => {
     ensureBeneficiarios();
   }
   syncNombreAsesor();
+  void loadSellerDefaults();
 });
 
 function addBeneficiario() {
@@ -462,6 +701,21 @@ async function saveDraft() {
   }
 
   recomputeSaldo();
+  const scheduleErr = validateScheduleDates();
+  if (scheduleErr) {
+    await alert({
+      title: 'Fecha inválida',
+      message: scheduleErr,
+      variant: 'warning',
+    });
+    if (scheduleErr.includes('contrato')) openStep(0);
+    else if (scheduleErr.includes('próximo')) {
+      openStep(4);
+      planInnerTab.value = planSelected.value ? 'financiamiento' : 'plan';
+    } else openStep(0);
+    clampScheduleDates();
+    return;
+  }
   const descErr = discountError();
   if (descErr) {
     await alert({
@@ -470,7 +724,7 @@ async function saveDraft() {
       variant: 'warning',
     });
     openStep(4);
-    planInnerTab.value = 'financiamiento';
+    planInnerTab.value = planSelected.value ? 'financiamiento' : 'plan';
     return;
   }
 
@@ -484,10 +738,12 @@ async function saveDraft() {
       );
       saleId.value = data.id;
       status.value = 'DRAFT';
+      syncFolioFromSaleId();
     } else {
       const { data } = await http.post<SaleListItem>('/sales/drafts', body);
       saleId.value = data.id;
       status.value = 'DRAFT';
+      syncFolioFromSaleId();
       await router.replace({
         name: 'vendedor-venta-editar',
         params: { id: String(data.id) },
@@ -536,6 +792,21 @@ async function finalizeSale() {
   }
 
   recomputeSaldo();
+  const scheduleErr = validateScheduleDates();
+  if (scheduleErr) {
+    await alert({
+      title: 'Fecha inválida',
+      message: scheduleErr,
+      variant: 'warning',
+    });
+    if (scheduleErr.includes('contrato')) openStep(0);
+    else if (scheduleErr.includes('próximo')) {
+      openStep(4);
+      planInnerTab.value = planSelected.value ? 'financiamiento' : 'plan';
+    } else openStep(0);
+    clampScheduleDates();
+    return;
+  }
   const descErr = discountError();
   if (descErr) {
     await alert({
@@ -544,7 +815,7 @@ async function finalizeSale() {
       variant: 'warning',
     });
     openStep(4);
-    planInnerTab.value = 'financiamiento';
+    planInnerTab.value = planSelected.value ? 'financiamiento' : 'plan';
     return;
   }
 
@@ -566,11 +837,19 @@ async function finalizeSale() {
       : await http.post<SaleListItem>('/sales/finalize', body);
     status.value = data.status;
     saleId.value = data.id;
-    await alert({
-      title: 'Venta guardada',
-      message: `Venta #${data.id} lista. Continúa con el pago en Mis ventas.`,
-      variant: 'success',
-    });
+    if (data.odooSyncError) {
+      await alert({
+        title: 'Venta guardada',
+        message: `Venta #${data.id} lista, pero no se pudo crear el expediente en Odoo: ${data.odooSyncError}`,
+        variant: 'warning',
+      });
+    } else {
+      await alert({
+        title: 'Venta guardada',
+        message: `Venta #${data.id} lista. Continúa con el pago en Mis ventas.`,
+        variant: 'success',
+      });
+    }
     router.replace({ name: 'vendedor-ventas' });
   } catch (e: unknown) {
     await alert({
@@ -607,6 +886,12 @@ function applyReuse() {
   if (reuseGroups.contacto) Object.assign(form.contacto, src.contacto);
   if (reuseGroups.segundoContacto) {
     Object.assign(form.segundoContacto, src.segundoContacto);
+  }
+  if (reuseGroups.titularSustituto) {
+    Object.assign(
+      form.derechohabientes.titularSustituto,
+      src.derechohabientes.titularSustituto,
+    );
   }
   if (reuseGroups.beneficiarios) {
     form.beneficiarios.splice(
@@ -648,6 +933,12 @@ async function applyDevPrefill() {
   const { label, form: mock } = pickRandomDevSaleMock();
   if (devPrefillSteps.meta) Object.assign(form.meta, mock.meta);
   if (devPrefillSteps.titular) Object.assign(form.contacto, mock.contacto);
+  if (devPrefillSteps.titularSustituto) {
+    Object.assign(
+      form.derechohabientes.titularSustituto,
+      mock.derechohabientes.titularSustituto,
+    );
+  }
   if (devPrefillSteps.beneficiarios) {
     form.beneficiarios.splice(
       0,
@@ -665,6 +956,7 @@ async function applyDevPrefill() {
     Object.assign(form.pago, mock.pago);
     clampDescuento();
     recomputeSaldo();
+    restorePagoInicialActivoFromForm();
   }
   if (devPrefillSteps.docs) {
     form.documentos.ine = mock.documentos.ine;
@@ -842,11 +1134,13 @@ async function goBack() {
       <div v-show="step === 0" class="fields">
         <label>
           Fecha
-          <input v-model="form.meta.fecha" type="date" :disabled="!canEdit" />
-        </label>
-        <label>
-          Contrato
-          <input v-model="form.meta.contrato" :disabled="!canEdit" />
+          <input
+            v-model="form.meta.fecha"
+            type="date"
+            :min="minDateToday"
+            :disabled="!canEdit"
+            @change="clampScheduleDates"
+          />
         </label>
         <label>
           Origen de venta
@@ -862,15 +1156,49 @@ async function goBack() {
           </select>
         </label>
         <label>
-          Folio de solicitud
-          <input v-model="form.meta.folioSolicitud" :disabled="!canEdit" />
+          Sucursal
+          <select
+            :value="form.meta.branchId ?? ''"
+            :disabled="!canEdit"
+            @change="
+              form.meta.branchId = ($event.target as HTMLSelectElement).value
+                ? Number(($event.target as HTMLSelectElement).value)
+                : null;
+              onBranchChange();
+            "
+          >
+            <option value="">Selecciona sucursal…</option>
+            <option v-for="b in branches" :key="b.id" :value="b.id">
+              {{ b.name }}
+            </option>
+          </select>
+        </label>
+        <label>
+          Tipo de servicio
+          <select
+            :value="form.meta.serviceTypeId ?? ''"
+            :disabled="!canEdit"
+            @change="
+              form.meta.serviceTypeId = ($event.target as HTMLSelectElement).value
+                ? Number(($event.target as HTMLSelectElement).value)
+                : null;
+              onServiceTypeChange();
+            "
+          >
+            <option value="">Selecciona tipo de servicio…</option>
+            <option v-for="t in serviceTypes" :key="t.id" :value="t.id">
+              {{ t.name }}
+            </option>
+          </select>
         </label>
         <label>
           Fecha de servicio
           <input
             v-model="form.meta.fechaServicio"
             type="date"
+            :min="minDateToday"
             :disabled="!canEdit"
+            @change="clampScheduleDates"
           />
         </label>
         <label>
@@ -881,14 +1209,6 @@ async function goBack() {
             <option value="MINORIA">Minoría</option>
             <option value="REACTIVACION">Reactivación</option>
           </select>
-        </label>
-        <label>
-          Anterior
-          <input v-model="form.meta.anterior" :disabled="!canEdit" />
-        </label>
-        <label>
-          Verificación
-          <input v-model="form.meta.verificacion" :disabled="!canEdit" />
         </label>
       </div>
 
@@ -935,14 +1255,24 @@ async function goBack() {
               />
             </label>
           </div>
-          <label class="span-2">
+          <label class="span-2 curp-field">
             CURP
-            <input
-              v-model="form.contacto.curp"
-              maxlength="18"
-              autocomplete="off"
-              :disabled="!canEdit"
-            />
+            <div class="curp-field__row">
+              <input
+                v-model="form.contacto.curp"
+                maxlength="18"
+                autocomplete="off"
+                :disabled="!canEdit"
+              />
+              <a
+                :href="CURP_OFFICIAL_URL"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="btn btn-ghost btn-compact curp-field__link"
+              >
+                Obtener CURP
+              </a>
+            </div>
           </label>
           <div class="field-row">
             <label>
@@ -1111,8 +1441,64 @@ async function goBack() {
         </div>
       </div>
 
-      <!-- 2 · Beneficiarios -->
+      <!-- 2 · Titular sustituto -->
       <div v-show="step === 2" class="benef-block">
+        <p class="hint">
+          Titular sustituto (derechohabiente). Es distinto del titular y de
+          los beneficiarios.
+        </p>
+        <div class="benef-card">
+          <div class="fields">
+            <label>
+              Nombre(s)
+              <input
+                v-model="form.derechohabientes.titularSustituto.nombres"
+                :disabled="!canEdit"
+              />
+            </label>
+            <label>
+              Apellido paterno
+              <input
+                v-model="form.derechohabientes.titularSustituto.apellidoPaterno"
+                :disabled="!canEdit"
+              />
+            </label>
+            <label>
+              Apellido materno
+              <input
+                v-model="form.derechohabientes.titularSustituto.apellidoMaterno"
+                :disabled="!canEdit"
+              />
+            </label>
+            <label>
+              Parentesco
+              <input
+                v-model="form.derechohabientes.titularSustituto.parentesco"
+                :disabled="!canEdit"
+              />
+            </label>
+            <label>
+              Celular
+              <input
+                v-model="form.derechohabientes.titularSustituto.celular"
+                inputmode="tel"
+                :disabled="!canEdit"
+              />
+            </label>
+            <label>
+              Fecha de nacimiento
+              <input
+                v-model="form.derechohabientes.titularSustituto.fechaNacimiento"
+                type="date"
+                :disabled="!canEdit"
+              />
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3 · Beneficiarios -->
+      <div v-show="step === 3" class="benef-block">
         <p class="hint">
           El primer beneficiario es obligatorio. Puedes agregar uno más
           (máximo 2).
@@ -1182,8 +1568,8 @@ async function goBack() {
         </button>
       </div>
 
-      <!-- 3 · Segundo contacto -->
-      <div v-show="step === 3" class="titular-step">
+      <!-- 4 · Segundo contacto -->
+      <div v-show="step === 4" class="titular-step">
         <p class="hint">Segundo contacto del titular (residente local)</p>
         <div class="tabs" role="tablist" aria-label="Datos del segundo contacto">
           <button
@@ -1294,8 +1680,8 @@ async function goBack() {
         </div>
       </div>
 
-      <!-- 4 · Plan -->
-      <div v-show="step === 4" class="titular-step">
+      <!-- 5 · Plan -->
+      <div v-show="step === 5" class="step-scroll">
         <div class="tabs" role="tablist" aria-label="Plan y financiamiento">
           <button
             type="button"
@@ -1308,13 +1694,23 @@ async function goBack() {
           <button
             type="button"
             class="tab"
-            :class="{ active: planInnerTab === 'financiamiento' }"
-            @click="planInnerTab = 'financiamiento'"
+            :class="{
+              active: planInnerTab === 'financiamiento',
+              'tab--disabled': !planSelected,
+            }"
+            :disabled="!planSelected"
+            :title="
+              planSelected
+                ? undefined
+                : 'Selecciona un plan antes de capturar el financiamiento'
+            "
+            @click="openPlanFinanciamientoTab"
           >
             Financiamiento
           </button>
         </div>
 
+        <div class="step-scroll__body">
         <div v-show="planInnerTab === 'plan'" class="fields">
           <label class="span-2">
             Tipo de plan
@@ -1428,7 +1824,14 @@ async function goBack() {
         </div>
 
         <div v-show="planInnerTab === 'financiamiento'" class="fields">
-          <div class="span-2 plan-readonly">
+          <div
+            class="span-2 plan-readonly"
+            :class="{
+              'plan-readonly--3col':
+                form.ubicacionPlan.productId &&
+                form.ubicacionPlan.withoutInterest,
+            }"
+          >
             <div class="plan-readonly__item">
               <span>Precio del plan</span>
               <strong>{{
@@ -1440,6 +1843,14 @@ async function goBack() {
             <div class="plan-readonly__item">
               <span>Saldo</span>
               <strong>{{ formatMoneyLabel(form.pago.saldo) }}</strong>
+            </div>
+            <div v-if="form.ubicacionPlan.productId" class="plan-readonly__item">
+              <span>Financiamiento</span>
+              <strong>{{
+                form.ubicacionPlan.withoutInterest
+                  ? 'Sin intereses'
+                  : 'Con intereses'
+              }}</strong>
             </div>
           </div>
 
@@ -1457,7 +1868,12 @@ async function goBack() {
           </div>
 
           <label>
-            Descuento (%)
+            <span class="field-label">
+              <span class="field-label__title">Descuento (%)</span>
+              <small class="field-hint"
+                >· Máximo permitido: {{ allowedDiscountMax }}%</small
+              >
+            </span>
             <input
               v-model="form.pago.promocionDescuento"
               inputmode="numeric"
@@ -1469,9 +1885,6 @@ async function goBack() {
               placeholder="0"
               @blur="clampDescuento"
             />
-            <small class="field-hint">
-              Máximo permitido: {{ allowedDiscountMax }}%
-            </small>
           </label>
           <label>
             Anticipo
@@ -1479,44 +1892,64 @@ async function goBack() {
               v-model="form.pago.anticipo"
               inputmode="decimal"
               :disabled="!canEdit"
-              placeholder="0.00"
-            />
-          </label>
-          <label>
-            Pago inicial
-            <input
-              v-model="form.pago.pagoInicial"
-              inputmode="decimal"
-              :disabled="!canEdit"
-            />
-          </label>
-          <label>
-            Importe de cada pago
-            <input
-              v-model="form.pago.importeCadaPago"
-              inputmode="decimal"
-              :disabled="!canEdit"
+              placeholder="0"
+              @blur="clampAnticipo"
             />
           </label>
           <label>
             Frecuencia
-            <select v-model="form.pago.frecuencia" :disabled="!canEdit">
+            <select
+              v-model="form.pago.frecuencia"
+              :disabled="!canEdit"
+              @change="onFrecuenciaChange"
+            >
               <option value="">—</option>
               <option>SEMANAL</option>
               <option>QUINCENAL</option>
               <option>MENSUAL</option>
+              <option>CONTADO</option>
             </select>
           </label>
           <label>
-            Plazo
-            <input v-model="form.pago.plazo" :disabled="!canEdit" />
+            Plazo (meses)
+            <input
+              v-model="form.pago.plazo"
+              inputmode="numeric"
+              :disabled="!canEdit || isPagoContado"
+              placeholder="Ej. 24"
+            />
+          </label>
+          <label>
+            <span class="field-label">
+              <span class="field-label__title">Importe de cada pago</span>
+              <small class="field-hint">{{ financingHintLabel }}</small>
+            </span>
+            <input
+              :value="formatMoneyLabel(form.pago.importeCadaPago)"
+              readonly
+              class="plan-name__readonly"
+              placeholder="—"
+            />
+          </label>
+          <label class="check">
+            <input
+              v-model="pagoInicialActivo"
+              type="checkbox"
+              :disabled="!canEdit || parseMoney(form.pago.importeCadaPago) <= 0"
+            />
+            <span class="field-label field-label--inline">
+              <span class="field-label__title">Pago inicial</span>
+              <small class="field-hint">{{ pagoInicialHint }}</small>
+            </span>
           </label>
           <label>
             Próximo pago
             <input
               v-model="form.pago.fechaProximoPago"
               type="date"
+              :min="minDateToday"
               :disabled="!canEdit"
+              @change="clampScheduleDates"
             />
           </label>
           <label>
@@ -1527,22 +1960,12 @@ async function goBack() {
               placeholder="Ej. 15 de cada mes"
             />
           </label>
-          <div class="plan-readonly__item">
-            <span>Nombre del asesor</span>
-            <strong>{{ sellerAsesorName || '—' }}</strong>
-          </div>
-          <label>
-            Nombre del jefe de ventas
-            <input
-              v-model="form.pago.nombreJefeVentas"
-              :disabled="!canEdit"
-            />
-          </label>
+        </div>
         </div>
       </div>
 
-      <!-- 5 · Documentos + declaraciones -->
-      <div v-show="step === 5" class="fields docs">
+      <!-- 6 · Documentos + declaraciones -->
+      <div v-show="step === 6" class="fields docs">
         <p class="hint span-2">
           Imagen o PDF. Al completar todos los pasos podrás guardar la venta.
         </p>
@@ -1802,6 +2225,7 @@ async function goBack() {
     <SalePlanSearchModal
       :open="planSearchOpen"
       :plan-kind="form.ubicacionPlan.planKind"
+      :favorite-plans="favoritePlans"
       @close="planSearchOpen = false"
       @select="onPlanSelected"
     />
@@ -1884,6 +2308,10 @@ async function goBack() {
         <label class="check">
           <input v-model="reuseGroups.segundoContacto" type="checkbox" />
           Segundo contacto del titular
+        </label>
+        <label class="check">
+          <input v-model="reuseGroups.titularSustituto" type="checkbox" />
+          Titular sustituto
         </label>
         <label class="check">
           <input v-model="reuseGroups.beneficiarios" type="checkbox" />
@@ -2107,7 +2535,28 @@ async function goBack() {
 .form-panel--modal {
   margin: 0;
   padding: 0.15rem 0 0.25rem;
-  overflow: visible;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.step-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  flex: 1;
+  min-height: 0;
+}
+
+.step-scroll__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding-right: 0.1rem;
+  padding-bottom: 0.15rem;
 }
 
 .titular-step {
@@ -2138,6 +2587,19 @@ async function goBack() {
   background: var(--gsm-blue);
   border-color: var(--gsm-blue);
   color: #fff;
+}
+
+.tab--disabled,
+.tab:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.tab--disabled.active,
+.tab:disabled.active {
+  background: var(--vd-surface, #fff);
+  border-color: var(--vd-line);
+  color: var(--vd-muted);
 }
 
 .benef-block {
@@ -2235,6 +2697,14 @@ async function goBack() {
   gap: 0.65rem;
 }
 
+.plan-readonly--3col {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.plan-readonly--3col .plan-readonly__item strong {
+  font-size: 0.98rem;
+}
+
 .plan-readonly__item {
   display: flex;
   flex-direction: column;
@@ -2273,8 +2743,61 @@ async function goBack() {
   line-height: 1.35;
 }
 
+.field-label {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: baseline;
+  gap: 0.35rem;
+  width: 100%;
+  min-height: 1.25rem;
+}
+
+.field-label__title {
+  flex-shrink: 0;
+}
+
+.field-label--inline {
+  flex: 1;
+  min-width: 0;
+}
+
+.field-label .field-hint {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+
+.field-label .field-hint:empty {
+  visibility: hidden;
+}
+
+.curp-field__row {
+  display: flex;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+
+.curp-field__row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.curp-field__link {
+  flex-shrink: 0;
+  align-self: stretch;
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
 @media (max-width: 600px) {
-  .plan-readonly {
+  .plan-readonly,
+  .plan-readonly--3col {
     grid-template-columns: 1fr;
   }
 }

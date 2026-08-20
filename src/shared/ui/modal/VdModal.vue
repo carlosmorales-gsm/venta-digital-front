@@ -121,13 +121,24 @@ function onScrim() {
 .vd-modal--xlarge {
   width: min(820px, 100%);
   max-height: min(94vh, 900px);
+  display: flex;
+  flex-direction: column;
 }
 
 .vd-modal--xlarge .vd-modal__body {
   padding: 0.75rem 0.85rem;
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
 }
 
 .vd-modal__head {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -175,6 +186,7 @@ function onScrim() {
   padding: 0.9rem 1.25rem 1.15rem;
   border-top: 1px solid var(--vd-line);
   background: var(--vd-surface-2);
+  flex-shrink: 0;
 }
 
 @keyframes vd-modal-in {
@@ -185,6 +197,47 @@ function onScrim() {
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
+  }
+}
+
+@media (max-width: 1024px) {
+  .vd-modal-root {
+    padding: 0.45rem;
+    align-items: stretch;
+  }
+
+  .vd-modal--xlarge {
+    width: 100%;
+    max-height: 96dvh;
+    height: 96dvh;
+    border-radius: 12px;
+  }
+
+  .vd-modal--xlarge .vd-modal__body {
+    flex: 1;
+    min-height: 0;
+    padding: 0.65rem 0.75rem;
+  }
+
+  .vd-modal--wide {
+    width: 100%;
+    max-height: 92dvh;
+  }
+
+  .vd-modal__close {
+    width: 44px;
+    height: 44px;
+  }
+
+  .vd-modal__footer :deep(.btn) {
+    min-height: 48px;
+  }
+}
+
+@media (max-width: 900px) {
+  .vd-modal-root {
+    padding: 0.45rem;
+    align-items: stretch;
   }
 }
 

@@ -1,3 +1,5 @@
+import { todayIsoDate } from '../../../shared/utils/datetime';
+
 export type SaleStatus =
   | 'DRAFT'
   | 'PENDING_PAYMENT'
@@ -7,6 +9,9 @@ export type SaleStatus =
   | 'SUBMITTED'; // compat
 
 export type PlanKind = 'PARQUE' | 'PLAN_FUTURO';
+
+/** Valor por defecto en captura (plan a futuro). */
+export const DEFAULT_SERVICIO_FUNERARIO = 'Servicio funeral completo';
 
 export interface SalePersonName {
   apellidoPaterno: string;
@@ -34,6 +39,12 @@ export interface SaleFormData {
     fecha: string;
     contrato: string;
     origenVenta: string;
+    /** Id sale.order.branch de Odoo */
+    branchId: number | null;
+    branchName: string;
+    /** Id service.type de Odoo (sale.order.service_type_id) */
+    serviceTypeId: number | null;
+    serviceTypeName: string;
     folioSolicitud: string;
     fechaServicio: string;
     estatus: string;
@@ -100,6 +111,8 @@ export interface SaleFormData {
     spaceId: number | null;
     /** Bandera: muestra/exige ubicación parque */
     preasignacion: boolean;
+    /** product.template.without_interest — define cuota sin/con intereses. */
+    withoutInterest: boolean;
   };
   pago: {
     precioPlan: string;
@@ -131,10 +144,15 @@ export interface SaleFormData {
     comprobanteDomicilio: SaleAttachment | null;
     firmaCliente: SaleAttachment | null;
     ticketPago: SaleAttachment | null;
+    caratulaPdf: SaleAttachment | null;
   };
 }
 
-export type ReuseGroup = 'contacto' | 'segundoContacto' | 'beneficiarios';
+export type ReuseGroup =
+  | 'contacto'
+  | 'segundoContacto'
+  | 'titularSustituto'
+  | 'beneficiarios';
 
 export interface SaleListItem {
   id: number;
@@ -150,6 +168,8 @@ export interface SaleListItem {
   driveFolderUrl?: string | null;
   /** Ruta Drive: AÑO/MES/FOLIO-nombrecliente */
   driveFolderPath?: string | null;
+  odooReceptionSynced?: boolean;
+  odooSyncError?: string | null;
 }
 
 export function emptyPerson(): SalePersonName {
@@ -165,9 +185,14 @@ export function emptyBeneficiary(): SaleBeneficiary {
   };
 }
 
-function syncDerechos(beneficiarios: SaleBeneficiary[]) {
+function syncDerechos(
+  beneficiarios: SaleBeneficiary[],
+  titularSustituto?: SaleBeneficiary,
+): SaleFormData['derechohabientes'] {
   return {
-    titularSustituto: beneficiarios[0] ? { ...beneficiarios[0] } : emptyBeneficiary(),
+    titularSustituto: titularSustituto
+      ? { ...titularSustituto }
+      : emptyBeneficiary(),
     primerBeneficiario: beneficiarios[0]
       ? { ...beneficiarios[0] }
       : emptyBeneficiary(),
@@ -178,13 +203,17 @@ function syncDerechos(beneficiarios: SaleBeneficiary[]) {
 }
 
 export function createEmptySaleForm(): SaleFormData {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayIsoDate();
   const beneficiarios = [emptyBeneficiary()];
   return {
     meta: {
       fecha: today,
       contrato: '',
       origenVenta: '',
+      branchId: null,
+      branchName: '',
+      serviceTypeId: null,
+      serviceTypeName: '',
       folioSolicitud: '',
       fechaServicio: '',
       estatus: 'ACTIVO',
@@ -235,24 +264,25 @@ export function createEmptySaleForm(): SaleFormData {
       seccion: '',
       cuadrante: '',
       numero: '',
-      servicioFunerario: '',
+      servicioFunerario: DEFAULT_SERVICIO_FUNERARIO,
       parqueFuneral: '',
       parkId: null,
       sectionId: null,
       quadrantId: null,
       spaceId: null,
       preasignacion: false,
+      withoutInterest: false,
     },
     pago: {
       precioPlan: '',
       frecuencia: '',
-      promocionDescuento: '',
-      anticipo: '',
+      promocionDescuento: '0',
+      anticipo: '0',
       pagoInicial: '',
       plazo: '',
       importeCadaPago: '',
       saldo: '',
-      fechaProximoPago: '',
+      fechaProximoPago: todayIsoDate(),
       diasEspecificosPago: '',
       formaPago: '',
       cuenta: '',
@@ -271,6 +301,7 @@ export function createEmptySaleForm(): SaleFormData {
       comprobanteDomicilio: null,
       firmaCliente: null,
       ticketPago: null,
+      caratulaPdf: null,
     },
   };
 }
@@ -334,7 +365,7 @@ export function createPrefillSaleForm(): SaleFormData {
     observaciones: 'Prefiere contacto por WhatsApp por la tarde.',
     celular1: '6671234567',
     celular2: '6679876543',
-    correo: 'maria.garcia.demo@email.com',
+    correo: 'sistemas@sanmartin.com.mx',
     estadoCivil: 'CASADO',
     domicilioEntregaDocumentacion: 'Mismo domicilio del titular',
   };
@@ -361,7 +392,14 @@ export function createPrefillSaleForm(): SaleFormData {
       fechaNacimiento: '2010-11-08',
     },
   ];
-  base.derechohabientes = syncDerechos(base.beneficiarios);
+  base.derechohabientes = syncDerechos(base.beneficiarios, {
+    apellidoPaterno: 'López',
+    apellidoMaterno: 'Martínez',
+    nombres: 'Carlos',
+    parentesco: 'Hermano',
+    celular: '6673332211',
+    fechaNacimiento: '1985-03-15',
+  });
   base.ubicacionPlan = {
     planKind: 'PARQUE',
     nombrePlan: 'Plan Familiar Premium',
@@ -412,6 +450,21 @@ export function titularDisplayName(form: SaleFormData): string {
   return fullName(form.contacto) || 'Sin titular';
 }
 
+/** Rellena descuento, anticipo y próximo pago cuando vienen vacíos. */
+export function normalizePagoDefaults(
+  pago: SaleFormData['pago'],
+): SaleFormData['pago'] {
+  const descuento = String(pago.promocionDescuento ?? '').trim();
+  const anticipo = String(pago.anticipo ?? '').trim();
+  const proximoPago = String(pago.fechaProximoPago ?? '').trim();
+  return {
+    ...pago,
+    promocionDescuento: descuento || '0',
+    anticipo: anticipo || '0',
+    fechaProximoPago: proximoPago || todayIsoDate(),
+  };
+}
+
 export function mergeSaleForm(raw: unknown): SaleFormData {
   const base = createEmptySaleForm();
   if (!raw || typeof raw !== 'object') return base;
@@ -434,9 +487,24 @@ export function mergeSaleForm(raw: unknown): SaleFormData {
   if (!beneficiarios.length) beneficiarios = [emptyBeneficiary()];
   beneficiarios = beneficiarios.slice(0, 2);
 
+  const titularSustituto = src.derechohabientes?.titularSustituto
+    ? { ...emptyBeneficiary(), ...src.derechohabientes.titularSustituto }
+    : emptyBeneficiary();
+
   return {
     ...base,
-    meta: { ...base.meta, ...(src.meta ?? {}) },
+    meta: {
+      ...base.meta,
+      ...(src.meta ?? {}),
+      branchId:
+        src.meta?.branchId != null && Number(src.meta.branchId) > 0
+          ? Number(src.meta.branchId)
+          : null,
+      serviceTypeId:
+        src.meta?.serviceTypeId != null && Number(src.meta.serviceTypeId) > 0
+          ? Number(src.meta.serviceTypeId)
+          : null,
+    },
     contacto: {
       ...base.contacto,
       ...(src.contacto ?? {}),
@@ -452,12 +520,19 @@ export function mergeSaleForm(raw: unknown): SaleFormData {
       ...(src.segundoContacto ?? {}),
     },
     beneficiarios,
-    derechohabientes: syncDerechos(beneficiarios),
+    derechohabientes: syncDerechos(beneficiarios, titularSustituto),
     ubicacionPlan: {
       ...base.ubicacionPlan,
       ...(src.ubicacionPlan ?? {}),
       planKind:
         src.ubicacionPlan?.planKind === 'PARQUE' ? 'PARQUE' : 'PLAN_FUTURO',
+      servicioFunerario: (() => {
+        const kind =
+          src.ubicacionPlan?.planKind === 'PARQUE' ? 'PARQUE' : 'PLAN_FUTURO';
+        const raw = String(src.ubicacionPlan?.servicioFunerario ?? '').trim();
+        if (kind === 'PARQUE') return '';
+        return raw || DEFAULT_SERVICIO_FUNERARIO;
+      })(),
       productId:
         src.ubicacionPlan?.productId != null
           ? Number(src.ubicacionPlan.productId)
@@ -472,6 +547,12 @@ export function mergeSaleForm(raw: unknown): SaleFormData {
       preasignacion: asBool(
         src.ubicacionPlan?.preasignacion,
         base.ubicacionPlan.preasignacion,
+      ),
+      withoutInterest: asBool(
+        src.ubicacionPlan?.withoutInterest ??
+          (src.ubicacionPlan as { without_interest?: unknown } | undefined)
+            ?.without_interest,
+        base.ubicacionPlan.withoutInterest,
       ),
       parkId:
         src.ubicacionPlan?.parkId != null
@@ -490,17 +571,19 @@ export function mergeSaleForm(raw: unknown): SaleFormData {
           ? Number(src.ubicacionPlan.spaceId)
           : (base.ubicacionPlan.spaceId ?? null),
     },
-    pago: { ...base.pago, ...(src.pago ?? {}) },
+    pago: normalizePagoDefaults({ ...base.pago, ...(src.pago ?? {}) }),
     declaraciones: { ...base.declaraciones, ...(src.declaraciones ?? {}) },
     documentos: {
       ine: src.documentos?.ine ?? null,
       comprobanteDomicilio: src.documentos?.comprobanteDomicilio ?? null,
       firmaCliente: src.documentos?.firmaCliente ?? null,
       ticketPago: src.documentos?.ticketPago ?? null,
+      caratulaPdf: src.documentos?.caratulaPdf ?? null,
     },
   };
 }
 
 export function syncBeneficiariosToDerechos(form: SaleFormData) {
-  form.derechohabientes = syncDerechos(form.beneficiarios);
+  const ts = form.derechohabientes?.titularSustituto ?? emptyBeneficiary();
+  form.derechohabientes = syncDerechos(form.beneficiarios, ts);
 }

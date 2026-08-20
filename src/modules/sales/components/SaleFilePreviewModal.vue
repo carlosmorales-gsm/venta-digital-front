@@ -7,6 +7,10 @@ import {
   isImageAttachment,
   isPdfAttachment,
 } from '../utils/attachment-preview';
+import {
+  attachmentPdfBytes,
+  renderPdfToPageImages,
+} from '../utils/pdf-page-renderer';
 
 const props = defineProps<{
   open: boolean;
@@ -19,6 +23,9 @@ defineEmits<{
 }>();
 
 const objectUrl = ref<string | null>(null);
+const pdfLoading = ref(false);
+const pdfError = ref<string | null>(null);
+const pdfPages = ref<string[]>([]);
 
 const src = computed(() =>
   props.attachment ? attachmentPreviewSrc(props.attachment) : null,
@@ -37,6 +44,33 @@ const isDriveOnly = computed(() => {
   return !props.attachment.dataBase64?.trim() && Boolean(props.attachment.driveFileUrl);
 });
 
+const usePdfImages = computed(
+  () => isPdf.value && !isDriveOnly.value && pdfPages.value.length > 0,
+);
+
+async function loadPdfPreview() {
+  pdfPages.value = [];
+  pdfError.value = null;
+  if (!props.open || !props.attachment || !isPdfAttachment(props.attachment)) {
+    return;
+  }
+  if (isDriveOnly.value) return;
+
+  pdfLoading.value = true;
+  try {
+    const bytes = await attachmentPdfBytes(props.attachment);
+    if (!bytes) {
+      pdfError.value = 'No se pudo leer el PDF.';
+      return;
+    }
+    pdfPages.value = await renderPdfToPageImages(bytes);
+  } catch {
+    pdfError.value = 'No se pudo mostrar la vista previa del PDF.';
+  } finally {
+    pdfLoading.value = false;
+  }
+}
+
 watch(
   () => [props.open, props.attachment] as const,
   () => {
@@ -44,6 +78,7 @@ watch(
       URL.revokeObjectURL(objectUrl.value);
       objectUrl.value = null;
     }
+    void loadPdfPreview();
   },
 );
 
@@ -56,7 +91,8 @@ onUnmounted(() => {
   <VdModal
     :open="open"
     :title="title"
-    wide
+    :wide="!isPdf"
+    :xlarge="isPdf"
     @close="$emit('close')"
   >
     <div class="file-preview">
@@ -74,9 +110,22 @@ onUnmounted(() => {
           <img :src="src" :alt="attachment.name" />
         </div>
 
-        <div v-else-if="isPdf && !isDriveOnly" class="file-preview__frame file-preview__frame--pdf">
-          <iframe :src="src" title="Vista previa PDF" />
-        </div>
+        <template v-else-if="isPdf && !isDriveOnly">
+          <div v-if="pdfLoading" class="file-preview__state">
+            <span class="spinner" />
+            Cargando PDF…
+          </div>
+          <p v-else-if="pdfError" class="file-preview__empty">{{ pdfError }}</p>
+          <div v-else-if="usePdfImages" class="file-preview__pages">
+            <img
+              v-for="(page, i) in pdfPages"
+              :key="i"
+              :src="page"
+              class="file-preview__page"
+              :alt="`${attachment.name} · hoja ${i + 1}`"
+            />
+          </div>
+        </template>
 
         <div v-else class="file-preview__drive">
           <p>Este archivo está en Google Drive.</p>
@@ -95,11 +144,22 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 0.75rem;
   min-height: 12rem;
+  height: 100%;
+  min-width: 0;
 }
 
-.file-preview__empty {
+.file-preview__empty,
+.file-preview__state {
   margin: 0;
   color: var(--vd-muted);
+}
+
+.file-preview__state {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-height: 20vh;
+  justify-content: center;
 }
 
 .file-preview__meta {
@@ -118,6 +178,7 @@ onUnmounted(() => {
   display: grid;
   place-items: center;
   padding: 0.5rem;
+  -webkit-overflow-scrolling: touch;
 }
 
 .file-preview__frame img {
@@ -126,16 +187,30 @@ onUnmounted(() => {
   display: block;
 }
 
-.file-preview__frame--pdf {
-  padding: 0;
-  place-items: stretch;
+.file-preview__pages {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.85rem;
+  max-height: min(75vh, 820px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  background: #dfe6eb;
+  border-radius: 8px;
+  padding: 0.65rem;
+  flex: 1;
+  min-height: 0;
 }
 
-.file-preview__frame--pdf iframe {
-  width: 100%;
-  height: min(70vh, 640px);
-  border: 0;
+.file-preview__page {
+  width: min(100%, 420px);
+  height: auto;
+  display: block;
   background: #fff;
+  border-radius: 2px;
+  box-shadow: 0 2px 12px rgba(28, 42, 51, 0.14);
 }
 
 .file-preview__drive {
@@ -149,5 +224,26 @@ onUnmounted(() => {
 .file-preview__drive p {
   margin: 0;
   color: var(--vd-muted);
+}
+
+@media (max-width: 1024px) {
+  .file-preview {
+    min-height: 0;
+    flex: 1;
+  }
+
+  .file-preview__pages {
+    max-height: none;
+  }
+
+  .file-preview__page {
+    width: min(100%, 360px);
+  }
+
+  .file-preview__frame {
+    max-height: none;
+    flex: 1;
+    min-height: 0;
+  }
 }
 </style>
