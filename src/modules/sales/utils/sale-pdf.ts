@@ -825,7 +825,41 @@ async function drawPage2Official(doc: Doc, form: SaleFormData) {
   }
 }
 
-async function buildDoc(form: SaleFormData): Promise<jsPDF> {
+export type SalePdfOpts = { saleId?: number | null; status?: string };
+
+/** Sin firma (o venta aún no COMPLETED) la carátula es borrador. */
+export function isDraftCaratula(
+  form: SaleFormData,
+  opts?: SalePdfOpts,
+): boolean {
+  const status = String(opts?.status || '').toUpperCase();
+  if (status === 'COMPLETED' || status === 'SUBMITTED') return false;
+  const firma = form.documentos?.firmaCliente;
+  return !firma?.dataBase64?.trim();
+}
+
+function drawDraftWatermark(doc: Doc) {
+  const pages = doc.getNumberOfPages();
+  const ys = [PAGE_H * 0.14, PAGE_H * 0.38, PAGE_H * 0.62, PAGE_H * 0.86];
+  for (let i = 1; i <= pages; i++) {
+    doc.setPage(i);
+    doc.saveGraphicsState();
+    doc.setGState(new doc.GState({ opacity: 0.11 }));
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(78);
+    doc.setTextColor(130, 138, 146);
+    for (const y of ys) {
+      doc.text('BORRADOR', PAGE_W / 2, y, {
+        align: 'center',
+        baseline: 'middle',
+        angle: 32,
+      });
+    }
+    doc.restoreGraphicsState();
+  }
+}
+
+async function buildDoc(form: SaleFormData, opts?: SalePdfOpts): Promise<jsPDF> {
   const logo = await loadLogo();
   const doc = new jsPDF({
     unit: 'pt',
@@ -844,15 +878,19 @@ async function buildDoc(form: SaleFormData): Promise<jsPDF> {
   // Hoja 2: declaraciones oficiales tal cual
   doc.addPage([PAGE_W, PAGE_H]);
   await drawPage2Official(doc, form);
+
+  if (isDraftCaratula(form, opts)) {
+    drawDraftWatermark(doc);
+  }
   return doc;
 }
 
 /** PDF vectorial descargable (formato carátula). */
 export async function buildSalePreviewPdf(
   form: SaleFormData,
-  _opts?: { saleId?: number | null; status?: string },
+  opts?: SalePdfOpts,
 ): Promise<Blob> {
-  const doc = await buildDoc(form);
+  const doc = await buildDoc(form, opts);
   return doc.output('blob');
 }
 

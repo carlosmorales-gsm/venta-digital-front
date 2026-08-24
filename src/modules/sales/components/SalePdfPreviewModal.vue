@@ -2,7 +2,7 @@
 import { computed, onUnmounted, ref, watch } from 'vue';
 import VdModal from '../../../shared/ui/modal/VdModal.vue';
 import { pdfBlobViewUrl } from '../utils/pdf-page-renderer';
-import { buildSalePreviewBundle } from '../utils/sale-pdf';
+import { buildSalePreviewBundle, isDraftCaratula } from '../utils/sale-pdf';
 import type { SaleFormData } from '../types/sale-form';
 
 const props = defineProps<{
@@ -22,6 +22,16 @@ const embedUrl = ref<string | null>(null);
 
 const useEmbedFallback = computed(
   () => !loading.value && !error.value && pageImages.value.length === 0 && Boolean(embedUrl.value),
+);
+
+const isDraft = computed(() =>
+  isDraftCaratula(props.form, { saleId: props.saleId, status: props.status }),
+);
+const modalTitle = computed(() =>
+  isDraft.value ? 'Carátula del contrato (borrador)' : 'Carátula del contrato',
+);
+const downloadName = computed(() =>
+  isDraft.value ? 'caratula-contrato-borrador.pdf' : 'caratula-contrato.pdf',
 );
 
 async function render() {
@@ -69,7 +79,7 @@ onUnmounted(() => {
 <template>
   <VdModal
     :open="open"
-    title="Carátula del contrato"
+    :title="modalTitle"
     xlarge
     @close="emit('close')"
   >
@@ -98,7 +108,7 @@ onUnmounted(() => {
         v-if="downloadUrl"
         class="btn btn-accent"
         :href="downloadUrl"
-        download="caratula-contrato.pdf"
+        :download="downloadName"
       >
         Descargar PDF
       </a>

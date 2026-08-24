@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onActivated, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { extractApiError, http } from '../../../shared/api/http';
 import { formatUtcToLocal } from '../../../shared/utils/datetime';
@@ -25,7 +25,6 @@ import {
 import { buildPaymentTicketPdf } from '../utils/payment-ticket-pdf';
 import { buildSalePreviewPdf } from '../utils/sale-pdf';
 import {
-  lastWeekRange,
   matchesDateRange,
   textEqualsNormalized,
   textIncludesNormalized,
@@ -61,10 +60,9 @@ const loading = ref(true);
 const data = ref<SalesResponse | null>(null);
 const error = ref<string | null>(null);
 
-const defaultDates = lastWeekRange();
 const filters = reactive({
-  dateFrom: defaultDates.dateFrom,
-  dateTo: defaultDates.dateTo,
+  dateFrom: '',
+  dateTo: '',
   client: '',
 });
 const clientQuery = ref('');
@@ -118,8 +116,8 @@ const hasActiveFilters = computed(
   () =>
     !!filters.client.trim() ||
     !!clientQuery.value.trim() ||
-    filters.dateFrom !== defaultDates.dateFrom ||
-    filters.dateTo !== defaultDates.dateTo,
+    !!filters.dateFrom ||
+    !!filters.dateTo,
 );
 
 function onClientInput() {
@@ -140,14 +138,11 @@ function clearClient() {
 }
 
 function clearFilters() {
-  const range = lastWeekRange();
-  filters.dateFrom = range.dateFrom;
-  filters.dateTo = range.dateTo;
+  filters.dateFrom = '';
+  filters.dateTo = '';
   filters.client = '';
   clientQuery.value = '';
   clientMenuOpen.value = false;
-  defaultDates.dateFrom = range.dateFrom;
-  defaultDates.dateTo = range.dateTo;
 }
 
 const previewOpen = ref(false);
@@ -186,6 +181,7 @@ async function load() {
 }
 
 onMounted(load);
+onActivated(load);
 
 function goNew() {
   if ((data.value?.draftCount ?? 0) >= (data.value?.draftLimit ?? 3)) {
@@ -495,7 +491,12 @@ async function removeDraft(id: number) {
     <div class="panel filters">
       <div class="field">
         <label for="seller-filter-from">Desde</label>
-        <input id="seller-filter-from" v-model="filters.dateFrom" type="date" />
+        <input
+          id="seller-filter-from"
+          v-model="filters.dateFrom"
+          type="date"
+          title="Vacío: todas las ventas"
+        />
       </div>
       <div class="field">
         <label for="seller-filter-to">Hasta</label>

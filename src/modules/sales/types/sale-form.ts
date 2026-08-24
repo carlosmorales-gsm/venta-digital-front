@@ -11,7 +11,7 @@ export type SaleStatus =
 export type PlanKind = 'PARQUE' | 'PLAN_FUTURO';
 
 /** Valor por defecto en captura (plan a futuro). */
-export const DEFAULT_SERVICIO_FUNERARIO = 'Servicio funeral completo';
+export const DEFAULT_SERVICIO_FUNERARIO = 'SERVICIO FUNERAL COMPLETO';
 
 export interface SalePersonName {
   apellidoPaterno: string;

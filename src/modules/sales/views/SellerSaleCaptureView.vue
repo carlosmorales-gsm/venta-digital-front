@@ -28,6 +28,12 @@ import {
   type SaleStatus,
 } from '../types/sale-form';
 import { CURP_OFFICIAL_URL, isValidCurp } from '../utils/curp';
+import {
+  isEmptyOrValidMxPhone,
+  isValidMxPhone,
+  mxPhoneError,
+  normalizeMxPhone,
+} from '../utils/phone';
 import { pickRandomDevSaleMock } from '../utils/dev-sale-mocks';
 import {
   computeFinancingBreakdown,
@@ -44,6 +50,11 @@ import {
   isIsoDateBefore,
   todayIsoDate,
 } from '../../../shared/utils/datetime';
+import {
+  forceCaptureTextUppercase,
+  toSaleUppercase,
+  uppercaseSaleFormText,
+} from '../utils/sale-text';
 
 const isDev = import.meta.env.DEV;
 const auth = useAuthStore();
@@ -134,22 +145,23 @@ function applyDefaultBranch() {
   const id = sellerDefaults.value.defaultBranchId;
   if (!id) return;
   form.meta.branchId = id;
-  form.meta.branchName =
+  form.meta.branchName = toSaleUppercase(
     sellerDefaults.value.defaultBranchName ||
-    branches.value.find((b) => b.id === id)?.name ||
-    '';
+      branches.value.find((b) => b.id === id)?.name ||
+      '',
+  );
 }
 
 function onBranchChange() {
   const selected = branches.value.find((b) => b.id === form.meta.branchId);
-  form.meta.branchName = selected?.name ?? '';
+  form.meta.branchName = toSaleUppercase(selected?.name ?? '');
 }
 
 function onServiceTypeChange() {
   const selected = serviceTypes.value.find(
     (t) => t.id === form.meta.serviceTypeId,
   );
-  form.meta.serviceTypeName = selected?.name ?? '';
+  form.meta.serviceTypeName = toSaleUppercase(selected?.name ?? '');
 }
 
 async function loadSellerDefaults() {
@@ -213,7 +225,7 @@ function onPreasignacionChange() {
 
 function onPlanSelected(plan: PlanProduct) {
   const dest = form.ubicacionPlan;
-  dest.nombrePlan = plan.name;
+  dest.nombrePlan = toSaleUppercase(plan.name);
   dest.productId = plan.id;
   dest.productDefaultCode = plan.defaultCode ?? '';
   dest.withoutInterest = plan.withoutInterest;
@@ -368,13 +380,13 @@ watch(
 function onLocationSelected(loc: ParkLocationSelection) {
   const dest = form.ubicacionPlan;
   dest.parkId = loc.parkId;
-  dest.parqueFuneral = loc.parkName;
+  dest.parqueFuneral = toSaleUppercase(loc.parkName);
   dest.sectionId = loc.sectionId;
-  dest.seccion = loc.sectionName;
+  dest.seccion = toSaleUppercase(loc.sectionName);
   dest.quadrantId = loc.quadrantId;
-  dest.cuadrante = loc.quadrantName;
+  dest.cuadrante = toSaleUppercase(loc.quadrantName);
   dest.spaceId = loc.spaceId;
-  dest.numero = loc.spaceName;
+  dest.numero = toSaleUppercase(loc.spaceName);
   locationSearchOpen.value = false;
 }
 
@@ -436,16 +448,22 @@ const stepComplete = computed<Record<StepKey, boolean>>(() => {
       isValidCurp(c.curp) &&
       hasText(c.fechaNacimiento) &&
       hasText(c.sexo) &&
+      isValidMxPhone(c.celular1) &&
+      isEmptyOrValidMxPhone(c.celular2) &&
       hasText(c.direccion) &&
       hasText(c.colonia) &&
       hasText(c.municipio) &&
       hasText(c.estado),
-    titularSustituto: personHasName(form.derechohabientes.titularSustituto),
-    beneficiarios: firstBeneficiaryHasName(),
+    titularSustituto:
+      personHasName(form.derechohabientes.titularSustituto) &&
+      isEmptyOrValidMxPhone(form.derechohabientes.titularSustituto.celular),
+    beneficiarios:
+      firstBeneficiaryHasName() &&
+      form.beneficiarios.every((b) => isEmptyOrValidMxPhone(b.celular)),
     segundo:
       hasText(sc.nombres) &&
       hasText(sc.apellidoPaterno) &&
-      hasText(sc.celular),
+      isValidMxPhone(sc.celular),
     plan:
       Boolean(plan.productId) &&
       parkOk &&
@@ -477,11 +495,75 @@ const progress = computed(
   () => (completedCount.value / STEPS.length) * 100,
 );
 
+function allFilledPhonesValid(): boolean {
+  const c = form.contacto;
+  const phones = [
+    c.celular1,
+    c.celular2,
+    form.segundoContacto.celular,
+    form.derechohabientes.titularSustituto.celular,
+    ...form.beneficiarios.map((b) => b.celular),
+  ];
+  return phones.every((p) => isEmptyOrValidMxPhone(p));
+}
+
+function firstPhoneError(
+  requireMain = true,
+): { message: string; step: number } | null {
+  const checks: Array<{
+    value: string;
+    required: boolean;
+    label: string;
+    step: number;
+  }> = [
+    {
+      value: form.contacto.celular1,
+      required: requireMain,
+      label: 'Celular 1 del titular',
+      step: 1,
+    },
+    { value: form.contacto.celular2, required: false, label: 'Celular 2 del titular', step: 1 },
+    {
+      value: form.derechohabientes.titularSustituto.celular,
+      required: false,
+      label: 'Celular del titular sustituto',
+      step: 2,
+    },
+    ...form.beneficiarios.map((b, i) => ({
+      value: b.celular,
+      required: false,
+      label: `Celular del beneficiario ${i + 1}`,
+      step: 3,
+    })),
+    {
+      value: form.segundoContacto.celular,
+      required: requireMain,
+      label: 'Celular del segundo contacto',
+      step: 4,
+    },
+  ];
+  for (const check of checks) {
+    const err = mxPhoneError(check.value, check.required);
+    if (err) {
+      return { message: `${check.label}: ${err}`, step: check.step };
+    }
+  }
+  return null;
+}
+
+function onPhoneInput(
+  event: Event,
+  assign: (value: string) => void,
+) {
+  assign(normalizeMxPhone((event.target as HTMLInputElement).value));
+}
+
 /** Mínimo para poder guardar borrador. */
 const canSaveDraft = computed(() => {
   const c = form.contacto;
   if (!hasText(c.nombres) || !hasText(c.apellidoPaterno)) return false;
   if (hasText(c.curp) && !isValidCurp(c.curp)) return false;
+  if (!allFilledPhonesValid()) return false;
   return true;
 });
 
@@ -524,6 +606,7 @@ function payloadMeta() {
   syncFolioFromSaleId();
   normalizeFinancingDefaults();
   syncBeneficiariosToDerechos(form);
+  uppercaseSaleFormText(form);
   return {
     payload: {
       meta: form.meta,
@@ -629,6 +712,7 @@ async function loadSale(id: number) {
     saleId.value = data.id;
     status.value = data.status;
     Object.assign(form, mergeSaleForm(data.payload));
+    uppercaseSaleFormText(form);
     syncFolioFromSaleId();
     ensureBeneficiarios();
     clampDescuento();
@@ -680,7 +764,7 @@ async function saveDraft() {
     await alert({
       title: 'Datos básicos',
       message:
-        'Para guardar el borrador captura al menos nombre y apellido paterno del titular. Si capturas CURP, debe ser válida.',
+        'Para guardar el borrador captura al menos nombre y apellido paterno del titular. Si capturas CURP o celular, deben ser válidos.',
       variant: 'warning',
     });
     openStep(1);
@@ -697,6 +781,17 @@ async function saveDraft() {
     });
     openStep(1);
     titularInnerTab.value = 'personales';
+    return;
+  }
+
+  if (!allFilledPhonesValid()) {
+    const filledErr = firstPhoneError(false);
+    await alert({
+      title: 'Celular',
+      message: filledErr?.message ?? 'Hay un celular inválido.',
+      variant: 'warning',
+    });
+    openStep(filledErr?.step ?? 1);
     return;
   }
 
@@ -788,6 +883,19 @@ async function finalizeSale() {
     });
     openStep(1);
     titularInnerTab.value = 'personales';
+    return;
+  }
+
+  const phoneErr = firstPhoneError();
+  if (phoneErr) {
+    await alert({
+      title: 'Celular',
+      message: phoneErr.message,
+      variant: 'warning',
+    });
+    openStep(phoneErr.step);
+    if (phoneErr.step === 1) titularInnerTab.value = 'personales';
+    if (phoneErr.step === 4) segundoInnerTab.value = 'personales';
     return;
   }
 
@@ -902,6 +1010,7 @@ function applyReuse() {
     ensureBeneficiarios();
     syncBeneficiariosToDerechos(form);
   }
+  uppercaseSaleFormText(form);
   reuseOpen.value = false;
 }
 
@@ -964,6 +1073,7 @@ async function applyDevPrefill() {
     Object.assign(form.declaraciones, mock.declaraciones);
   }
 
+  uppercaseSaleFormText(form);
   devPrefillOpen.value = false;
   await alert({
     title: 'Prellenar (dev)',
@@ -1129,7 +1239,11 @@ async function goBack() {
       xlarge
       @close="closeStepForm"
     >
-      <form class="form-panel form-panel--modal" @submit.prevent>
+      <form
+        class="form-panel form-panel--modal"
+        @submit.prevent
+        @input.capture="forceCaptureTextUppercase"
+      >
       <!-- 0 · Contrato -->
       <div v-show="step === 0" class="fields">
         <label>
@@ -1310,18 +1424,36 @@ async function goBack() {
             <label>
               Celular 1
               <input
-                v-model="form.contacto.celular1"
-                inputmode="tel"
+                :value="form.contacto.celular1"
+                inputmode="numeric"
+                maxlength="10"
+                autocomplete="tel"
                 :disabled="!canEdit"
+                @input="onPhoneInput($event, (v) => (form.contacto.celular1 = v))"
               />
+              <small
+                v-if="mxPhoneError(form.contacto.celular1)"
+                class="field-error"
+              >
+                {{ mxPhoneError(form.contacto.celular1) }}
+              </small>
             </label>
             <label>
               Celular 2
               <input
-                v-model="form.contacto.celular2"
-                inputmode="tel"
+                :value="form.contacto.celular2"
+                inputmode="numeric"
+                maxlength="10"
+                autocomplete="tel"
                 :disabled="!canEdit"
+                @input="onPhoneInput($event, (v) => (form.contacto.celular2 = v))"
               />
+              <small
+                v-if="mxPhoneError(form.contacto.celular2)"
+                class="field-error"
+              >
+                {{ mxPhoneError(form.contacto.celular2) }}
+              </small>
             </label>
           </div>
           <label class="span-2">
@@ -1480,10 +1612,24 @@ async function goBack() {
             <label>
               Celular
               <input
-                v-model="form.derechohabientes.titularSustituto.celular"
-                inputmode="tel"
+                :value="form.derechohabientes.titularSustituto.celular"
+                inputmode="numeric"
+                maxlength="10"
+                autocomplete="tel"
                 :disabled="!canEdit"
+                @input="
+                  onPhoneInput(
+                    $event,
+                    (v) => (form.derechohabientes.titularSustituto.celular = v),
+                  )
+                "
               />
+              <small
+                v-if="mxPhoneError(form.derechohabientes.titularSustituto.celular)"
+                class="field-error"
+              >
+                {{ mxPhoneError(form.derechohabientes.titularSustituto.celular) }}
+              </small>
             </label>
             <label>
               Fecha de nacimiento
@@ -1542,10 +1688,16 @@ async function goBack() {
             <label>
               Celular
               <input
-                v-model="b.celular"
-                inputmode="tel"
+                :value="b.celular"
+                inputmode="numeric"
+                maxlength="10"
+                autocomplete="tel"
                 :disabled="!canEdit"
+                @input="onPhoneInput($event, (v) => (b.celular = v))"
               />
+              <small v-if="mxPhoneError(b.celular)" class="field-error">
+                {{ mxPhoneError(b.celular) }}
+              </small>
             </label>
             <label>
               Fecha de nacimiento
@@ -1631,10 +1783,19 @@ async function goBack() {
           <label class="span-2">
             Celular
             <input
-              v-model="form.segundoContacto.celular"
-              inputmode="tel"
+              :value="form.segundoContacto.celular"
+              inputmode="numeric"
+              maxlength="10"
+              autocomplete="tel"
               :disabled="!canEdit"
+              @input="onPhoneInput($event, (v) => (form.segundoContacto.celular = v))"
             />
+            <small
+              v-if="mxPhoneError(form.segundoContacto.celular)"
+              class="field-error"
+            >
+              {{ mxPhoneError(form.segundoContacto.celular) }}
+            </small>
           </label>
         </div>
 
@@ -2743,6 +2904,14 @@ async function goBack() {
   line-height: 1.35;
 }
 
+.field-error {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #b42318;
+}
+
 .field-label {
   display: flex;
   flex-direction: row;
@@ -2817,6 +2986,11 @@ async function goBack() {
   font-size: 16px;
   color: var(--vd-ink);
   background: #fff;
+}
+
+.fields input:not([type='email']):not([type='date']):not([type='number']):not([type='checkbox']):not([type='file']):not([type='hidden']):not([inputmode='numeric']):not([inputmode='decimal']),
+.fields textarea {
+  text-transform: uppercase;
 }
 
 .fields textarea {
