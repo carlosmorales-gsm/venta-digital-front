@@ -745,8 +745,26 @@ function drawPlanPago(doc: Doc, form: SaleFormData) {
   );
   checkLabel(doc, has(p.formaPago, 'EFECTIVO'), 185, y5 + 6.5, 'EFECTIVO', 4.4, 5.4);
   checkLabel(doc, has(p.formaPago, 'CHEQUE'), 245, y5 + 6.5, 'CHEQUE', 4.4, 5.4);
-  fieldInline(doc, 'CUENTA:', p.cuenta, 310, y5 + 10, 35, 90, 7);
-  fieldInline(doc, 'BANCO:', p.banco, 450, y5 + 10, 32, 90, 7);
+  checkLabel(
+    doc,
+    has(p.formaPago, 'DEBITO'),
+    292,
+    y5 + 6.5,
+    'T. DÉBITO',
+    4.4,
+    5.2,
+  );
+  checkLabel(
+    doc,
+    has(p.formaPago, 'CREDITO'),
+    348,
+    y5 + 6.5,
+    'T. CRÉDITO',
+    4.4,
+    5.2,
+  );
+  fieldInline(doc, 'CUENTA:', p.cuenta, 412, y5 + 10, 32, 58, 6.6);
+  fieldInline(doc, 'BANCO:', p.banco, 508, y5 + 10, 28, 72, 6.6);
 }
 
 function loadImageDataUrl(src: string): Promise<string | null> {

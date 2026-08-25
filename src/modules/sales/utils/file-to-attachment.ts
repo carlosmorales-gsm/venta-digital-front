@@ -9,12 +9,26 @@ const ACCEPT =
   'image/jpeg,image/png,image/webp,image/gif,image/bmp,application/pdf,.pdf';
 
 export const UPLOAD_ACCEPT = ACCEPT;
+export const PDF_UPLOAD_ACCEPT = 'application/pdf,.pdf';
+
+export function isPdfFile(file: File): boolean {
+  const mime = (file.type || '').toLowerCase();
+  if (mime === 'application/pdf') return true;
+  return file.name.toLowerCase().endsWith('.pdf');
+}
 
 export function uploadSizeErrorMessage(file: File): string | null {
   if (file.size > MAX_UPLOAD_BYTES) {
     return `La foto o archivo supera el máximo de ${MAX_UPLOAD_MB} MB. Elige uno más ligero.`;
   }
   return null;
+}
+
+export async function fileToPdfAttachment(file: File): Promise<SaleAttachment> {
+  if (!isPdfFile(file)) {
+    throw new Error('La constancia de situación fiscal solo acepta PDF');
+  }
+  return fileToAttachment(file);
 }
 
 export async function fileToAttachment(file: File): Promise<SaleAttachment> {

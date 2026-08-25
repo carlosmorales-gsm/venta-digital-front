@@ -17,6 +17,18 @@ function mockDoc(name: string): SaleAttachment {
   };
 }
 
+/** PDF mínimo para mocks con factura = SI. */
+const TINY_PDF_B64 =
+  'JVBERi0xLjEKMSAwIG9iajw8L1R5cGUvQ2F0YWxvZz4+ZW5kb2JqCnRyYWlsZXI8PC9Sb290IDEgMCBSPj4KJSVFT0YK';
+
+function mockPdf(name: string): SaleAttachment {
+  return {
+    name,
+    mime: 'application/pdf',
+    dataBase64: TINY_PDF_B64,
+  };
+}
+
 function nextMonthIso(): string {
   const d = new Date();
   d.setMonth(d.getMonth() + 1);
@@ -996,6 +1008,10 @@ function buildFromSeed(seed: DevSaleSeed): SaleFormData {
     documentos: {
       ine: mockDoc('ine-mock.png'),
       comprobanteDomicilio: mockDoc('comprobante-mock.png'),
+      constanciaSituacionFiscal:
+        seed.contacto.factura === 'SI'
+          ? mockPdf('constancia-mock.pdf')
+          : null,
       firmaCliente: null,
       ticketPago: null,
       caratulaPdf: null,

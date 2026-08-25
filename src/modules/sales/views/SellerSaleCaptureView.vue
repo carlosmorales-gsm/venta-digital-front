@@ -50,7 +50,10 @@ import {
   parseDiscountPct,
   parseMoney,
 } from '../utils/sale-finance';
-import { fileToAttachment } from '../utils/file-to-attachment';
+import {
+  fileToAttachment,
+  fileToPdfAttachment,
+} from '../utils/file-to-attachment';
 import { useAuthStore } from '../../auth/stores/auth.store';
 import {
   clampIsoDateMin,
@@ -400,6 +403,15 @@ watch(
   },
 );
 
+const pideFactura = computed(() => form.contacto.factura === 'SI');
+
+watch(
+  () => form.contacto.factura,
+  (value) => {
+    if (value !== 'SI') form.documentos.constanciaSituacionFiscal = null;
+  },
+);
+
 function onLocationSelected(loc: ParkLocationSelection) {
   const dest = form.ubicacionPlan;
   dest.parkId = loc.parkId;
@@ -497,6 +509,8 @@ const stepComplete = computed<Record<StepKey, boolean>>(() => {
     docs:
       Boolean(form.documentos.ine) &&
       Boolean(form.documentos.comprobanteDomicilio) &&
+      (form.contacto.factura !== 'SI' ||
+        Boolean(form.documentos.constanciaSituacionFiscal)) &&
       hasText(form.declaraciones.aceptaMercadotecnia) &&
       hasText(form.declaraciones.aceptaPublicidad),
   };
@@ -1197,6 +1211,8 @@ async function applyDevPrefill() {
   if (devPrefillSteps.docs) {
     form.documentos.ine = mock.documentos.ine;
     form.documentos.comprobanteDomicilio = mock.documentos.comprobanteDomicilio;
+    form.documentos.constanciaSituacionFiscal =
+      mock.documentos.constanciaSituacionFiscal;
     Object.assign(form.declaraciones, mock.declaraciones);
   }
 
@@ -1209,15 +1225,20 @@ async function applyDevPrefill() {
   });
 }
 
-async function onFile(
-  kind: 'ine' | 'comprobanteDomicilio',
-  ev: Event,
-) {
+type CaptureDocKind =
+  | 'ine'
+  | 'comprobanteDomicilio'
+  | 'constanciaSituacionFiscal';
+
+async function onFile(kind: CaptureDocKind, ev: Event) {
   const input = ev.target as HTMLInputElement;
   const file = input.files?.[0];
   if (!file) return;
   try {
-    form.documentos[kind] = await fileToAttachment(file);
+    form.documentos[kind] =
+      kind === 'constanciaSituacionFiscal'
+        ? await fileToPdfAttachment(file)
+        : await fileToAttachment(file);
   } catch (e: unknown) {
     await alert({
       title: 'Archivo',
@@ -1229,7 +1250,7 @@ async function onFile(
   }
 }
 
-function clearFile(kind: 'ine' | 'comprobanteDomicilio') {
+function clearFile(kind: CaptureDocKind) {
   if (!canEdit.value) return;
   form.documentos[kind] = null;
 }
@@ -2418,6 +2439,90 @@ async function goBack() {
                 type="button"
                 class="upload-card__remove"
                 @click="clearFile('comprobanteDomicilio')"
+              >
+                Quitar
+              </button>
+            </div>
+          </div>
+
+          <div
+            v-if="pideFactura"
+            class="upload-card"
+            :class="{
+              'upload-card--filled': form.documentos.constanciaSituacionFiscal,
+              'upload-card--disabled': !canEdit,
+            }"
+          >
+            <div class="upload-card__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M7 3.5h7.2L19 8.3V20a1.5 1.5 0 0 1-1.5 1.5h-10A1.5 1.5 0 0 1 6 20V5a1.5 1.5 0 0 1 1-1.5z"
+                  stroke="currentColor"
+                  stroke-width="1.7"
+                  stroke-linejoin="round"
+                />
+                <path
+                  d="M14 3.5V8h5"
+                  stroke="currentColor"
+                  stroke-width="1.7"
+                  stroke-linejoin="round"
+                />
+                <path
+                  d="M9 13h6M9 16.5h4"
+                  stroke="currentColor"
+                  stroke-width="1.7"
+                  stroke-linecap="round"
+                />
+              </svg>
+            </div>
+            <div class="upload-card__body">
+              <strong>Constancia de situación fiscal</strong>
+              <template v-if="form.documentos.constanciaSituacionFiscal">
+                <span class="upload-card__name">{{
+                  form.documentos.constanciaSituacionFiscal.name
+                }}</span>
+                <span class="upload-card__meta">PDF</span>
+              </template>
+              <span v-else class="upload-card__hint"
+                >Solo PDF. Obligatoria si el titular requiere factura</span
+              >
+            </div>
+            <div class="upload-card__actions">
+              <label class="upload-card__btn">
+                <input
+                  type="file"
+                  accept="application/pdf,.pdf"
+                  :disabled="!canEdit"
+                  @change="onFile('constanciaSituacionFiscal', $event)"
+                />
+                <span class="upload-card__btn-ui" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none">
+                    <path
+                      d="M12 16V5M12 5l-3.5 3.5M12 5l3.5 3.5"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
+                    <path
+                      d="M5 16.5V18a1.5 1.5 0 0 0 1.5 1.5h11A1.5 1.5 0 0 0 19 18v-1.5"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                    />
+                  </svg>
+                </span>
+                <span class="upload-card__btn-text">{{
+                  form.documentos.constanciaSituacionFiscal
+                    ? 'Cambiar'
+                    : 'Adjuntar'
+                }}</span>
+              </label>
+              <button
+                v-if="form.documentos.constanciaSituacionFiscal && canEdit"
+                type="button"
+                class="upload-card__remove"
+                @click="clearFile('constanciaSituacionFiscal')"
               >
                 Quitar
               </button>

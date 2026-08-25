@@ -142,6 +142,7 @@ export interface SaleFormData {
   documentos: {
     ine: SaleAttachment | null;
     comprobanteDomicilio: SaleAttachment | null;
+    constanciaSituacionFiscal: SaleAttachment | null;
     firmaCliente: SaleAttachment | null;
     ticketPago: SaleAttachment | null;
     caratulaPdf: SaleAttachment | null;
@@ -310,6 +311,7 @@ export function createEmptySaleForm(): SaleFormData {
     documentos: {
       ine: null,
       comprobanteDomicilio: null,
+      constanciaSituacionFiscal: null,
       firmaCliente: null,
       ticketPago: null,
       caratulaPdf: null,
@@ -588,6 +590,8 @@ export function mergeSaleForm(raw: unknown): SaleFormData {
     documentos: {
       ine: src.documentos?.ine ?? null,
       comprobanteDomicilio: src.documentos?.comprobanteDomicilio ?? null,
+      constanciaSituacionFiscal:
+        src.documentos?.constanciaSituacionFiscal ?? null,
       firmaCliente: src.documentos?.firmaCliente ?? null,
       ticketPago: src.documentos?.ticketPago ?? null,
       caratulaPdf: src.documentos?.caratulaPdf ?? null,

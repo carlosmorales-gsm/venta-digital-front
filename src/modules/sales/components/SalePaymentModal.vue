@@ -32,11 +32,17 @@ const isEfectivo = computed(
 const formaPagoNorm = computed(() =>
   String(pago.formaPago || '').trim().toUpperCase(),
 );
+const isTarjeta = computed(() => formaPagoNorm.value.startsWith('TARJETA'));
 const showBankFields = computed(
-  () => formaPagoNorm.value === 'TRANSFERENCIA' || formaPagoNorm.value === 'CHEQUE',
+  () =>
+    formaPagoNorm.value === 'TRANSFERENCIA' ||
+    formaPagoNorm.value === 'CHEQUE' ||
+    isTarjeta.value,
 );
 const showCashFields = computed(() => isEfectivo.value);
-const requiresCuenta = computed(() => formaPagoNorm.value === 'TRANSFERENCIA');
+const requiresCuenta = computed(
+  () => formaPagoNorm.value === 'TRANSFERENCIA' || isTarjeta.value,
+);
 
 function formatMoneyNumber(n: number) {
   return n.toLocaleString('es-MX', {
@@ -180,7 +186,11 @@ function onSave() {
     fechaProximoPago: fromPlan.fechaProximoPago || pago.fechaProximoPago,
     diasEspecificosPago:
       fromPlan.diasEspecificosPago || pago.diasEspecificosPago,
-    cuenta: isEfectivo.value ? '' : requiresCuenta.value ? pago.cuenta.trim() : '',
+    cuenta: isEfectivo.value
+      ? ''
+      : requiresCuenta.value
+        ? pago.cuenta.trim()
+        : '',
     banco: isEfectivo.value ? '' : resolveBanco(),
     montoRecibido: isEfectivo.value ? montoRecibido : '',
     cambio: isEfectivo.value ? resolveCambio() : '',
@@ -216,14 +226,21 @@ const saveBlockReason = computed((): string | null => {
     return null;
   }
 
-  if (forma === 'TRANSFERENCIA' || forma === 'CHEQUE') {
+  if (
+    forma === 'TRANSFERENCIA' ||
+    forma === 'CHEQUE' ||
+    forma === 'TARJETA DEBITO' ||
+    forma === 'TARJETA CREDITO'
+  ) {
     const banco = resolveBanco();
     if (!banco) return 'Selecciona el banco.';
     if (isOtherBank(bancoChoice.value) && !bancoOtro.value.trim()) {
       return 'Escribe el nombre del banco.';
     }
     if (requiresCuenta.value && !pago.cuenta.trim()) {
-      return 'Indica la cuenta de transferencia.';
+      return forma.startsWith('TARJETA')
+        ? 'Indica la cuenta de la tarjeta.'
+        : 'Indica la cuenta de transferencia.';
     }
     return null;
   }
@@ -263,6 +280,8 @@ const saveBlockReason = computed((): string | null => {
             <option>TRANSFERENCIA</option>
             <option>EFECTIVO</option>
             <option>CHEQUE</option>
+            <option value="TARJETA DEBITO">TARJETA DÉBITO</option>
+            <option value="TARJETA CREDITO">TARJETA CRÉDITO</option>
           </select>
         </label>
 

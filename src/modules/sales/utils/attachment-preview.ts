@@ -3,6 +3,7 @@ import type { SaleAttachment, SaleFormData } from '../types/sale-form';
 export type AttachmentKind =
   | 'ine'
   | 'comprobanteDomicilio'
+  | 'constanciaSituacionFiscal'
   | 'ticketPago'
   | 'firmaCliente'
   | 'caratulaPdf';
@@ -16,6 +17,7 @@ export type AttachmentListItem = {
 const LABELS: Record<AttachmentKind, string> = {
   ine: 'INE',
   comprobanteDomicilio: 'Comprobante de domicilio',
+  constanciaSituacionFiscal: 'Constancia de situación fiscal',
   ticketPago: 'Ticket de pago',
   firmaCliente: 'Firma del cliente',
   caratulaPdf: 'Carátula del contrato',
@@ -58,6 +60,7 @@ export function listSaleAttachments(form: SaleFormData): AttachmentListItem[] {
     'caratulaPdf',
     'ine',
     'comprobanteDomicilio',
+    'constanciaSituacionFiscal',
     'ticketPago',
     'firmaCliente',
   ];

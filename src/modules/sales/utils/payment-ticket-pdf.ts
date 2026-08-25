@@ -179,8 +179,15 @@ export async function buildPaymentTicketPdf(
   dashLine(doc, y);
   y += 14;
 
-  y = kvInline(doc, 'Forma de pago', p.formaPago || '—', y);
-  const isCash = v(p.formaPago).toUpperCase() === 'EFECTIVO';
+  const forma = v(p.formaPago).toUpperCase();
+  const formaLabel =
+    forma === 'TARJETA DEBITO'
+      ? 'TARJETA DÉBITO'
+      : forma === 'TARJETA CREDITO'
+        ? 'TARJETA CRÉDITO'
+        : p.formaPago || '—';
+  y = kvInline(doc, 'Forma de pago', formaLabel, y);
+  const isCash = forma === 'EFECTIVO';
   if (isCash) {
     y = kvInline(doc, 'Recibido', money(p.montoRecibido), y);
     y = kvInline(doc, 'Cambio', money(p.cambio), y);
