@@ -46,11 +46,12 @@ Con token:
 --------------------------------------------------------------------------------
 Requieren JWT + rol VENDEDOR.
 
-  GET    /sales/mias
-      Lista mis ventas (borradores + pipeline).
+  GET    /sales
+      Listado del vendedor (borradores + pipeline).
 
-  GET    /sales/referencias
-      Ventas previas para reutilizar datos (titular, etc.).
+  GET    /sales/reuse?q=texto&limit=20
+      Busca ventas de cualquier vendedor (nombre, CURP, celular)
+      para precargar titular / contactos. Mínimo 3 caracteres.
 
   GET    /sales/:id
       Detalle de una venta propia.
@@ -91,8 +92,8 @@ Compat (mismo efecto que finalize):
 --------------------------------------------------------------------------------
 Requieren JWT + rol MONITOR o ADMIN (+ permiso ventas.ver en listado).
 
-  GET /sales/todas
-      Listado global de ventas.
+  GET /sales
+      Listado global de ventas (alcance por rol).
 
   GET /sales/:id
       Detalle de cualquier venta.
@@ -131,6 +132,14 @@ Requieren JWT + rol ADMIN + permiso usuarios.gestionar.
       PARQUE → companyId 1 · PLAN_FUTURO → companyId 2
       Filtro: is_plan_product + autocomplete por name
       Devuelve: id, name, listPrice, …
+
+  GET /odoo/clientes?q=texto&limit=20
+      Proxy a GET /clientes de api-odoo-gsm (res.partner)
+      Busca por nombre, CURP, RFC o celular
+      Devuelve: id, name, contacto, segundoContacto
+
+  GET /odoo/clientes/:id
+      Ficha de un partner para precargar captura
 
 
 --------------------------------------------------------------------------------

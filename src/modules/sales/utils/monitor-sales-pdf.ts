@@ -74,10 +74,13 @@ function statusLabel(status: string): string {
 function moneyParts(item: SaleListItem) {
   const form = mergeSaleForm(item.payload);
   return {
-    precioPlan: form.ubicacionPlan.precioPlan || form.pago.precioPlan,
-    descuento: form.pago.promocionDescuento,
-    anticipo: form.pago.anticipo,
-    saldo: form.pago.saldo,
+    precioPlan:
+      item.precioPlan ||
+      form.ubicacionPlan.precioPlan ||
+      form.pago.precioPlan,
+    descuento: item.promocionDescuento || form.pago.promocionDescuento,
+    anticipo: item.anticipo || form.pago.anticipo,
+    saldo: item.saldo || form.pago.saldo,
   };
 }
 

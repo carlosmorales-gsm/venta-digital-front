@@ -204,7 +204,7 @@ watch(
 </script>
 
 <template>
-  <VdModal :open="open" title="Buscar ubicación en Odoo" wide @close="emit('close')">
+  <VdModal :open="open" title="Buscar ubicación" wide @close="emit('close')">
     <div class="loc-search">
       <div class="loc-search__head">
         <button

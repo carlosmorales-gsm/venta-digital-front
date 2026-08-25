@@ -36,6 +36,13 @@ import {
 } from '../utils/phone';
 import { pickRandomDevSaleMock } from '../utils/dev-sale-mocks';
 import {
+  clienteDisplayName,
+  clienteHasBeneficiarios,
+  clienteHasSustituto,
+  searchCatalogClientes,
+  type CatalogCliente,
+} from '../utils/odoo-clientes';
+import {
   computeFinancingBreakdown,
   formatMoneyDisplay,
   formatMoneyField,
@@ -98,6 +105,7 @@ const devPrefillSteps = reactive({
   docs: true,
 });
 const references = ref<SaleListItem[]>([]);
+const reuseSource = ref<'vd' | 'catalogo'>('vd');
 const reuseGroups = reactive<Record<ReuseGroup, boolean>>({
   contacto: true,
   segundoContacto: true,
@@ -105,6 +113,21 @@ const reuseGroups = reactive<Record<ReuseGroup, boolean>>({
   beneficiarios: true,
 });
 const selectedRefId = ref<number | null>(null);
+const vdQ = ref('');
+const vdLoading = ref(false);
+const vdError = ref<string | null>(null);
+const catalogQ = ref('');
+const catalogLoading = ref(false);
+const catalogError = ref<string | null>(null);
+const catalogResults = ref<CatalogCliente[]>([]);
+const selectedCatalogId = ref<number | null>(null);
+const canApplyReuse = computed(() =>
+  reuseSource.value === 'catalogo'
+    ? Boolean(selectedCatalogId.value)
+    : Boolean(selectedRefId.value),
+);
+let vdTimer: ReturnType<typeof setTimeout> | null = null;
+let catalogTimer: ReturnType<typeof setTimeout> | null = null;
 const draftLimit = ref(3);
 const draftTtlHours = ref(24);
 const allowedDiscountMax = ref(0);
@@ -945,19 +968,11 @@ async function finalizeSale() {
       : await http.post<SaleListItem>('/sales/finalize', body);
     status.value = data.status;
     saleId.value = data.id;
-    if (data.odooSyncError) {
-      await alert({
-        title: 'Venta guardada',
-        message: `Venta #${data.id} lista, pero no se pudo crear el expediente en Odoo: ${data.odooSyncError}`,
-        variant: 'warning',
-      });
-    } else {
-      await alert({
-        title: 'Venta guardada',
-        message: `Venta #${data.id} lista. Continúa con el pago en Mis ventas.`,
-        variant: 'success',
-      });
-    }
+    await alert({
+      title: 'Venta guardada',
+      message: `Venta #${data.id} lista. Continúa con el pago en Mis ventas.`,
+      variant: 'success',
+    });
     router.replace({ name: 'vendedor-ventas' });
   } catch (e: unknown) {
     await alert({
@@ -970,22 +985,130 @@ async function finalizeSale() {
   }
 }
 
-async function openReuse() {
+function resetCatalogSearch() {
+  if (catalogTimer) clearTimeout(catalogTimer);
+  catalogTimer = null;
+  catalogQ.value = '';
+  catalogResults.value = [];
+  catalogError.value = null;
+  catalogLoading.value = false;
+  selectedCatalogId.value = null;
+}
+
+function resetVdSearch() {
+  if (vdTimer) clearTimeout(vdTimer);
+  vdTimer = null;
+  vdQ.value = '';
+  references.value = [];
+  vdError.value = null;
+  vdLoading.value = false;
+  selectedRefId.value = null;
+}
+
+function openReuse() {
+  reuseSource.value = 'vd';
+  resetVdSearch();
+  resetCatalogSearch();
+  reuseOpen.value = true;
+}
+
+async function searchVdSales() {
+  const term = vdQ.value.trim();
+  selectedRefId.value = null;
+  if (term.length < 3) {
+    references.value = [];
+    vdError.value = term ? 'Escribe al menos 3 caracteres' : null;
+    return;
+  }
+  vdLoading.value = true;
+  vdError.value = null;
   try {
-    const { data } = await http.get<SaleListItem[]>('/sales/referencias');
-    references.value = data;
-    selectedRefId.value = data[0]?.id ?? null;
-    reuseOpen.value = true;
-  } catch (e: unknown) {
-    await alert({
-      title: 'Cotización',
-      message: extractApiError(e, 'No se pudieron cargar referencias'),
-      variant: 'danger',
+    const { data } = await http.get<SaleListItem[]>('/sales/reuse', {
+      params: { q: term, limit: 20 },
+      skipGlobalLoading: true,
     });
+    references.value = Array.isArray(data) ? data : [];
+    if (!references.value.length) vdError.value = 'Sin coincidencias';
+  } catch (e: unknown) {
+    references.value = [];
+    vdError.value = extractApiError(e, 'No se pudo buscar la venta');
+  } finally {
+    vdLoading.value = false;
   }
 }
 
+function onVdInput() {
+  if (vdTimer) clearTimeout(vdTimer);
+  vdTimer = setTimeout(() => {
+    void searchVdSales();
+  }, 350);
+}
+
+async function searchCatalog() {
+  const term = catalogQ.value.trim();
+  selectedCatalogId.value = null;
+  if (term.length < 3) {
+    catalogResults.value = [];
+    catalogError.value = term
+      ? 'Escribe al menos 3 caracteres'
+      : null;
+    return;
+  }
+  catalogLoading.value = true;
+  catalogError.value = null;
+  try {
+    catalogResults.value = await searchCatalogClientes(term, 20);
+    if (!catalogResults.value.length) {
+      catalogError.value = 'Sin coincidencias';
+    }
+  } catch (e: unknown) {
+    catalogResults.value = [];
+    catalogError.value = extractApiError(e, 'No se pudo buscar el cliente');
+  } finally {
+    catalogLoading.value = false;
+  }
+}
+
+function onCatalogInput() {
+  if (catalogTimer) clearTimeout(catalogTimer);
+  catalogTimer = setTimeout(() => {
+    void searchCatalog();
+  }, 350);
+}
+
 function applyReuse() {
+  if (reuseSource.value === 'catalogo') {
+    const cliente = catalogResults.value.find(
+      (c) => c.id === Number(selectedCatalogId.value),
+    );
+    if (!cliente) return;
+    if (reuseGroups.contacto) Object.assign(form.contacto, cliente.contacto);
+    if (reuseGroups.segundoContacto && cliente.segundoContacto) {
+      Object.assign(form.segundoContacto, cliente.segundoContacto);
+    }
+    if (reuseGroups.titularSustituto && clienteHasSustituto(cliente)) {
+      Object.assign(
+        form.derechohabientes.titularSustituto,
+        { ...emptyBeneficiary(), ...cliente.titularSustituto },
+      );
+    }
+    if (reuseGroups.beneficiarios && clienteHasBeneficiarios(cliente)) {
+      form.beneficiarios.splice(
+        0,
+        form.beneficiarios.length,
+        ...(cliente.beneficiarios || []).map((b) => ({
+          ...emptyBeneficiary(),
+          ...b,
+        })),
+      );
+      ensureBeneficiarios();
+      syncBeneficiariosToDerechos(form);
+    }
+    uppercaseSaleFormText(form);
+    reuseOpen.value = false;
+    return;
+  }
+
   const ref = references.value.find(
     (r) => r.id === Number(selectedRefId.value),
   );
@@ -1040,7 +1163,11 @@ async function applyDevPrefill() {
   }
 
   const { label, form: mock } = pickRandomDevSaleMock();
-  if (devPrefillSteps.meta) Object.assign(form.meta, mock.meta);
+  if (devPrefillSteps.meta) {
+    const contrato = form.meta.contrato;
+    Object.assign(form.meta, mock.meta);
+    form.meta.contrato = contrato;
+  }
   if (devPrefillSteps.titular) Object.assign(form.contacto, mock.contacto);
   if (devPrefillSteps.titularSustituto) {
     Object.assign(
@@ -1891,7 +2018,7 @@ async function goBack() {
                 v-model="form.ubicacionPlan.nombrePlan"
                 readonly
                 :placeholder="
-                  canEdit ? 'Selecciona un plan con Buscar en Odoo…' : '—'
+                  canEdit ? 'Selecciona un plan con Buscar plan…' : '—'
                 "
                 class="plan-name__readonly"
               />
@@ -1902,14 +2029,14 @@ async function goBack() {
               :disabled="!canEdit"
               @click="planSearchOpen = true"
             >
-              Buscar en Odoo
+              Buscar plan
             </button>
           </div>
           <p
             v-if="form.ubicacionPlan.productId"
             class="hint span-2 plan-name__meta"
           >
-            Plan Odoo #{{ form.ubicacionPlan.productId
+            Plan #{{ form.ubicacionPlan.productId
             }}<template v-if="form.ubicacionPlan.productDefaultCode">
               · {{ form.ubicacionPlan.productDefaultCode }}</template
             >
@@ -1941,7 +2068,7 @@ async function goBack() {
                   :disabled="!canEdit"
                   @click="locationSearchOpen = true"
                 >
-                  Buscar ubicación en Odoo
+                  Buscar ubicación
                 </button>
               </div>
               <label>
@@ -2445,23 +2572,106 @@ async function goBack() {
 
     <VdModal
       :open="reuseOpen"
-      title="Usar cotización de referencia"
+      title="Precargar cotización"
       wide
       @close="reuseOpen = false"
     >
       <div class="reuse">
-        <p class="hint">
-          Elige una venta o borrador y marca qué datos reutilizar.
-        </p>
-        <label>
-          Cotización
-          <select v-model="selectedRefId">
-            <option v-for="r in references" :key="r.id" :value="r.id">
-              #{{ r.id }} · {{ r.titularName || 'Sin titular' }}
-              ({{ r.status === 'DRAFT' ? 'Borrador' : 'Enviada' }})
-            </option>
-          </select>
-        </label>
+        <div class="tabs" role="tablist" aria-label="Origen de la cotización">
+          <button
+            type="button"
+            class="tab"
+            :class="{ active: reuseSource === 'vd' }"
+            @click="reuseSource = 'vd'"
+          >
+            Cliente de Venta Digital
+          </button>
+          <button
+            type="button"
+            class="tab"
+            :class="{ active: reuseSource === 'catalogo' }"
+            @click="reuseSource = 'catalogo'"
+          >
+            Por nombre del cliente
+          </button>
+        </div>
+
+        <template v-if="reuseSource === 'vd'">
+          <p class="hint">
+            Busca por nombre del cliente en todas las ventas de Venta
+            Digital y marca qué datos reutilizar.
+          </p>
+          <label>
+            Nombre del cliente
+            <input
+              v-model="vdQ"
+              type="search"
+              placeholder="Escribe para buscar…"
+              autocomplete="off"
+              @input="onVdInput"
+            />
+          </label>
+          <p v-if="vdLoading" class="hint">Buscando…</p>
+          <p v-else-if="vdError" class="reuse__err">{{ vdError }}</p>
+          <ul v-if="references.length" class="reuse-list">
+            <li v-for="r in references" :key="r.id">
+              <button
+                type="button"
+                class="reuse-item"
+                :class="{ 'reuse-item--on': selectedRefId === r.id }"
+                @click="selectedRefId = r.id"
+              >
+                <strong>{{ r.titularName || 'Sin titular' }}</strong>
+                <small>
+                  #{{ r.id }}
+                  · {{ r.status === 'DRAFT' ? 'Borrador' : 'Enviada' }}
+                  <template v-if="r.sellerName">
+                    · {{ r.sellerName }}
+                  </template>
+                </small>
+              </button>
+            </li>
+          </ul>
+        </template>
+
+        <template v-else>
+          <p class="hint">
+            Busca al cliente por nombre, CURP o celular. Se cargan titular,
+            domicilio, segundo contacto y, si el último contrato los tiene,
+            titular sustituto y beneficiarios.
+          </p>
+          <label>
+            Nombre del cliente
+            <input
+              v-model="catalogQ"
+              type="search"
+              placeholder="Escribe para buscar…"
+              autocomplete="off"
+              @input="onCatalogInput"
+            />
+          </label>
+          <p v-if="catalogLoading" class="hint">Buscando…</p>
+          <p v-else-if="catalogError" class="reuse__err">{{ catalogError }}</p>
+          <ul v-if="catalogResults.length" class="reuse-list">
+            <li v-for="c in catalogResults" :key="c.id">
+              <button
+                type="button"
+                class="reuse-item"
+                :class="{ 'reuse-item--on': selectedCatalogId === c.id }"
+                @click="selectedCatalogId = c.id"
+              >
+                <strong>{{ clienteDisplayName(c) }}</strong>
+                <small>
+                  {{ c.contacto.curp || 'Sin CURP' }}
+                  <template v-if="c.contacto.celular1">
+                    · {{ c.contacto.celular1 }}
+                  </template>
+                </small>
+              </button>
+            </li>
+          </ul>
+        </template>
+
         <label class="check">
           <input v-model="reuseGroups.contacto" type="checkbox" />
           Datos de contacto del titular
@@ -2486,7 +2696,7 @@ async function goBack() {
         <button
           type="button"
           class="btn btn-primary"
-          :disabled="!selectedRefId"
+          :disabled="!canApplyReuse"
           @click="applyReuse"
         >
           Aplicar
@@ -3373,7 +3583,8 @@ async function goBack() {
   font-size: 0.9rem;
 }
 
-.reuse select {
+.reuse select,
+.reuse input[type='search'] {
   min-height: 44px;
   border-radius: 10px;
   border: 1px solid var(--vd-line);
@@ -3388,6 +3599,57 @@ async function goBack() {
   gap: 0.55rem;
   color: var(--vd-ink);
   font-weight: 500;
+}
+
+.reuse__err {
+  margin: 0;
+  color: #b42318;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.reuse-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  max-height: 260px;
+  overflow: auto;
+}
+
+.reuse-item {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  text-align: left;
+  border: 1px solid var(--vd-line);
+  background: #fff;
+  border-radius: 10px;
+  padding: 0.65rem 0.75rem;
+  cursor: pointer;
+  color: inherit;
+}
+
+.reuse-item:hover {
+  border-color: var(--gsm-blue);
+  background: #f4f8fa;
+}
+
+.reuse-item--on {
+  border-color: var(--gsm-blue);
+  background: #eef5f8;
+}
+
+.reuse-item strong {
+  font-size: 0.9rem;
+}
+
+.reuse-item small {
+  color: var(--vd-muted);
+  font-size: 0.75rem;
 }
 
 .dev-prefill {

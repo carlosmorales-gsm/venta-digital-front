@@ -171,7 +171,7 @@ async function load() {
   loading.value = true;
   error.value = null;
   try {
-    const res = await http.get<SalesResponse>('/sales/mias');
+    const res = await http.get<SalesResponse>('/sales');
     data.value = res.data;
   } catch (e: unknown) {
     error.value = extractApiError(e, 'No se pudieron cargar las ventas');
@@ -336,21 +336,13 @@ async function savePayment(pago: SaleFormData['pago']) {
       },
     );
     paymentOpen.value = false;
-    if (data.odooSyncError) {
-      await alert({
-        title: 'Pago registrado',
-        message: `El pago se guardó, pero no se actualizó el expediente en Odoo: ${data.odooSyncError}`,
-        variant: 'warning',
-      });
-    } else {
-      await alert({
-        title: 'Pago registrado',
-        message: ticketPdf
-          ? 'El pago y el ticket se guardaron en la venta y en el expediente de Odoo.'
-          : 'El pago se guardó y se actualizó el expediente en Odoo.',
-        variant: 'success',
-      });
-    }
+    await alert({
+      title: 'Pago registrado',
+      message: ticketPdf
+        ? 'El pago y el ticket se guardaron.'
+        : 'El pago se guardó.',
+      variant: 'success',
+    });
     await load();
   } catch (e: unknown) {
     await alert({
@@ -422,21 +414,13 @@ async function confirmSign(dataUrl: string) {
       },
     );
     signOpen.value = false;
-    if (data.odooSyncError) {
-      await alert({
-        title: 'Firma registrada',
-        message: `La firma se guardó, pero no se actualizó el expediente en Odoo: ${data.odooSyncError}`,
-        variant: 'warning',
-      });
-    } else {
-      await alert({
-        title: 'Firma registrada',
-        message: caratulaPdf
-          ? 'La firma y el contrato se guardaron (Drive) y se actualizó el expediente en Odoo.'
-          : 'La firma se guardó y se actualizó el expediente en Odoo.',
-        variant: 'success',
-      });
-    }
+    await alert({
+      title: 'Firma registrada',
+      message: caratulaPdf
+        ? 'La firma y el contrato se guardaron.'
+        : 'La firma se guardó.',
+      variant: 'success',
+    });
     await load();
   } catch (e: unknown) {
     await alert({

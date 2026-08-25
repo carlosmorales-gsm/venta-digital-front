@@ -111,7 +111,7 @@ async function selectFavorite(planId: number) {
     }
     emit('select', fresh);
   } catch (e: unknown) {
-    error.value = extractApiError(e, 'No se pudo leer el plan actual en Odoo');
+    error.value = extractApiError(e, 'No se pudo leer el plan actual');
   } finally {
     pickingId.value = null;
   }

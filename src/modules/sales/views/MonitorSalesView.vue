@@ -217,7 +217,7 @@ async function load() {
   loading.value = true;
   error.value = null;
   try {
-    const res = await http.get<SalesResponse>('/sales/todas');
+    const res = await http.get<SalesResponse>('/sales');
     data.value = res.data;
   } catch (e: unknown) {
     error.value = extractApiError(e, 'No se pudieron cargar las ventas');
@@ -265,10 +265,13 @@ function statusBadgeClass(status: SaleStatus | string): string {
 function salePago(item: SaleListItem) {
   const form = mergeSaleForm(item.payload);
   return {
-    precioPlan: form.ubicacionPlan.precioPlan || form.pago.precioPlan,
-    descuento: form.pago.promocionDescuento,
-    anticipo: form.pago.anticipo,
-    saldo: form.pago.saldo,
+    precioPlan:
+      item.precioPlan ||
+      form.ubicacionPlan.precioPlan ||
+      form.pago.precioPlan,
+    descuento: item.promocionDescuento || form.pago.promocionDescuento,
+    anticipo: item.anticipo || form.pago.anticipo,
+    saldo: item.saldo || form.pago.saldo,
   };
 }
 

@@ -1,5 +1,5 @@
 import { jsPDF } from 'jspdf';
-import { fullName, type SaleFormData } from '../types/sale-form';
+import { fullName, realContrato, type SaleFormData } from '../types/sale-form';
 import { saleOriginLabel } from '../constants/sale-origins';
 import { saleCompanyName } from '../constants/sale-companies';
 import { formatMoneyDisplay } from './sale-finance';
@@ -285,7 +285,7 @@ function drawMeta(doc: Doc, form: SaleFormData) {
   box(doc, 270.4, 87.4, 315.6, 20.8, [250, 252, 253]);
   label(doc, 'FECHA:', 275.4, 99, 5.2);
   dateParts(doc, meta.fecha, 322, 100, 8);
-  fieldInline(doc, 'CONTRATO:', meta.contrato, 421, 100, 44, 108, 8);
+  fieldInline(doc, 'CONTRATO:', realContrato(meta.contrato), 421, 100, 44, 108, 8);
 
   box(doc, 25.2, 113.1, 560.8, 19.4);
   label(doc, 'FECHA DE SERVICIO:', 29.7, 125, 5.2);

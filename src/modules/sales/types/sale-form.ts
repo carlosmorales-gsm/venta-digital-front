@@ -170,6 +170,17 @@ export interface SaleListItem {
   driveFolderPath?: string | null;
   odooReceptionSynced?: boolean;
   odooSyncError?: string | null;
+  precioPlan?: string;
+  promocionDescuento?: string;
+  anticipo?: string;
+  saldo?: string;
+}
+
+/** Folio de cotización Odoo. Ignora placeholders de prefill / mocks. */
+export function realContrato(v: string | null | undefined): string {
+  const t = String(v ?? '').trim();
+  if (!t || /^VD-(MOCK|DEMO)-/i.test(t)) return '';
+  return t;
 }
 
 export function emptyPerson(): SalePersonName {
@@ -338,7 +349,7 @@ export function createPrefillSaleForm(): SaleFormData {
   const today = new Date().toISOString().slice(0, 10);
   base.meta = {
     ...base.meta,
-    contrato: 'VD-DEMO-001',
+    contrato: '',
     origenVenta: 'field_selling',
     folioSolicitud: '',
     verificacion: 'Pendiente',
@@ -496,6 +507,7 @@ export function mergeSaleForm(raw: unknown): SaleFormData {
     meta: {
       ...base.meta,
       ...(src.meta ?? {}),
+      contrato: realContrato(src.meta?.contrato),
       branchId:
         src.meta?.branchId != null && Number(src.meta.branchId) > 0
           ? Number(src.meta.branchId)

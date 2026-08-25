@@ -146,7 +146,7 @@ const SEEDS: DevSaleSeed[] = [
     label: 'María Elena García · Parque',
     meta: {
       fecha: todayIso(),
-      contrato: 'VD-MOCK-001',
+      contrato: '',
       origenVenta: 'field_selling',
       estatus: 'ACTIVO',
       verificacion: 'Pendiente',
@@ -244,7 +244,7 @@ const SEEDS: DevSaleSeed[] = [
     label: 'Juan Pérez · Plan futuro',
     meta: {
       fecha: todayIso(),
-      contrato: 'VD-MOCK-002',
+      contrato: '',
       origenVenta: 'social_media',
       estatus: 'ACTIVO',
     },
@@ -330,7 +330,7 @@ const SEEDS: DevSaleSeed[] = [
     label: 'Rosa López · Parque sin preasignación',
     meta: {
       fecha: todayIso(),
-      contrato: 'VD-MOCK-003',
+      contrato: '',
       origenVenta: 'referral_sales',
       estatus: 'ACTIVO',
     },
@@ -408,7 +408,7 @@ const SEEDS: DevSaleSeed[] = [
     label: 'Xavier Ramírez · Plan futuro',
     meta: {
       fecha: todayIso(),
-      contrato: 'VD-MOCK-004',
+      contrato: '',
       origenVenta: 'telemarketing_sales',
       estatus: 'MEJORA',
     },
@@ -485,7 +485,7 @@ const SEEDS: DevSaleSeed[] = [
     label: 'Claudia Herrera · Parque',
     meta: {
       fecha: todayIso(),
-      contrato: 'VD-MOCK-005',
+      contrato: '',
       origenVenta: 'exhibition',
       estatus: 'ACTIVO',
     },
@@ -573,7 +573,7 @@ const SEEDS: DevSaleSeed[] = [
     label: 'Carlos Morales · Plan futuro',
     meta: {
       fecha: todayIso(),
-      contrato: 'VD-MOCK-006',
+      contrato: '',
       origenVenta: 'floor_sales',
       estatus: 'ACTIVO',
     },
@@ -648,7 +648,7 @@ const SEEDS: DevSaleSeed[] = [
     label: 'Gabriela Santos · Parque',
     meta: {
       fecha: todayIso(),
-      contrato: 'VD-MOCK-007',
+      contrato: '',
       origenVenta: 'agreement',
       estatus: 'REACTIVACION',
     },
@@ -735,7 +735,7 @@ const SEEDS: DevSaleSeed[] = [
     label: 'Pedro Castro · Plan futuro',
     meta: {
       fecha: todayIso(),
-      contrato: 'VD-MOCK-008',
+      contrato: '',
       origenVenta: 'inmediate_need',
       estatus: 'MINORIA',
     },
@@ -812,7 +812,7 @@ const SEEDS: DevSaleSeed[] = [
     label: 'Dolores Vargas · Parque',
     meta: {
       fecha: todayIso(),
-      contrato: 'VD-MOCK-009',
+      contrato: '',
       origenVenta: 'natural_market_sales',
       estatus: 'ACTIVO',
     },
@@ -897,7 +897,7 @@ const SEEDS: DevSaleSeed[] = [
     label: 'Luis Nolasco · Plan futuro',
     meta: {
       fecha: todayIso(),
-      contrato: 'VD-MOCK-010',
+      contrato: '',
       origenVenta: 'employee_sales',
       estatus: 'ACTIVO',
     },
