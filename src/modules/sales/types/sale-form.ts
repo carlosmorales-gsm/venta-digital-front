@@ -429,6 +429,7 @@ export function createPrefillSaleForm(): SaleFormData {
     quadrantId: null,
     spaceId: null,
     preasignacion: true,
+    withoutInterest: false,
   };
   base.pago = {
     ...createPrefillPago(),

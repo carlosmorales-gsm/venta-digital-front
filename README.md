@@ -1,5 +1,28 @@
-# Vue 3 + TypeScript + Vite
+# Venta Digital — Frontend
 
-This template should help get you started developing with Vue 3 and TypeScript in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
+Aplicación Vue 3, TypeScript y Vite.
 
-Learn more about the recommended Project Setup and IDE Support in the [Vue Docs TypeScript Guide](https://vuejs.org/guide/typescript/overview.html#project-setup).
+## Desarrollo
+
+```bash
+npm ci
+npm run dev
+```
+
+## Despliegue en Coolify
+
+1. Crear el recurso desde este repositorio y seleccionar **Dockerfile** como tipo de build.
+2. Usar el puerto **80**.
+3. Configurar `VITE_API_URL` como variable de build con la URL pública del API, incluyendo `/api` (por ejemplo, `https://api.example.com/api`).
+4. Desplegar el recurso.
+
+`VITE_API_URL` se integra en los archivos estáticos durante el build de Vite. Cambiarla requiere volver a construir y desplegar la imagen.
+
+Para construir localmente:
+
+```bash
+docker build \
+  --build-arg VITE_API_URL=https://api.example.com/api \
+  -t venta-digital-front .
+docker run --rm -p 8080:80 venta-digital-front
+```

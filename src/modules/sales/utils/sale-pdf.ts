@@ -1,4 +1,4 @@
-import { jsPDF } from 'jspdf';
+import { GState, jsPDF } from 'jspdf';
 import { fullName, realContrato, type SaleFormData } from '../types/sale-form';
 import { saleOriginLabel } from '../constants/sale-origins';
 import { saleCompanyName } from '../constants/sale-companies';
@@ -862,7 +862,7 @@ function drawDraftWatermark(doc: Doc) {
   for (let i = 1; i <= pages; i++) {
     doc.setPage(i);
     doc.saveGraphicsState();
-    doc.setGState(new doc.GState({ opacity: 0.11 }));
+    doc.setGState(new GState({ opacity: 0.11 }));
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(78);
     doc.setTextColor(130, 138, 146);

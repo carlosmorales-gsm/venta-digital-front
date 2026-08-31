@@ -328,7 +328,7 @@ async function savePayment(pago: SaleFormData['pago']) {
       console.warn('No se pudo generar ticket de pago', pdfErr);
     }
 
-    const { data } = await http.patch<SaleListItem>(
+    await http.patch<SaleListItem>(
       `/sales/${actionSaleId.value}/payment`,
       {
         pago,
@@ -406,7 +406,7 @@ async function confirmSign(dataUrl: string) {
       console.warn('No se pudo generar carátula para Drive', pdfErr);
     }
 
-    const { data } = await http.post<SaleListItem>(
+    await http.post<SaleListItem>(
       `/sales/${actionSaleId.value}/sign`,
       {
         firmaCliente,

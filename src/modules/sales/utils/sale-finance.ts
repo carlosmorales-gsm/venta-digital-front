@@ -14,8 +14,8 @@ export function paymentDueAmount(pago: {
   return parseMoney(pago.anticipo);
 }
 
-/** Parsea montos/porcentajes desde texto de captura. */
-export function parseMoney(raw: string | number | null | undefined): number {
+/** Parsea montos/porcentajes desde texto de captura o respuestas del API. */
+export function parseMoney(raw: unknown): number {
   const n = Number(
     String(raw ?? '')
       .replace(/,/g, '')
@@ -25,7 +25,7 @@ export function parseMoney(raw: string | number | null | undefined): number {
 }
 
 /** Porcentaje de descuento entero (1.8 → 1). */
-export function parseDiscountPct(raw: string | number | null | undefined): number {
+export function parseDiscountPct(raw: unknown): number {
   return Math.trunc(parseMoney(raw));
 }
 
