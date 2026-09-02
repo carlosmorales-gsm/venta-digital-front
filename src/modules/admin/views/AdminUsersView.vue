@@ -17,6 +17,7 @@ interface PublicUser {
   username: string | null;
   active: boolean;
   permissions: string[];
+  nombreJefeVentas?: string | null;
   createdAt: string;
 }
 
@@ -39,6 +40,7 @@ const form = reactive({
   cellphone: '',
   username: '',
   password: '',
+  nombreJefeVentas: '',
 });
 
 const isEditing = computed(() => editingId.value != null);
@@ -67,6 +69,7 @@ function resetForm() {
   form.cellphone = '';
   form.username = '';
   form.password = '';
+  form.nombreJefeVentas = '';
   formError.value = null;
 }
 
@@ -82,6 +85,7 @@ function startEdit(user: PublicUser) {
   form.cellphone = user.cellphone ?? '';
   form.username = user.username ?? '';
   form.password = '';
+  form.nombreJefeVentas = user.nombreJefeVentas ?? '';
   formError.value = null;
   modalOpen.value = true;
 }
@@ -117,6 +121,7 @@ async function createUser() {
 
   if (form.type === 'VENDEDOR') {
     payload.cellphone = form.cellphone.trim();
+    payload.nombreJefeVentas = form.nombreJefeVentas.trim();
   } else {
     payload.username = form.username.trim();
     payload.password = form.password;
@@ -151,6 +156,7 @@ async function updateUser() {
 
   if (form.type === 'VENDEDOR') {
     payload.cellphone = form.cellphone.trim();
+    payload.nombreJefeVentas = form.nombreJefeVentas.trim();
   } else {
     payload.username = form.username.trim();
     if (form.password.trim()) {
@@ -256,6 +262,7 @@ onMounted(loadUsers);
                 <th>Nombre</th>
                 <th>Tipo</th>
                 <th>Acceso</th>
+                <th>Jefe de ventas</th>
                 <th>Estado</th>
                 <th>Alta</th>
                 <th>Acciones</th>
@@ -266,6 +273,7 @@ onMounted(loadUsers);
                 <td>{{ u.fullName }}</td>
                 <td>{{ u.type }}</td>
                 <td>{{ u.cellphone || u.username }}</td>
+                <td>{{ u.type === 'VENDEDOR' ? u.nombreJefeVentas || '—' : '—' }}</td>
                 <td>
                   <span class="badge" :class="u.active ? 'badge-ok' : 'badge-off'">
                     {{ u.active ? 'Activo' : 'Inactivo' }}
@@ -326,6 +334,10 @@ onMounted(loadUsers);
               <div>
                 <dt>Acceso</dt>
                 <dd>{{ u.cellphone || u.username }}</dd>
+              </div>
+              <div v-if="u.type === 'VENDEDOR'">
+                <dt>Jefe de ventas</dt>
+                <dd>{{ u.nombreJefeVentas || '—' }}</dd>
               </div>
               <div>
                 <dt>Alta</dt>
@@ -402,6 +414,19 @@ onMounted(loadUsers);
             inputmode="numeric"
             required
           />
+        </div>
+
+        <div v-if="form.type === 'VENDEDOR'" class="field">
+          <label for="nombreJefeVentas">Jefe de ventas</label>
+          <input
+            id="nombreJefeVentas"
+            v-model="form.nombreJefeVentas"
+            maxlength="120"
+            autocomplete="off"
+          />
+          <span class="field-hint">
+            Este nombre se usa en la carátula del contrato de sus ventas.
+          </span>
         </div>
 
         <template v-else>

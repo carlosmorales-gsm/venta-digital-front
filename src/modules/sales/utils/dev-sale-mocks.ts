@@ -137,6 +137,17 @@ function normalizeUbicacionPlan(
   return plan;
 }
 
+type InvoiceMock = Pick<
+  SaleFormData['contacto'],
+  | 'tipoPersona'
+  | 'razonSocial'
+  | 'rfc'
+  | 'facturaCp'
+  | 'regimenFiscal'
+  | 'regimenFiscalOtro'
+  | 'telefonoFactura'
+>;
+
 type DevSaleSeed = {
   label: string;
   meta: Partial<SaleFormData['meta']>;
@@ -147,7 +158,60 @@ type DevSaleSeed = {
   ubicacionPlan: Partial<SaleFormData['ubicacionPlan']>;
   pago: Partial<SaleFormData['pago']>;
   declaraciones: SaleFormData['declaraciones'];
+  /** Datos fiscales para la carta de requerimiento de factura. */
+  factura?: Partial<InvoiceMock> & { tipoPersona?: 'FISICA' | 'MORAL' };
 };
+
+function fullNameOf(c: Partial<SaleFormData['contacto']>): string {
+  return [c.nombres, c.apellidoPaterno, c.apellidoMaterno]
+    .map((p) => String(p ?? '').trim())
+    .filter(Boolean)
+    .join(' ');
+}
+
+/** RFC de prueba (13 física / 12 moral) a partir de CURP o fallback. */
+function mockRfc(
+  contacto: Partial<SaleFormData['contacto']>,
+  tipo: 'FISICA' | 'MORAL',
+): string {
+  const curp = String(contacto.curp ?? '')
+    .trim()
+    .toUpperCase();
+  if (tipo === 'MORAL') {
+    const base = curp.slice(0, 3) || 'SFP';
+    const fecha = curp.slice(4, 10) || '850101';
+    return `${base}${fecha}AA1`;
+  }
+  const base = curp.slice(0, 10) || 'XAXX010101';
+  return `${base}XX1`;
+}
+
+/** Campos de factura listos para precargar en captura (dev). */
+export function mockInvoiceContacto(
+  contacto: Partial<SaleFormData['contacto']>,
+  extra?: DevSaleSeed['factura'],
+): Partial<SaleFormData['contacto']> {
+  const tipo =
+    extra?.tipoPersona === 'MORAL' || extra?.tipoPersona === 'FISICA'
+      ? extra.tipoPersona
+      : 'FISICA';
+  const razon =
+    extra?.razonSocial?.trim() ||
+    (tipo === 'MORAL'
+      ? `${fullNameOf(contacto) || 'Cliente'} SA de CV`
+      : fullNameOf(contacto));
+  return {
+    factura: 'SI',
+    tipoPersona: tipo,
+    razonSocial: razon,
+    rfc: extra?.rfc?.trim() || mockRfc(contacto, tipo),
+    facturaCp: extra?.facturaCp?.trim() || contacto.cp || '80000',
+    regimenFiscal: extra?.regimenFiscal?.trim() || (tipo === 'MORAL' ? '601' : '612'),
+    regimenFiscalOtro: extra?.regimenFiscalOtro ?? '',
+    telefonoFactura:
+      extra?.telefonoFactura?.trim() || contacto.celular1 || '6671234567',
+  };
+}
 
 /**
  * 10 ventas/clientes de prueba (CURP válidas).
@@ -332,11 +396,18 @@ const SEEDS: DevSaleSeed[] = [
       frecuencia: 'MENSUAL',
       fechaProximoPago: nextMonthIso(),
       formaPago: 'EFECTIVO',
-      banco: '',
-      cuenta: '',
+      banco: 'BBVA',
+      cuenta: '4152313498765432',
+      vencimientoTarjeta: '11/29',
+      titularTarjeta: 'Juan Carlos Pérez Gómez',
+      nombreAsesor: 'Ana Ríos',
       nombreJefeVentas: 'Ana Ríos',
     },
     declaraciones: { aceptaMercadotecnia: 'SI', aceptaPublicidad: 'SI' },
+    factura: {
+      tipoPersona: 'FISICA',
+      regimenFiscal: '612',
+    },
   },
   {
     label: 'Rosa López · Parque sin preasignación',
@@ -576,10 +647,17 @@ const SEEDS: DevSaleSeed[] = [
       fechaProximoPago: nextMonthIso(),
       formaPago: 'TRANSFERENCIA',
       banco: 'BBVA',
-      cuenta: '1122334455',
+      cuenta: '4152313411223344',
+      vencimientoTarjeta: '08/28',
+      titularTarjeta: 'Claudia Herrera Vega',
+      nombreAsesor: 'Ana Ríos',
       nombreJefeVentas: 'Ana Ríos',
     },
     declaraciones: { aceptaMercadotecnia: 'SI', aceptaPublicidad: 'SI' },
+    factura: {
+      tipoPersona: 'FISICA',
+      regimenFiscal: '626',
+    },
   },
   {
     label: 'Carlos Morales · Plan futuro',
@@ -815,10 +893,19 @@ const SEEDS: DevSaleSeed[] = [
       fechaProximoPago: nextMonthIso(),
       formaPago: 'TRANSFERENCIA',
       banco: 'Banamex',
-      cuenta: '7788990011',
+      cuenta: '4152313488990011',
+      vencimientoTarjeta: '03/30',
+      titularTarjeta: 'Pedro Castro Ulloa',
+      nombreAsesor: 'Ana Ríos',
       nombreJefeVentas: 'Ana Ríos',
     },
     declaraciones: { aceptaMercadotecnia: 'NO', aceptaPublicidad: 'NO' },
+    factura: {
+      tipoPersona: 'MORAL',
+      razonSocial: 'Transportes Castro del Pacífico SA de CV',
+      rfc: 'TCP830914AA1',
+      regimenFiscal: '601',
+    },
   },
   {
     label: 'Dolores Vargas · Parque',
@@ -1009,22 +1096,48 @@ function buildFromSeed(seed: DevSaleSeed): SaleFormData {
       ine: mockDoc('ine-mock.png'),
       comprobanteDomicilio: mockDoc('comprobante-mock.png'),
       constanciaSituacionFiscal:
-        seed.contacto.factura === 'SI'
+        seed.contacto.factura === 'SI' || seed.factura
           ? mockPdf('constancia-mock.pdf')
           : null,
+      tarjetaFrente:
+        seed.contacto.tipoCobranza === 'DOMICILIADO'
+          ? mockDoc('tarjeta-frente-mock.png')
+          : null,
+      tarjetaReverso:
+        seed.contacto.tipoCobranza === 'DOMICILIADO'
+          ? mockDoc('tarjeta-reverso-mock.png')
+          : null,
+      tarjetaPdf: null,
       firmaCliente: null,
       ticketPago: null,
+      comprobanteTransferencia: null,
       caratulaPdf: null,
+      cartaFacturaPdf: null,
+      cartaNoFacturaPdf: null,
+      reglamentoParquePdf: null,
+      cartaAutorizacionPdf: null,
     },
   });
   return form;
 }
 
+export function mockConstanciaAttachment(): SaleAttachment {
+  return mockPdf('constancia-mock.pdf');
+}
+
 export const DEV_SALE_MOCK_COUNT = SEEDS.length;
 
-/** Elige al azar uno de los 10 mocks listos para completar todos los pasos. */
-export function pickRandomDevSaleMock(): { label: string; form: SaleFormData } {
+export function pickRandomDevSaleMock(): {
+  label: string;
+  form: SaleFormData;
+  invoice: Partial<SaleFormData['contacto']>;
+} {
   const idx = Math.floor(Math.random() * SEEDS.length);
   const seed = SEEDS[idx]!;
-  return { label: seed.label, form: buildFromSeed(seed) };
+  const form = buildFromSeed(seed);
+  return {
+    label: seed.label,
+    form,
+    invoice: mockInvoiceContacto(form.contacto, seed.factura),
+  };
 }

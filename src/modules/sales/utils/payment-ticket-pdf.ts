@@ -1,9 +1,13 @@
 import { jsPDF } from 'jspdf';
 import { fullName, type SaleFormData } from '../types/sale-form';
-import { paymentDueAmount, parseMoney, formatMoneyDisplay } from './sale-finance';
+import {
+  paymentDueAmount,
+  paymentDueConcepts,
+  formatMoneyDisplay,
+} from './sale-finance';
 
 const PAGE_W = 226;
-const PAGE_H = 460;
+const PAGE_H = 520;
 const M = 14;
 const INK: [number, number, number] = [20, 24, 28];
 const MUTED: [number, number, number] = [90, 96, 102];
@@ -162,20 +166,40 @@ export async function buildPaymentTicketPdf(
   dashLine(doc, y);
   y += 14;
 
+  const concepts = paymentDueConcepts(p);
   const due = paymentDueAmount(p);
-  const dueLabel =
-    due > 0 && parseMoney(p.pagoInicial) > 0 ? 'PAGO INICIAL' : 'ANTICIPO';
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
   doc.setTextColor(...MUTED);
-  doc.text(dueLabel, PAGE_W / 2, y, { align: 'center' });
-  y += 16;
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(16);
-  doc.setTextColor(...INK);
-  doc.text(money(String(due)), PAGE_W / 2, y, { align: 'center' });
+  doc.text('CONCEPTOS', PAGE_W / 2, y, { align: 'center' });
   y += 14;
+
+  if (!concepts.length) {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(16);
+    doc.setTextColor(...INK);
+    doc.text(money(String(due)), PAGE_W / 2, y, { align: 'center' });
+    y += 14;
+  } else {
+    for (const item of concepts) {
+      y = kvInline(doc, item.label, money(String(item.amount)), y);
+    }
+    if (concepts.length > 1) {
+      y += 2;
+      dashLine(doc, y);
+      y += 14;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(...MUTED);
+      doc.text('TOTAL', M, y);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(12);
+      doc.setTextColor(...INK);
+      doc.text(money(String(due)), PAGE_W - M, y, { align: 'right' });
+      y += 14;
+    }
+  }
   dashLine(doc, y);
   y += 14;
 
@@ -192,8 +216,8 @@ export async function buildPaymentTicketPdf(
     y = kvInline(doc, 'Recibido', money(p.montoRecibido), y);
     y = kvInline(doc, 'Cambio', money(p.cambio), y);
   } else {
-    y = kvInline(doc, 'Cuenta', p.cuenta || '—', y);
-    y = kvInline(doc, 'Banco', p.banco || '—', y);
+    y = kvInline(doc, 'Cuenta', p.cuentaPago || p.cuenta || '—', y);
+    y = kvInline(doc, 'Banco', p.bancoPago || p.banco || '—', y);
   }
 
   y += 2;

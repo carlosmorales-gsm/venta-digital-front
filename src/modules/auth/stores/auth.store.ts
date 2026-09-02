@@ -1,6 +1,10 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 import { extractApiError, http, tokenStorage } from '../../../shared/api/http';
+import {
+  clearSellerPrefetch,
+  prefetchSellerSession,
+} from '../../sales/utils/seller-session-cache';
 import type {
   AuthTokensResponse,
   SessionUser,
@@ -64,6 +68,9 @@ export const useAuthStore = defineStore('auth', () => {
         payload,
       );
       persistSession(data);
+      if (data.user.type === 'VENDEDOR') {
+        void prefetchSellerSession(data.user.id).catch(() => undefined);
+      }
       return data;
     } catch (e: unknown) {
       error.value = extractApiError(e, 'PIN inválido');
@@ -94,6 +101,7 @@ export const useAuthStore = defineStore('auth', () => {
   /** Limpia sesión local sin llamar al API (token vencido / refresh fallido). */
   function clearSession() {
     tokenStorage.clear();
+    clearSellerPrefetch();
     user.value = null;
     expiresAt.value = null;
     error.value = null;
@@ -114,6 +122,20 @@ export const useAuthStore = defineStore('auth', () => {
     return permissions.value.includes(code);
   }
 
+  /** Actualiza el usuario en sesión (p. ej. jefe de ventas del catálogo). */
+  async function refreshMe() {
+    if (!tokenStorage.getAccess()) return null;
+    try {
+      const { data } = await http.get<SessionUser>('/auth/me');
+      if (!data?.id) return user.value;
+      user.value = { ...(user.value ?? data), ...data };
+      localStorage.setItem('vd_user', JSON.stringify(user.value));
+      return user.value;
+    } catch {
+      return user.value;
+    }
+  }
+
   return {
     user,
     expiresAt,
@@ -128,5 +150,6 @@ export const useAuthStore = defineStore('auth', () => {
     logout,
     clearSession,
     hasPermission,
+    refreshMe,
   };
 });

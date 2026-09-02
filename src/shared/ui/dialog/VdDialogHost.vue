@@ -89,9 +89,12 @@ watch(
   position: fixed;
   inset: 0;
   z-index: 1000;
-  display: grid;
-  place-items: center;
-  padding: 1rem;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: max(1rem, env(safe-area-inset-top)) 1rem
+    max(0.75rem, env(safe-area-inset-bottom));
+  overflow: hidden;
 }
 
 .vd-dialog-scrim {
@@ -104,9 +107,15 @@ watch(
   position: relative;
   z-index: 1;
   width: min(420px, 100%);
+  max-height: calc(
+    100dvh - 1.75rem - env(safe-area-inset-top) - env(safe-area-inset-bottom)
+  );
   display: flex;
   flex-direction: column;
+  min-height: 0;
   gap: 0.85rem;
+  overflow: auto;
+  overscroll-behavior: contain;
   border-top: 3px solid var(--gsm-cafe);
   animation: vd-dialog-in 0.2s ease both;
 }

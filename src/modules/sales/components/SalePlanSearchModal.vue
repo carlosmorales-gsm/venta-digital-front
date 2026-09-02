@@ -1,10 +1,14 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { extractApiError, http } from '../../../shared/api/http';
 import VdModal from '../../../shared/ui/modal/VdModal.vue';
 import type { PlanKind } from '../types/sale-form';
 import type { SellerDefaultPlan } from '../types/seller-defaults';
-import { fetchPlanesByIds, mapPlanProduct } from '../utils/odoo-plans';
+import {
+  fetchPlanesByIds,
+  mapPlanProduct,
+  toPlanProduct,
+} from '../utils/odoo-plans';
 
 export type PlanProduct = {
   id: number;
@@ -31,22 +35,10 @@ const q = ref('');
 const loading = ref(false);
 const error = ref<string | null>(null);
 const results = ref<PlanProduct[]>([]);
-const liveFavorites = ref<PlanProduct[]>([]);
 const pickingId = ref<number | null>(null);
 let timer: ReturnType<typeof setTimeout> | null = null;
 
-async function hydrateFavorites() {
-  const ids = (props.favoritePlans ?? []).map((plan) => plan.id);
-  if (!ids.length) {
-    liveFavorites.value = [];
-    return;
-  }
-  try {
-    liveFavorites.value = await fetchPlanesByIds(props.planKind, ids);
-  } catch {
-    liveFavorites.value = [];
-  }
-}
+const favoriteChips = computed(() => props.favoritePlans ?? []);
 
 watch(
   () => props.open,
@@ -56,7 +48,6 @@ watch(
       results.value = [];
       error.value = null;
       pickingId.value = null;
-      void hydrateFavorites();
     }
   },
 );
@@ -98,15 +89,19 @@ function onInput() {
   }, 350);
 }
 
-async function selectFavorite(planId: number) {
-  pickingId.value = planId;
+async function selectFavorite(plan: SellerDefaultPlan) {
+  const cached = toPlanProduct(plan);
+  if (cached) {
+    emit('select', cached);
+    return;
+  }
+  pickingId.value = plan.id;
   error.value = null;
   try {
-    const [fresh] = await fetchPlanesByIds(props.planKind, [planId]);
+    const [fresh] = await fetchPlanesByIds(props.planKind, [plan.id]);
     if (!fresh) {
       error.value =
         'Ese plan ya no está disponible o cambió. Elígelo de nuevo en la búsqueda.';
-      liveFavorites.value = liveFavorites.value.filter((p) => p.id !== planId);
       return;
     }
     emit('select', fresh);
@@ -129,18 +124,18 @@ function money(n: number) {
 <template>
   <VdModal :open="open" title="Buscar plan" @close="emit('close')">
     <div class="plan-search">
-      <div v-if="favoritePlans?.length" class="favorites">
+      <div v-if="favoriteChips.length" class="favorites">
         <p>Tus planes predeterminados</p>
         <div class="chips">
           <button
-            v-for="plan in liveFavorites"
+            v-for="plan in favoriteChips"
             :key="plan.id"
             type="button"
             class="chip"
             :disabled="pickingId === plan.id"
-            @click="selectFavorite(plan.id)"
+            @click="selectFavorite(plan)"
           >
-            {{ plan.name }}
+            {{ plan.name || `Plan #${plan.id}` }}
           </button>
         </div>
       </div>
@@ -164,6 +159,7 @@ function money(n: number) {
           <button type="button" class="plan-item" @click="emit('select', p)">
             <strong>{{ p.name }}</strong>
             <span>{{ money(p.listPrice) }}</span>
+            <small>{{ p.withoutInterest ? 'Sin intereses' : 'Con intereses' }}</small>
             <small v-if="p.defaultCode">{{ p.defaultCode }}</small>
           </button>
         </li>

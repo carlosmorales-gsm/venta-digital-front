@@ -5,6 +5,7 @@ export interface SessionUser {
   fullName: string;
   type: UserType;
   permissions: string[];
+  nombreJefeVentas?: string | null;
 }
 
 export interface AuthTokensResponse {

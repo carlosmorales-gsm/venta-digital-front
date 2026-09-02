@@ -327,8 +327,8 @@ function drawNameRow(
   vLine(doc, 230, y, y + h);
   vLine(doc, 405, y, y + h);
   field(doc, 'NOMBRE(S):', p.nombres, 30, y, h, 190);
-  field(doc, ['APELLIDO', 'MATERNO:'], p.apellidoMaterno, 238, y, h, 155);
-  field(doc, ['APELLIDO', 'PATERNO:'], p.apellidoPaterno, 413, y, h, 160);
+  field(doc, ['APELLIDO', 'PATERNO:'], p.apellidoPaterno, 238, y, h, 155);
+  field(doc, ['APELLIDO', 'MATERNO:'], p.apellidoMaterno, 413, y, h, 160);
 }
 
 function drawContacto(doc: Doc, form: SaleFormData) {

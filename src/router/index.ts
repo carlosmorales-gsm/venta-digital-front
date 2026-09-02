@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import { useAuthStore } from '../modules/auth/stores/auth.store';
+import { ensureSellerPrefetch } from '../modules/sales/utils/seller-session-cache';
 import {
   redirectToLoginOnSessionExpired,
   tokenStorage,
@@ -132,6 +133,9 @@ router.beforeEach(async (to) => {
     }
     if (!roles.includes(auth.user.type)) {
       return { name: 'home' };
+    }
+    if (auth.user.type === 'VENDEDOR') {
+      ensureSellerPrefetch(auth.user.id);
     }
   }
 

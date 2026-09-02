@@ -54,6 +54,9 @@ export function extractApiError(
   if ((error as AxiosError)?.code === 'ERR_NETWORK') {
     return 'No se pudo conectar con el API. ¿Está corriendo en el puerto 3022?';
   }
+  if ((error as AxiosError)?.code === 'ECONNABORTED') {
+    return 'La operación tardó demasiado. Si el dato ya quedó guardado, recarga la lista.';
+  }
   return fallback;
 }
 

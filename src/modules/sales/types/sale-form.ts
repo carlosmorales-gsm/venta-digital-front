@@ -1,4 +1,9 @@
 import { todayIsoDate } from '../../../shared/utils/datetime';
+import {
+  parseSaleKind,
+  saleKindFromEstatus,
+  saleKindToEstatus,
+} from '../constants/sale-kinds';
 
 export type SaleStatus =
   | 'DRAFT'
@@ -9,6 +14,18 @@ export type SaleStatus =
   | 'SUBMITTED'; // compat
 
 export type PlanKind = 'PARQUE' | 'PLAN_FUTURO';
+
+export type ReconocimientoVenta = {
+  id: number;
+  folio: string;
+  partnerId?: number;
+  partnerName: string;
+  dateOrder: string;
+  amountTotal: number;
+  saldo: number;
+  matchType: 'titular' | 'beneficiario';
+  matchedBeneficiaryName?: string;
+};
 
 /** Valor por defecto en captura (plan a futuro). */
 export const DEFAULT_SERVICIO_FUNERARIO = 'SERVICIO FUNERAL COMPLETO';
@@ -47,14 +64,25 @@ export interface SaleFormData {
     serviceTypeName: string;
     folioSolicitud: string;
     fechaServicio: string;
+    /** NUEVA | RECONOCIMIENTO | MEJORA | MINORIA */
+    tipoVenta: string;
     estatus: string;
     anterior: string;
     verificacion: string;
+    reconocimientoVentas: ReconocimientoVenta[];
   };
   contacto: SalePersonName & {
     sexo: string;
     curp: string;
     factura: string;
+    /** Carta requerimiento de factura (FOR-GSM-CMR-05). */
+    tipoPersona: string;
+    razonSocial: string;
+    rfc: string;
+    facturaCp: string;
+    regimenFiscal: string;
+    regimenFiscalOtro: string;
+    telefonoFactura: string;
     direccion: string;
     colonia: string;
     cp: string;
@@ -127,8 +155,20 @@ export interface SaleFormData {
     fechaProximoPago: string;
     diasEspecificosPago: string;
     formaPago: string;
+    /** Tarjeta / banco de domiciliación (Método de pago). */
     cuenta: string;
     banco: string;
+    /** Cuenta y banco de este cobro (Registrar pago). */
+    cuentaPago: string;
+    bancoPago: string;
+    vencimientoTarjeta: string;
+    titularTarjeta: string;
+    cvv: string;
+    numeroEmpleado: string;
+    nombreEmpleado: string;
+    empresaNomina: string;
+    empresaNominaId: number | null;
+    infoNomina: string;
     /** Pago en efectivo: billetes recibidos y cambio entregado. */
     montoRecibido: string;
     cambio: string;
@@ -143,9 +183,17 @@ export interface SaleFormData {
     ine: SaleAttachment | null;
     comprobanteDomicilio: SaleAttachment | null;
     constanciaSituacionFiscal: SaleAttachment | null;
+    tarjetaFrente: SaleAttachment | null;
+    tarjetaReverso: SaleAttachment | null;
+    tarjetaPdf: SaleAttachment | null;
     firmaCliente: SaleAttachment | null;
     ticketPago: SaleAttachment | null;
+    comprobanteTransferencia: SaleAttachment | null;
     caratulaPdf: SaleAttachment | null;
+    cartaFacturaPdf: SaleAttachment | null;
+    cartaNoFacturaPdf: SaleAttachment | null;
+    reglamentoParquePdf: SaleAttachment | null;
+    cartaAutorizacionPdf: SaleAttachment | null;
   };
 }
 
@@ -228,15 +276,24 @@ export function createEmptySaleForm(): SaleFormData {
       serviceTypeName: '',
       folioSolicitud: '',
       fechaServicio: '',
+      tipoVenta: 'NUEVA',
       estatus: 'ACTIVO',
       anterior: '',
       verificacion: '',
+      reconocimientoVentas: [],
     },
     contacto: {
       ...emptyPerson(),
       sexo: '',
       curp: '',
       factura: '',
+      tipoPersona: '',
+      razonSocial: '',
+      rfc: '',
+      facturaCp: '',
+      regimenFiscal: '',
+      regimenFiscalOtro: '',
+      telefonoFactura: '',
       direccion: '',
       colonia: '',
       cp: '',
@@ -299,6 +356,16 @@ export function createEmptySaleForm(): SaleFormData {
       formaPago: '',
       cuenta: '',
       banco: '',
+      cuentaPago: '',
+      bancoPago: '',
+      vencimientoTarjeta: '',
+      titularTarjeta: '',
+      cvv: '',
+      numeroEmpleado: '',
+      nombreEmpleado: '',
+      empresaNomina: '',
+      empresaNominaId: null,
+      infoNomina: '',
       montoRecibido: '',
       cambio: '',
       nombreJefeVentas: '',
@@ -312,9 +379,17 @@ export function createEmptySaleForm(): SaleFormData {
       ine: null,
       comprobanteDomicilio: null,
       constanciaSituacionFiscal: null,
+      tarjetaFrente: null,
+      tarjetaReverso: null,
+      tarjetaPdf: null,
       firmaCliente: null,
       ticketPago: null,
+      comprobanteTransferencia: null,
       caratulaPdf: null,
+      cartaFacturaPdf: null,
+      cartaNoFacturaPdf: null,
+      reglamentoParquePdf: null,
+      cartaAutorizacionPdf: null,
     },
   };
 }
@@ -339,6 +414,16 @@ export function createPrefillPago(): SaleFormData['pago'] {
     formaPago: 'TRANSFERENCIA',
     cuenta: '0123456789',
     banco: 'BBVA',
+    cuentaPago: '',
+    bancoPago: '',
+    vencimientoTarjeta: '',
+    titularTarjeta: '',
+    cvv: '',
+    numeroEmpleado: '',
+    nombreEmpleado: '',
+    empresaNomina: '',
+    empresaNominaId: null,
+    infoNomina: '',
     montoRecibido: '',
     cambio: '',
     nombreJefeVentas: 'Carlos Mendoza',
@@ -365,6 +450,13 @@ export function createPrefillSaleForm(): SaleFormData {
     // CURP demo válida: María Elena García López · F · 15/03/1985 · Sinaloa
     curp: 'GALE850315MSLRPL09',
     factura: 'NO',
+    tipoPersona: '',
+    razonSocial: '',
+    rfc: '',
+    facturaCp: '',
+    regimenFiscal: '',
+    regimenFiscalOtro: '',
+    telefonoFactura: '',
     direccion: 'Calle Hidalgo 245',
     colonia: 'Centro',
     cp: '80000',
@@ -372,7 +464,7 @@ export function createPrefillSaleForm(): SaleFormData {
     senaParticular: 'Portón azul',
     municipio: 'Culiacán',
     estado: 'Sinaloa',
-    tipoCobranza: 'VENTANILLA',
+    tipoCobranza: '',
     fechaNacimiento: '1985-03-15',
     sindicalizado: 'NO',
     observaciones: 'Prefiere contacto por WhatsApp por la tarde.',
@@ -470,8 +562,14 @@ export function normalizePagoDefaults(
   const descuento = String(pago.promocionDescuento ?? '').trim();
   const anticipo = String(pago.anticipo ?? '').trim();
   const proximoPago = String(pago.fechaProximoPago ?? '').trim();
+  const rawId = (pago as { empresaNominaId?: unknown }).empresaNominaId;
+  const parsedId = rawId == null || rawId === '' ? null : Number(rawId);
   return {
     ...pago,
+    empresaNominaId:
+      parsedId != null && Number.isFinite(parsedId) && parsedId > 0
+        ? parsedId
+        : null,
     promocionDescuento: descuento || '0',
     anticipo: anticipo || '0',
     fechaProximoPago: proximoPago || todayIsoDate(),
@@ -518,6 +616,31 @@ export function mergeSaleForm(raw: unknown): SaleFormData {
         src.meta?.serviceTypeId != null && Number(src.meta.serviceTypeId) > 0
           ? Number(src.meta.serviceTypeId)
           : null,
+      tipoVenta: (() => {
+        const fromKind = parseSaleKind(src.meta?.tipoVenta);
+        return fromKind ?? saleKindFromEstatus(src.meta?.estatus);
+      })(),
+      estatus: (() => {
+        const fromKind = parseSaleKind(src.meta?.tipoVenta);
+        return fromKind
+          ? saleKindToEstatus(fromKind)
+          : String(src.meta?.estatus || base.meta.estatus);
+      })(),
+      reconocimientoVentas: Array.isArray(src.meta?.reconocimientoVentas)
+        ? src.meta.reconocimientoVentas
+            .map((item) => ({
+              id: Number(item.id) || 0,
+              folio: String(item.folio ?? ''),
+              partnerName: String(item.partnerName ?? ''),
+              dateOrder: String(item.dateOrder ?? ''),
+              amountTotal: Number(item.amountTotal) || 0,
+              saldo: Number(item.saldo) || 0,
+              matchType:
+                item.matchType === 'beneficiario' ? 'beneficiario' : 'titular',
+              matchedBeneficiaryName: String(item.matchedBeneficiaryName ?? ''),
+            }))
+            .filter((item) => item.id > 0)
+        : [],
     },
     contacto: {
       ...base.contacto,
@@ -592,9 +715,17 @@ export function mergeSaleForm(raw: unknown): SaleFormData {
       comprobanteDomicilio: src.documentos?.comprobanteDomicilio ?? null,
       constanciaSituacionFiscal:
         src.documentos?.constanciaSituacionFiscal ?? null,
+      tarjetaFrente: src.documentos?.tarjetaFrente ?? null,
+      tarjetaReverso: src.documentos?.tarjetaReverso ?? null,
+      tarjetaPdf: src.documentos?.tarjetaPdf ?? null,
       firmaCliente: src.documentos?.firmaCliente ?? null,
       ticketPago: src.documentos?.ticketPago ?? null,
+      comprobanteTransferencia: src.documentos?.comprobanteTransferencia ?? null,
       caratulaPdf: src.documentos?.caratulaPdf ?? null,
+      cartaFacturaPdf: src.documentos?.cartaFacturaPdf ?? null,
+      cartaNoFacturaPdf: src.documentos?.cartaNoFacturaPdf ?? null,
+      reglamentoParquePdf: src.documentos?.reglamentoParquePdf ?? null,
+      cartaAutorizacionPdf: src.documentos?.cartaAutorizacionPdf ?? null,
     },
   };
 }

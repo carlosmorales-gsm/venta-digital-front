@@ -4,14 +4,39 @@ export function moneyInputText(raw: unknown): string {
   return String(raw).trim();
 }
 
-/** Importe a cobrar al registrar pago: pago inicial si existe, si no anticipo. */
+export type PaymentDueConcept = {
+  key: 'anticipo' | 'pagoInicial';
+  label: string;
+  amount: number;
+};
+
+/** Conceptos que se cobran al registrar el pago (anticipo y/o primera cuota). */
+export function paymentDueConcepts(pago: {
+  pagoInicial?: string | number | null;
+  anticipo?: string | number | null;
+}): PaymentDueConcept[] {
+  const anticipo = parseMoney(pago.anticipo);
+  const inicial = parseMoney(pago.pagoInicial);
+  const items: PaymentDueConcept[] = [];
+  if (anticipo > 0) {
+    items.push({ key: 'anticipo', label: 'Anticipo', amount: anticipo });
+  }
+  if (inicial > 0) {
+    items.push({ key: 'pagoInicial', label: 'Pago inicial', amount: inicial });
+  }
+  return items;
+}
+
+/** Importe a cobrar: anticipo + pago inicial (si ambos existen). */
 export function paymentDueAmount(pago: {
   pagoInicial?: string | number | null;
   anticipo?: string | number | null;
 }): number {
-  const inicial = parseMoney(pago.pagoInicial);
-  if (inicial > 0) return inicial;
-  return parseMoney(pago.anticipo);
+  return Number(
+    paymentDueConcepts(pago)
+      .reduce((sum, item) => sum + item.amount, 0)
+      .toFixed(2),
+  );
 }
 
 /** Parsea montos/porcentajes desde texto de captura. */
@@ -110,14 +135,40 @@ export function computeCashPrice(
   return Math.max(0, Number((precio - descuentoMonto).toFixed(2)));
 }
 
-/** Saldo = precio contado − anticipo (≥ 0). */
+/** Lo ya pagado en una venta origen (precio − saldo pendiente). */
+export function paidOnRecognizedSale(v: {
+  amountTotal?: number;
+  saldo?: number;
+}): number {
+  const total = parseMoney(v.amountTotal);
+  const remaining = parseMoney(v.saldo);
+  return Math.max(0, Number((total - remaining).toFixed(2)));
+}
+
+/** Suma de saldos a reconocer (pagado en las ventas origen). */
+export function totalRecognizedPaid(
+  ventas: Array<{ amountTotal?: number; saldo?: number }> | null | undefined,
+): number {
+  if (!Array.isArray(ventas) || !ventas.length) return 0;
+  return Number(
+    ventas
+      .reduce((sum, item) => sum + paidOnRecognizedSale(item), 0)
+      .toFixed(2),
+  );
+}
+
+/** Saldo = precio contado − anticipo − saldo reconocido (≥ 0). */
 export function computeSaldo(
   precioPlan: unknown,
   descuentoPct: unknown,
   anticipo: unknown,
+  recognizedBalance: unknown = 0,
 ): string {
   const cash = computeCashPrice(precioPlan, descuentoPct);
-  const saldo = Math.max(0, cash - parseMoney(anticipo));
+  const saldo = Math.max(
+    0,
+    cash - parseMoney(anticipo) - parseMoney(recognizedBalance),
+  );
   return String(Number(saldo.toFixed(2)));
 }
 
@@ -225,12 +276,14 @@ export function computeFinancingBreakdown(input: {
   frecuencia: string | null | undefined;
   plazo: unknown;
   config?: Partial<FinancingConfig>;
+  recognizedBalance?: unknown;
 }): FinancingBreakdown {
   const config = { ...DEFAULT_FINANCING_CONFIG, ...input.config };
   const frequencyCode = normalizeFrequency(input.frecuencia);
   const hitch = parseMoney(input.anticipo);
+  const recognized = Math.max(0, parseMoney(input.recognizedBalance));
   const cashPrice = computeCashPrice(input.precioPlan, input.descuentoPct);
-  const saldo = Math.max(0, cashPrice - hitch);
+  const saldo = Math.max(0, cashPrice - hitch - recognized);
   const plazoMeses = Math.max(0, Math.trunc(parseMoney(input.plazo)));
   const numberFrequencies = computeNumberFrequencies(
     input.frecuencia,
@@ -253,8 +306,8 @@ export function computeFinancingBreakdown(input: {
   }
 
   if (frequencyCode === 'CONTADO') {
-    importeCadaPago = cashPrice;
-    financedPrice = cashPrice;
+    importeCadaPago = Math.max(0, cashPrice - recognized);
+    financedPrice = importeCadaPago;
     return {
       cashPrice,
       saldo,
@@ -277,7 +330,7 @@ export function computeFinancingBreakdown(input: {
   }
 
   if (config.withoutInterest) {
-    const base = Math.max(0, cashPrice - hitch);
+    const base = Math.max(0, cashPrice - hitch - recognized);
     importeCadaPago = ceilPeso(base / denom);
     const spec = FREQUENCY_SPECS[frequencyCode];
     if (spec.operator === 'multiplication') {
@@ -291,6 +344,7 @@ export function computeFinancingBreakdown(input: {
       hitch,
       plazoMeses,
       config,
+      recognized,
     );
     importeCadaPago = ceilPeso(preview / denom);
     const spec = FREQUENCY_SPECS[frequencyCode];

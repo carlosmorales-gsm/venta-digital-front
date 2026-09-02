@@ -2,15 +2,42 @@
 import { computed, onUnmounted, ref, watch } from 'vue';
 import VdModal from '../../../shared/ui/modal/VdModal.vue';
 import { pdfBlobViewUrl } from '../utils/pdf-page-renderer';
+import {
+  buildAuthorizationLetterBundle,
+  isDraftAuthorizationLetter,
+} from '../utils/authorization-letter-pdf';
+import {
+  buildInvoiceLetterBundle,
+  isDraftInvoiceLetter,
+} from '../utils/invoice-letter-pdf';
+import {
+  buildNoInvoiceConsentBundle,
+  isDraftNoInvoiceConsent,
+} from '../utils/no-invoice-consent-pdf';
+import {
+  buildParkRegulationBundle,
+  isDraftParkRegulation,
+} from '../utils/park-regulation-pdf';
 import { buildSalePreviewBundle, isDraftCaratula } from '../utils/sale-pdf';
+import { buildCardSidesBundle } from '../utils/card-sides-pdf';
 import type { SaleFormData } from '../types/sale-form';
 
-const props = defineProps<{
-  open: boolean;
-  form: SaleFormData;
-  saleId?: number | null;
-  status?: string;
-}>();
+const props = withDefaults(
+  defineProps<{
+    open: boolean;
+    form: SaleFormData;
+    saleId?: number | null;
+    status?: string;
+    kind?:
+      | 'caratula'
+      | 'cartaFactura'
+      | 'cartaNoFactura'
+      | 'reglamentoParque'
+      | 'cartaAutorizacion'
+      | 'tarjeta';
+  }>(),
+  { kind: 'caratula' },
+);
 
 const emit = defineEmits<{ close: [] }>();
 
@@ -24,15 +51,77 @@ const useEmbedFallback = computed(
   () => !loading.value && !error.value && pageImages.value.length === 0 && Boolean(embedUrl.value),
 );
 
-const isDraft = computed(() =>
-  isDraftCaratula(props.form, { saleId: props.saleId, status: props.status }),
-);
-const modalTitle = computed(() =>
-  isDraft.value ? 'Carátula del contrato (borrador)' : 'Carátula del contrato',
-);
-const downloadName = computed(() =>
-  isDraft.value ? 'caratula-contrato-borrador.pdf' : 'caratula-contrato.pdf',
-);
+const isCarta = computed(() => props.kind === 'cartaFactura');
+const isNoFactura = computed(() => props.kind === 'cartaNoFactura');
+const isReglamento = computed(() => props.kind === 'reglamentoParque');
+const isAuth = computed(() => props.kind === 'cartaAutorizacion');
+const isTarjeta = computed(() => props.kind === 'tarjeta');
+const isDraft = computed(() => {
+  if (isTarjeta.value) return false;
+  const opts = { saleId: props.saleId, status: props.status };
+  if (isAuth.value) return isDraftAuthorizationLetter(props.form, opts);
+  if (isReglamento.value) return isDraftParkRegulation(props.form, opts);
+  if (isNoFactura.value) return isDraftNoInvoiceConsent(props.form, opts);
+  if (isCarta.value) return isDraftInvoiceLetter(props.form, opts);
+  return isDraftCaratula(props.form, opts);
+});
+const modalTitle = computed(() => {
+  if (isTarjeta.value) return 'Tarjeta (ambos lados)';
+  if (isAuth.value) {
+    return isDraft.value
+      ? 'Carta de autorización (borrador)'
+      : 'Carta de autorización';
+  }
+  if (isReglamento.value) {
+    return isDraft.value
+      ? 'Reglamento de parque (borrador)'
+      : 'Reglamento de parque';
+  }
+  if (isNoFactura.value) {
+    return isDraft.value
+      ? 'Consentimiento de no factura (borrador)'
+      : 'Consentimiento de no factura';
+  }
+  if (isCarta.value) {
+    return isDraft.value
+      ? 'Carta de requerimiento de factura (borrador)'
+      : 'Carta de requerimiento de factura';
+  }
+  return isDraft.value
+    ? 'Carátula del contrato (borrador)'
+    : 'Carátula del contrato';
+});
+const downloadName = computed(() => {
+  if (isTarjeta.value) return 'tarjeta-ambos-lados.pdf';
+  if (isAuth.value) {
+    return isDraft.value
+      ? 'carta-autorizacion-borrador.pdf'
+      : 'carta-autorizacion.pdf';
+  }
+  if (isReglamento.value) {
+    return isDraft.value
+      ? 'reglamento-parque-borrador.pdf'
+      : 'reglamento-parque.pdf';
+  }
+  if (isNoFactura.value) {
+    return isDraft.value
+      ? 'consentimiento-no-factura-borrador.pdf'
+      : 'consentimiento-no-factura.pdf';
+  }
+  if (isCarta.value) {
+    return isDraft.value
+      ? 'carta-requerimiento-factura-borrador.pdf'
+      : 'carta-requerimiento-factura.pdf';
+  }
+  return isDraft.value ? 'caratula-contrato-borrador.pdf' : 'caratula-contrato.pdf';
+});
+const generatingLabel = computed(() => {
+  if (isTarjeta.value) return 'Armando PDF de la tarjeta…';
+  if (isAuth.value || isCarta.value || isNoFactura.value || isReglamento.value) {
+    return 'Generando carta…';
+  }
+  return 'Generando carátula…';
+});
 
 async function render() {
   loading.value = true;
@@ -47,10 +136,28 @@ async function render() {
   }
 
   try {
-    const { blob, pages } = await buildSalePreviewBundle(props.form, {
-      saleId: props.saleId,
-      status: props.status,
-    });
+    const opts = { saleId: props.saleId, status: props.status };
+    if (isTarjeta.value) {
+      const frente = props.form.documentos.tarjetaFrente;
+      const reverso = props.form.documentos.tarjetaReverso;
+      if (!frente || !reverso) {
+        throw new Error('Faltan las fotos de la tarjeta');
+      }
+    }
+    const { blob, pages } = isTarjeta.value
+      ? await buildCardSidesBundle(
+          props.form.documentos.tarjetaFrente!,
+          props.form.documentos.tarjetaReverso!,
+        )
+      : isAuth.value
+        ? await buildAuthorizationLetterBundle(props.form, opts)
+        : isReglamento.value
+          ? await buildParkRegulationBundle(props.form, opts)
+          : isNoFactura.value
+            ? await buildNoInvoiceConsentBundle(props.form, opts)
+            : isCarta.value
+              ? await buildInvoiceLetterBundle(props.form, opts)
+              : await buildSalePreviewBundle(props.form, opts);
     downloadUrl.value = URL.createObjectURL(blob);
     if (pages.length) {
       pageImages.value = pages;
@@ -58,15 +165,25 @@ async function render() {
       embedUrl.value = pdfBlobViewUrl(downloadUrl.value);
     }
   } catch {
-    error.value = 'No se pudo generar la carátula. Intenta de nuevo.';
+    error.value = isTarjeta.value
+      ? 'No se pudo armar el PDF con ambos lados de la tarjeta.'
+      : isAuth.value
+        ? 'No se pudo generar la carta de autorización.'
+        : isReglamento.value
+          ? 'No se pudo generar el reglamento de parque.'
+          : isNoFactura.value
+            ? 'No se pudo generar el consentimiento de no factura.'
+            : isCarta.value
+              ? 'No se pudo generar la carta de requerimiento de factura.'
+              : 'No se pudo generar la carátula. Intenta de nuevo.';
   } finally {
     loading.value = false;
   }
 }
 
 watch(
-  () => props.open,
-  (open) => {
+  () => [props.open, props.kind] as const,
+  ([open]) => {
     if (open) void render();
   },
 );
@@ -86,7 +203,7 @@ onUnmounted(() => {
     <div class="preview">
       <div v-if="loading" class="preview__state">
         <span class="spinner" />
-        Generando carátula…
+        {{ generatingLabel }}
       </div>
       <p v-else-if="error" class="error-text">{{ error }}</p>
       <div v-else-if="pageImages.length" class="preview__pages">
@@ -95,11 +212,11 @@ onUnmounted(() => {
           :key="i"
           :src="src"
           class="preview__page"
-          :alt="`Hoja ${i + 1} de la carátula`"
+          :alt="`Hoja ${i + 1}`"
         />
       </div>
       <div v-else-if="useEmbedFallback" class="preview__embed">
-        <iframe :src="embedUrl!" title="Carátula del contrato" />
+        <iframe :src="embedUrl!" :title="modalTitle" />
       </div>
     </div>
 

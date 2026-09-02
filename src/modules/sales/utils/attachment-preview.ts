@@ -4,9 +4,17 @@ export type AttachmentKind =
   | 'ine'
   | 'comprobanteDomicilio'
   | 'constanciaSituacionFiscal'
+  | 'tarjetaFrente'
+  | 'tarjetaReverso'
+  | 'tarjetaPdf'
   | 'ticketPago'
+  | 'comprobanteTransferencia'
   | 'firmaCliente'
-  | 'caratulaPdf';
+  | 'caratulaPdf'
+  | 'cartaFacturaPdf'
+  | 'cartaNoFacturaPdf'
+  | 'reglamentoParquePdf'
+  | 'cartaAutorizacionPdf';
 
 export type AttachmentListItem = {
   kind: AttachmentKind;
@@ -18,9 +26,17 @@ const LABELS: Record<AttachmentKind, string> = {
   ine: 'INE',
   comprobanteDomicilio: 'Comprobante de domicilio',
   constanciaSituacionFiscal: 'Constancia de situación fiscal',
+  tarjetaFrente: 'Tarjeta (frente)',
+  tarjetaReverso: 'Tarjeta (reverso)',
+  tarjetaPdf: 'Tarjeta (ambos lados)',
   ticketPago: 'Ticket de pago',
+  comprobanteTransferencia: 'Comprobante de transferencia',
   firmaCliente: 'Firma del cliente',
   caratulaPdf: 'Carátula del contrato',
+  cartaFacturaPdf: 'Carta de requerimiento de factura',
+  cartaNoFacturaPdf: 'Consentimiento de no factura',
+  reglamentoParquePdf: 'Reglamento de parque',
+  cartaAutorizacionPdf: 'Carta de autorización (cargo automático)',
 };
 
 export function isAllowedUploadFile(file: File): boolean {
@@ -58,10 +74,18 @@ export function listSaleAttachments(form: SaleFormData): AttachmentListItem[] {
   const docs = form.documentos;
   const keys: AttachmentKind[] = [
     'caratulaPdf',
+    'cartaFacturaPdf',
+    'cartaNoFacturaPdf',
+    'reglamentoParquePdf',
+    'cartaAutorizacionPdf',
+    'tarjetaPdf',
     'ine',
     'comprobanteDomicilio',
     'constanciaSituacionFiscal',
+    'tarjetaFrente',
+    'tarjetaReverso',
     'ticketPago',
+    'comprobanteTransferencia',
     'firmaCliente',
   ];
   const items: AttachmentListItem[] = [];

@@ -27,6 +27,13 @@ const SKIP_KEYS = new Set([
   'folioSolicitud',
   'planKind',
   'origenVenta',
+  'tipoVenta',
+  'estatus',
+  'matchType',
+  'cuenta',
+  'cuentaPago',
+  'cvv',
+  'vencimientoTarjeta',
 ]);
 
 const SKIP_INPUT_TYPES = new Set([

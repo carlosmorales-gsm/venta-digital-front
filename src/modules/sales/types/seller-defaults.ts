@@ -3,9 +3,13 @@ export type SaleBranch = {
   name: string;
 };
 
-/** Solo el id del plan en Odoo. Nombre/precio se leen al usarlo. */
+/** Id en catálogo. Nombre/precio se cachean en sesión para no pedirlos otra vez. */
 export type SellerDefaultPlan = {
   id: number;
+  name?: string;
+  listPrice?: number;
+  defaultCode?: string | null;
+  withoutInterest?: boolean;
 };
 
 export type SellerDefaults = {

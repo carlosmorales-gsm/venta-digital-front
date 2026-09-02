@@ -141,6 +141,21 @@ Requieren JWT + rol ADMIN + permiso usuarios.gestionar.
   GET /odoo/clientes/:id
       Ficha de un partner para precargar captura
 
+  GET /odoo/clientes/:id/suspendidas
+      Ventas suspendidas del cliente y ventas suspendidas donde el
+      nombre coincide como beneficiario.
+      Devuelve: { titular: [], beneficiario: [] }
+
+  GET /odoo/clientes/:id/activas
+      Ventas vivas (`status=active`) del cliente y donde el nombre
+      coincide como beneficiario. Mejora / minoría (cambio de plan).
+      Devuelve: { titular: [], beneficiario: [] }
+
+  GET /odoo/empresas-convenio
+      Proxy a GET /productos/empresas-convenio de api-odoo-gsm
+      Catálogo sale.order.company (nómina / convenio)
+      Devuelve: id, name, attention
+
 
 --------------------------------------------------------------------------------
 6. CONFIGURACIÓN — ADMIN  (/api/settings)

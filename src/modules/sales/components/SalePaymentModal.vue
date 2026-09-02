@@ -6,9 +6,21 @@ import {
   BANK_OTHER,
   isOtherBank,
 } from '../constants/mexican-banks';
-import { createPrefillPago, type SaleFormData } from '../types/sale-form';
-import { moneyInputText, parseMoney, paymentDueAmount } from '../utils/sale-finance';
-
+import {
+  createPrefillPago,
+  type SaleAttachment,
+  type SaleFormData,
+} from '../types/sale-form';
+import {
+  fileToAttachment,
+  UPLOAD_ACCEPT,
+} from '../utils/file-to-attachment';
+import {
+  moneyInputText,
+  parseMoney,
+  paymentDueAmount,
+  paymentDueConcepts,
+} from '../utils/sale-finance';
 const props = defineProps<{
   open: boolean;
   form: SaleFormData;
@@ -17,12 +29,18 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   close: [];
-  save: [pago: SaleFormData['pago']];
+  save: [
+    pago: SaleFormData['pago'],
+    comprobanteTransferencia?: SaleAttachment | null,
+  ];
 }>();
 
 const pago = reactive({ ...props.form.pago });
 const bancoChoice = ref('');
 const bancoOtro = ref('');
+const comprobanteTransferencia = ref<SaleAttachment | null>(null);
+const transferFileError = ref<string | null>(null);
+const transferInput = ref<HTMLInputElement | null>(null);
 
 const showBancoOtro = computed(() => isOtherBank(bancoChoice.value));
 
@@ -39,6 +57,7 @@ const showBankFields = computed(
     formaPagoNorm.value === 'CHEQUE' ||
     isTarjeta.value,
 );
+const isTransferencia = computed(() => formaPagoNorm.value === 'TRANSFERENCIA');
 const showCashFields = computed(() => isEfectivo.value);
 const requiresCuenta = computed(
   () => formaPagoNorm.value === 'TRANSFERENCIA' || isTarjeta.value,
@@ -61,15 +80,12 @@ const amountDue = computed(() =>
 
 const amountDueLabel = computed(() => formatMoneyNumber(amountDue.value));
 
-const amountDueCaption = computed(() => {
-  const inicial = parseMoney(props.form.pago.pagoInicial || pago.pagoInicial);
-  const anticipo = parseMoney(props.form.pago.anticipo || pago.anticipo);
-  if (inicial > 0 && anticipo > 0 && inicial !== anticipo) {
-    return `Pago inicial (anticipo en contrato: ${formatMoneyNumber(anticipo)})`;
-  }
-  if (inicial > 0) return 'Pago inicial';
-  return 'Anticipo';
-});
+const dueConcepts = computed(() =>
+  paymentDueConcepts({
+    pagoInicial: props.form.pago.pagoInicial || pago.pagoInicial,
+    anticipo: props.form.pago.anticipo || pago.anticipo,
+  }),
+);
 
 const cambioAmount = computed(() => {
   if (!showCashFields.value) return 0;
@@ -98,6 +114,9 @@ watch(
   () => props.open,
   (open) => {
     if (!open) return;
+    comprobanteTransferencia.value =
+      props.form.documentos.comprobanteTransferencia ?? null;
+    transferFileError.value = null;
     const src = props.form.pago;
     const merged = src.precioPlan?.trim()
       ? { ...src }
@@ -118,9 +137,12 @@ watch(
         props.form.pago.diasEspecificosPago || merged.diasEspecificosPago,
       montoRecibido: props.form.pago.montoRecibido || merged.montoRecibido || '',
       cambio: props.form.pago.cambio || merged.cambio || '',
+      cuenta: src.cuentaPago || '',
+      banco: src.bancoPago || '',
+      cuentaPago: src.cuentaPago || '',
+      bancoPago: src.bancoPago || '',
     });
-
-    const bank = (pago.banco || '').trim();
+    const bank = (src.bancoPago || '').trim();
     if (!bank) {
       bancoChoice.value = '';
       bancoOtro.value = '';
@@ -150,8 +172,41 @@ watch(
     if (forma === 'CHEQUE') {
       pago.cuenta = '';
     }
+    if (forma !== 'TRANSFERENCIA') {
+      comprobanteTransferencia.value = null;
+      transferFileError.value = null;
+    }
   },
 );
+
+function fileKindLabel(mime?: string) {
+  if (!mime) return 'Archivo';
+  if (mime.includes('pdf')) return 'PDF';
+  if (mime.startsWith('image/')) return 'Imagen';
+  return 'Archivo';
+}
+
+async function onTransferFile(ev: Event) {
+  const input = ev.target as HTMLInputElement;
+  const file = input.files?.[0];
+  transferFileError.value = null;
+  if (!file) return;
+  try {
+    comprobanteTransferencia.value = await fileToAttachment(file);
+  } catch (e: unknown) {
+    comprobanteTransferencia.value = null;
+    transferFileError.value =
+      e instanceof Error ? e.message : 'Archivo no válido';
+  } finally {
+    input.value = '';
+  }
+}
+
+function clearTransferFile() {
+  comprobanteTransferencia.value = null;
+  transferFileError.value = null;
+  if (transferInput.value) transferInput.value.value = '';
+}
 
 function resolveBanco() {
   if (isOtherBank(bancoChoice.value)) return bancoOtro.value.trim();
@@ -186,15 +241,25 @@ function onSave() {
     fechaProximoPago: fromPlan.fechaProximoPago || pago.fechaProximoPago,
     diasEspecificosPago:
       fromPlan.diasEspecificosPago || pago.diasEspecificosPago,
-    cuenta: isEfectivo.value
+    cuenta: fromPlan.cuenta,
+    banco: fromPlan.banco,
+    cuentaPago: isEfectivo.value
       ? ''
       : requiresCuenta.value
         ? pago.cuenta.trim()
         : '',
-    banco: isEfectivo.value ? '' : resolveBanco(),
+    bancoPago: isEfectivo.value ? '' : resolveBanco(),
+    vencimientoTarjeta: fromPlan.vencimientoTarjeta,
+    titularTarjeta: fromPlan.titularTarjeta,
+    cvv: fromPlan.cvv,
+    numeroEmpleado: fromPlan.numeroEmpleado,
+    nombreEmpleado: fromPlan.nombreEmpleado,
+    empresaNomina: fromPlan.empresaNomina,
+    empresaNominaId: fromPlan.empresaNominaId,
+    infoNomina: fromPlan.infoNomina,
     montoRecibido: isEfectivo.value ? montoRecibido : '',
     cambio: isEfectivo.value ? resolveCambio() : '',
-  });
+  }, isTransferencia.value ? comprobanteTransferencia.value : null);
 }
 
 const canSave = computed(() => saveBlockReason.value === null);
@@ -242,6 +307,12 @@ const saveBlockReason = computed((): string | null => {
         ? 'Indica la cuenta de la tarjeta.'
         : 'Indica la cuenta de transferencia.';
     }
+    if (forma === 'TRANSFERENCIA') {
+      const att = comprobanteTransferencia.value;
+      if (!att?.dataBase64?.trim() && !att?.driveFileUrl?.trim()) {
+        return 'Adjunta el comprobante de transferencia.';
+      }
+    }
     return null;
   }
 
@@ -258,14 +329,26 @@ const saveBlockReason = computed((): string | null => {
     @close="emit('close')"
   >
     <div class="payment-form">
-      <p class="hint">
-        Plan y financiamiento se capturan en la venta. Aquí solo registras la
-        forma de pago.
-      </p>
-
       <div class="amount-label">
-        <span>{{ amountDueCaption }}</span>
-        <strong>{{ amountDueLabel }}</strong>
+        <div
+          v-for="item in dueConcepts"
+          :key="item.key"
+          class="amount-label__row"
+        >
+          <span>{{ item.label }}</span>
+          <strong>{{ formatMoneyNumber(item.amount) }}</strong>
+        </div>
+        <div
+          v-if="dueConcepts.length > 1"
+          class="amount-label__row amount-label__row--total"
+        >
+          <span>Total</span>
+          <strong>{{ amountDueLabel }}</strong>
+        </div>
+        <div v-else-if="!dueConcepts.length" class="amount-label__row">
+          <span>Monto a pagar</span>
+          <strong>{{ amountDueLabel }}</strong>
+        </div>
       </div>
 
       <p v-if="!canSave" class="validation-hint">
@@ -324,10 +407,41 @@ const saveBlockReason = computed((): string | null => {
             autocomplete="organization"
           />
         </label>
-        <label class="span-2">
-          Jefe de ventas
-          <input v-model="pago.nombreJefeVentas" />
-        </label>
+
+        <div v-if="isTransferencia" class="span-2 transfer-doc">
+          <strong>Comprobante de transferencia</strong>
+          <p>
+            Foto o PDF del pago. Se anexa al expediente.
+          </p>
+          <div class="transfer-doc__row">
+            <label class="transfer-doc__btn">
+              <input
+                ref="transferInput"
+                type="file"
+                :accept="UPLOAD_ACCEPT"
+                :disabled="saving"
+                @change="onTransferFile"
+              />
+              {{ comprobanteTransferencia ? 'Cambiar' : 'Adjuntar' }}
+            </label>
+            <button
+              v-if="comprobanteTransferencia"
+              type="button"
+              class="btn btn-ghost btn-sm"
+              :disabled="saving"
+              @click="clearTransferFile"
+            >
+              Quitar
+            </button>
+          </div>
+          <span v-if="comprobanteTransferencia" class="transfer-doc__file">
+            {{ comprobanteTransferencia.name }}
+            · {{ fileKindLabel(comprobanteTransferencia.mime) }}
+          </span>
+          <span v-else-if="transferFileError" class="transfer-doc__error">
+            {{ transferFileError }}
+          </span>
+        </div>
       </div>
     </div>
 
@@ -359,13 +473,6 @@ const saveBlockReason = computed((): string | null => {
   gap: 0.85rem;
 }
 
-.hint {
-  margin: 0;
-  color: var(--vd-muted);
-  font-size: 0.88rem;
-  line-height: 1.4;
-}
-
 .validation-hint {
   margin: 0;
   padding: 0.55rem 0.7rem;
@@ -379,22 +486,38 @@ const saveBlockReason = computed((): string | null => {
 .amount-label {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.45rem;
   padding: 0.7rem 0.85rem;
   border: 1px solid var(--vd-line);
   border-radius: 10px;
   background: #f7f9fb;
 }
 
-.amount-label > span {
+.amount-label__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.amount-label__row > span {
   font-size: 0.82rem;
   font-weight: 600;
   color: var(--gsm-blue);
 }
 
-.amount-label > strong {
-  font-size: 1.2rem;
+.amount-label__row > strong {
+  font-size: 1.05rem;
   color: var(--vd-ink, #1a2430);
+}
+
+.amount-label__row--total {
+  padding-top: 0.4rem;
+  border-top: 1px solid var(--vd-line);
+}
+
+.amount-label__row--total > strong {
+  font-size: 1.2rem;
 }
 
 .cash-change {
@@ -441,6 +564,71 @@ const saveBlockReason = computed((): string | null => {
 
 .span-2 {
   grid-column: 1 / -1;
+}
+
+.transfer-doc {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px dashed var(--vd-line);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.transfer-doc > strong {
+  font-size: 0.82rem;
+  color: var(--gsm-blue);
+}
+
+.transfer-doc > p {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--vd-muted);
+  line-height: 1.35;
+}
+
+.transfer-doc__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.transfer-doc__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0.35rem 0.8rem;
+  border: 1px solid var(--vd-line);
+  border-radius: 8px;
+  background: #f7f9fb;
+  color: var(--gsm-blue);
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.transfer-doc__btn:hover {
+  border-color: var(--gsm-blue);
+}
+
+.transfer-doc__btn input {
+  display: none;
+}
+
+.transfer-doc__file {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--vd-ink);
+}
+
+.transfer-doc__error {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #a82218;
 }
 
 .fields input,

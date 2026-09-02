@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { extractApiError, http } from '../../../shared/api/http';
 import { useDialog } from '../../../shared/ui/dialog';
 import VdModal from '../../../shared/ui/modal/VdModal.vue';
+import VdSelect from '../../../shared/ui/select/VdSelect.vue';
 import SalePdfPreviewModal from '../components/SalePdfPreviewModal.vue';
 import SalePlanSearchModal, {
   type PlanProduct,
@@ -11,7 +12,37 @@ import SalePlanSearchModal, {
 import SaleLocationSearchModal, {
   type ParkLocationSelection,
 } from '../components/SaleLocationSearchModal.vue';
+import SaleKindModal from '../components/SaleKindModal.vue';
 import { SALE_ORIGIN_OPTIONS } from '../constants/sale-origins';
+import {
+  FISCAL_REGIMEN_CARTA,
+  FISCAL_REGIMEN_OTRO,
+  FISCAL_REGIMEN_OTROS,
+  TIPO_PERSONA_OPTIONS,
+  isValidRfc,
+  regimenSelectValue,
+} from '../constants/fiscal-regimes';
+import {
+  BANK_OPTIONS,
+  BANK_OTHER,
+  isOtherBank,
+} from '../constants/mexican-banks';
+import {
+  cardExpiryError,
+  cobranzaMissing,
+  digitsOnly,
+  formatCardNumber,
+  isLikelyEmail,
+  normalizeCardExpiry,
+  normalizeTipoCobranza,
+  TIPO_COBRANZA_OPTIONS,
+} from '../utils/payment-method';
+import {
+  parseSaleKind,
+  saleKindLabel,
+  saleKindToEstatus,
+  type SaleKind,
+} from '../constants/sale-kinds';
 import type { SaleBranch, SellerDefaults } from '../types/seller-defaults';
 import { emptySellerDefaults } from '../types/seller-defaults';
 import {
@@ -21,6 +52,7 @@ import {
   mergeSaleForm,
   normalizePagoDefaults,
   syncBeneficiariosToDerechos,
+  fullName,
   titularDisplayName,
   type ReuseGroup,
   type SaleFormData,
@@ -34,14 +66,22 @@ import {
   mxPhoneError,
   normalizeMxPhone,
 } from '../utils/phone';
-import { pickRandomDevSaleMock } from '../utils/dev-sale-mocks';
 import {
+  mockConstanciaAttachment,
+  pickRandomDevSaleMock,
+} from '../utils/dev-sale-mocks';
+import {
+  applyCatalogClienteToForm,
   clienteDisplayName,
-  clienteHasBeneficiarios,
-  clienteHasSustituto,
   searchCatalogClientes,
   type CatalogCliente,
 } from '../utils/odoo-clientes';
+import { takePendingRecognition } from '../utils/pending-recognition';
+import {
+  prefetchSellerSession,
+  readSellerPrefetch,
+} from '../utils/seller-session-cache';
+import { fetchPlanesByIds } from '../utils/odoo-plans';
 import {
   computeFinancingBreakdown,
   formatMoneyDisplay,
@@ -49,11 +89,13 @@ import {
   normalizeFrequency,
   parseDiscountPct,
   parseMoney,
+  totalRecognizedPaid,
 } from '../utils/sale-finance';
 import {
   fileToAttachment,
   fileToPdfAttachment,
 } from '../utils/file-to-attachment';
+import { buildCardSidesAttachment } from '../utils/card-sides-pdf';
 import { useAuthStore } from '../../auth/stores/auth.store';
 import {
   clampIsoDateMin,
@@ -69,6 +111,9 @@ import {
 const isDev = import.meta.env.DEV;
 const auth = useAuthStore();
 const sellerAsesorName = computed(() => auth.user?.fullName?.trim() || '');
+const sellerJefeVentasName = computed(
+  () => auth.user?.nombreJefeVentas?.trim() || '',
+);
 
 const STEPS = [
   { key: 'meta', title: 'Contrato', short: 'Contrato' },
@@ -80,9 +125,14 @@ const STEPS = [
   { key: 'docs', title: 'Documentos', short: 'Docs' },
 ] as const;
 
+const DEV_PREFILL_EXTRAS = [
+  { key: 'factura', title: 'Datos de factura', short: 'Factura' },
+] as const;
+
 type StepKey = (typeof STEPS)[number]['key'];
-type InnerTab = 'personales' | 'domicilio';
-type PlanInnerTab = 'plan' | 'financiamiento';
+type InnerTab = 'personales' | 'domicilio' | 'factura';
+type PlanInnerTab = 'plan' | 'financiamiento' | 'metodoPago';
+type DocsInnerTab = 'subir' | 'vista';
 
 const route = useRoute();
 const router = useRouter();
@@ -96,8 +146,28 @@ const saving = ref(false);
 const submitting = ref(false);
 const loading = ref(false);
 const previewOpen = ref(false);
+const cartaPreviewOpen = ref(false);
+const cartaNoFacturaPreviewOpen = ref(false);
+const reglamentoParquePreviewOpen = ref(false);
+const cartaAuthPreviewOpen = ref(false);
+const tarjetaPreviewOpen = ref(false);
 const reuseOpen = ref(false);
+const kindOpen = ref(false);
+const missingOpen = ref(false);
+const missingTitle = ref('');
+const missingItems = ref<string[]>([]);
 const devPrefillOpen = ref(false);
+const FACTURA_CONTACTO_KEYS = [
+  'factura',
+  'tipoPersona',
+  'razonSocial',
+  'rfc',
+  'facturaCp',
+  'regimenFiscal',
+  'regimenFiscalOtro',
+  'telefonoFactura',
+] as const;
+
 const devPrefillSteps = reactive({
   meta: true,
   titular: true,
@@ -106,6 +176,7 @@ const devPrefillSteps = reactive({
   segundo: true,
   plan: true,
   docs: true,
+  factura: true,
 });
 const references = ref<SaleListItem[]>([]);
 const reuseSource = ref<'vd' | 'catalogo'>('vd');
@@ -140,12 +211,57 @@ const descuentoEspecial = ref(0);
 const titularInnerTab = ref<InnerTab>('personales');
 const segundoInnerTab = ref<InnerTab>('personales');
 const planInnerTab = ref<PlanInnerTab>('plan');
+const docsInnerTab = ref<DocsInnerTab>('subir');
 const formOpen = ref(false);
 
 const stepTitle = computed(() => STEPS[step.value]?.title ?? '');
 const canEdit = computed(
   () => status.value === 'NEW' || status.value === 'DRAFT',
 );
+const captureTitle = computed(() => {
+  const kind = parseSaleKind(form.meta.tipoVenta) ?? 'NUEVA';
+  const kindTitle = saleKindLabel(kind);
+  if (!canEdit.value) return kind === 'NUEVA' ? 'Venta' : kindTitle;
+  return kind === 'NUEVA' ? 'Nueva venta' : `Nueva venta · ${kindTitle}`;
+});
+const tipoVentaLabel = computed(() => saleKindLabel(form.meta.tipoVenta));
+const showAnterior = computed(() => {
+  const kind = parseSaleKind(form.meta.tipoVenta) ?? 'NUEVA';
+  return kind !== 'NUEVA';
+});
+
+function applySaleKind(kind: SaleKind) {
+  form.meta.tipoVenta = kind;
+  form.meta.estatus = saleKindToEstatus(kind);
+}
+
+function onKindSelect(kind: SaleKind) {
+  kindOpen.value = false;
+  if (
+    kind === 'RECONOCIMIENTO' ||
+    kind === 'MEJORA' ||
+    kind === 'MINORIA'
+  ) {
+    void router.replace({
+      name: 'vendedor-ventas',
+      query: { pick: kind },
+    });
+    return;
+  }
+  applySaleKind(kind);
+  void router.replace({
+    name: route.name ?? 'vendedor-venta-nueva',
+    params: route.params,
+    query: { ...route.query, tipo: kind },
+  });
+}
+
+function onKindCancel() {
+  kindOpen.value = false;
+  if (!saleId.value) {
+    void router.replace({ name: 'vendedor-ventas' });
+  }
+}
 const isParque = computed(
   () => form.ubicacionPlan.planKind === 'PARQUE',
 );
@@ -153,6 +269,139 @@ const isPlanFuturo = computed(
   () => form.ubicacionPlan.planKind === 'PLAN_FUTURO',
 );
 const planSelected = computed(() => Boolean(form.ubicacionPlan.productId));
+
+const tipoCobranzaNorm = computed(() =>
+  normalizeTipoCobranza(form.contacto.tipoCobranza),
+);
+const isDomiciliado = computed(() => tipoCobranzaNorm.value === 'DOMICILIADO');
+const isNomina = computed(() => tipoCobranzaNorm.value === 'NOMINA');
+const tipoCobranzaOptions = computed(() => TIPO_COBRANZA_OPTIONS);
+const empresasConvenio = ref<Array<{ id: number; name: string }>>([]);
+const empresaNominaOptions = computed(() =>
+  empresasConvenio.value.map((e) => ({ value: e.id, label: e.name })),
+);
+const empresasConvenioLoaded = ref(false);
+const showMetodoBanco = computed(() => isDomiciliado.value);
+const metodoBancoChoice = ref('');
+const metodoBancoOtro = ref('');
+const showMetodoBancoOtro = computed(() =>
+  isOtherBank(metodoBancoChoice.value),
+);
+
+function syncMetodoBancoFromForm() {
+  const bank = (form.pago.banco || '').trim();
+  if (!bank) {
+    metodoBancoChoice.value = '';
+    metodoBancoOtro.value = '';
+    return;
+  }
+  if ((BANK_OPTIONS as readonly string[]).includes(bank)) {
+    metodoBancoChoice.value = bank;
+    metodoBancoOtro.value = '';
+    return;
+  }
+  metodoBancoChoice.value = BANK_OTHER;
+  metodoBancoOtro.value = bank;
+}
+
+function applyMetodoBanco() {
+  form.pago.banco = isOtherBank(metodoBancoChoice.value)
+    ? metodoBancoOtro.value.trim()
+    : metodoBancoChoice.value;
+}
+
+function onCuentaTarjetaInput(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const digitsBefore = digitsOnly(
+    input.value.slice(0, input.selectionStart ?? input.value.length),
+  ).length;
+  form.pago.cuenta = digitsOnly(input.value, 16);
+  const formatted = formatCardNumber(form.pago.cuenta);
+  void nextTick(() => {
+    let pos = formatted.length;
+    let seen = 0;
+    for (let i = 0; i < formatted.length; i += 1) {
+      if (formatted[i] === ' ') continue;
+      seen += 1;
+      if (seen === digitsBefore) {
+        pos = i + 1;
+        break;
+      }
+    }
+    if (digitsBefore === 0) pos = 0;
+    input.setSelectionRange(pos, pos);
+  });
+}
+
+function onVencimientoInput(event: Event) {
+  const input = event.target as HTMLInputElement;
+  form.pago.vencimientoTarjeta = normalizeCardExpiry(input.value);
+}
+
+function onCvvInput(event: Event) {
+  const input = event.target as HTMLInputElement;
+  form.pago.cvv = digitsOnly(input.value, 3);
+}
+
+const vencimientoError = computed(() => {
+  if (form.pago.vencimientoTarjeta.replace(/\D/g, '').length < 4) return '';
+  return cardExpiryError(form.pago.vencimientoTarjeta) ?? '';
+});
+
+function metodoPagoMissing(): string[] {
+  return cobranzaMissing({
+    tipoCobranza: form.contacto.tipoCobranza,
+    cuenta: form.pago.cuenta,
+    vencimientoTarjeta: form.pago.vencimientoTarjeta,
+    cvv: form.pago.cvv,
+    titularTarjeta: form.pago.titularTarjeta,
+    banco: form.pago.banco,
+    correo: form.contacto.correo,
+    celular1: form.contacto.celular1,
+    direccion: form.contacto.direccion,
+    empresaNominaId: form.pago.empresaNominaId,
+    empresaNomina: form.pago.empresaNomina,
+    nombreEmpleado: form.pago.nombreEmpleado,
+    numeroEmpleado: form.pago.numeroEmpleado,
+  });
+}
+
+function prefillNombreEmpleado() {
+  if (normalizeTipoCobranza(form.contacto.tipoCobranza) !== 'NOMINA') return;
+  if (form.pago.nombreEmpleado.trim()) return;
+  const name = fullName(form.contacto);
+  if (name) form.pago.nombreEmpleado = name;
+}
+
+function onEmpresaNominaChange(raw: string | number | null = form.pago.empresaNominaId) {
+  const id = raw == null || raw === '' ? null : Number(raw);
+  form.pago.empresaNominaId =
+    id != null && Number.isFinite(id) && id > 0 ? id : null;
+  const selected = empresasConvenio.value.find(
+    (e) => e.id === form.pago.empresaNominaId,
+  );
+  form.pago.empresaNomina = toSaleUppercase(selected?.name ?? '');
+}
+
+async function loadEmpresasConvenio() {
+  const userId = auth.user?.id;
+  const cached = readSellerPrefetch(userId);
+  if (cached) {
+    empresasConvenio.value = cached.convenioCompanies;
+    empresasConvenioLoaded.value = true;
+    if (cached.convenioCompanies.length) return;
+  }
+  if (!userId) {
+    empresasConvenioLoaded.value = true;
+    return;
+  }
+  try {
+    applySellerPrefetch(await prefetchSellerSession(userId));
+  } catch {
+    empresasConvenio.value = cached?.convenioCompanies ?? [];
+    empresasConvenioLoaded.value = true;
+  }
+}
 
 const planSearchOpen = ref(false);
 const locationSearchOpen = ref(false);
@@ -190,21 +439,34 @@ function onServiceTypeChange() {
   form.meta.serviceTypeName = toSaleUppercase(selected?.name ?? '');
 }
 
+function applySellerPrefetch(data: {
+  defaults: SellerDefaults;
+  branches: SaleBranch[];
+  serviceTypes: SaleBranch[];
+  convenioCompanies?: SaleBranch[];
+}) {
+  branches.value = data.branches;
+  serviceTypes.value = data.serviceTypes;
+  empresasConvenio.value = data.convenioCompanies ?? [];
+  empresasConvenioLoaded.value = true;
+  sellerDefaults.value = { ...emptySellerDefaults(), ...data.defaults };
+  if (!saleId.value) applyDefaultBranch();
+}
+
 async function loadSellerDefaults() {
+  const userId = auth.user?.id;
+  if (!userId) return;
   try {
-    const [{ data: branchData }, { data: typeData }, { data: defaults }] =
-      await Promise.all([
-        http.get<SaleBranch[]>('/odoo/sucursales'),
-        http.get<SaleBranch[]>('/odoo/tipos-servicio'),
-        http.get<SellerDefaults>('/users/me/defaults'),
-      ]);
-    branches.value = branchData || [];
-    serviceTypes.value = typeData || [];
-    sellerDefaults.value = { ...emptySellerDefaults(), ...defaults };
-    if (!saleId.value) applyDefaultBranch();
+    applySellerPrefetch(await prefetchSellerSession(userId));
   } catch {
-    branches.value = [];
-    serviceTypes.value = [];
+    const cached = readSellerPrefetch(userId);
+    if (cached) applySellerPrefetch(cached);
+    else {
+      branches.value = [];
+      serviceTypes.value = [];
+      empresasConvenio.value = [];
+      empresasConvenioLoaded.value = true;
+    }
   }
 }
 
@@ -245,8 +507,27 @@ function openPlanFinanciamientoTab() {
   planInnerTab.value = 'financiamiento';
 }
 
+function openPlanMetodoPagoTab() {
+  if (!planSelected.value) return;
+  planInnerTab.value = 'metodoPago';
+}
+
 function onPreasignacionChange() {
   if (!form.ubicacionPlan.preasignacion) clearParkLocation();
+}
+
+async function syncWithoutInterestFromPlan() {
+  const id = form.ubicacionPlan.productId;
+  const kind = form.ubicacionPlan.planKind;
+  if (!id || (kind !== 'PARQUE' && kind !== 'PLAN_FUTURO')) return;
+  try {
+    const [live] = await fetchPlanesByIds(kind, [id]);
+    if (!live) return;
+    form.ubicacionPlan.withoutInterest = Boolean(live.withoutInterest);
+    recomputeFinancing();
+  } catch {
+    /* se conserva el valor guardado */
+  }
 }
 
 function onPlanSelected(plan: PlanProduct) {
@@ -254,15 +535,16 @@ function onPlanSelected(plan: PlanProduct) {
   dest.nombrePlan = toSaleUppercase(plan.name);
   dest.productId = plan.id;
   dest.productDefaultCode = plan.defaultCode ?? '';
-  dest.withoutInterest = plan.withoutInterest;
+  dest.withoutInterest = Boolean(plan.withoutInterest);
   const price = plan.listPrice > 0 ? String(plan.listPrice) : '';
   dest.precioPlan = price;
   if (price) form.pago.precioPlan = price;
   recomputeSaldo();
   planSearchOpen.value = false;
+  void syncWithoutInterestFromPlan();
 }
 
-function formatMoneyLabel(raw: string) {
+function formatMoneyLabel(raw: string | number) {
   return formatMoneyDisplay(raw) || '—';
 }
 
@@ -271,6 +553,10 @@ function planFinancingConfig() {
     withoutInterest: form.ubicacionPlan.withoutInterest,
   };
 }
+
+const recognizedBalance = computed(() =>
+  totalRecognizedPaid(form.meta.reconocimientoVentas),
+);
 
 function recomputeFinancing() {
   const precio = form.ubicacionPlan.precioPlan || form.pago.precioPlan;
@@ -281,6 +567,7 @@ function recomputeFinancing() {
     frecuencia: form.pago.frecuencia,
     plazo: form.pago.plazo,
     config: planFinancingConfig(),
+    recognizedBalance: recognizedBalance.value,
   });
   form.pago.saldo = String(Number(breakdown.saldo.toFixed(2)));
   form.pago.importeCadaPago = formatMoneyField(breakdown.importeCadaPago);
@@ -311,11 +598,68 @@ watch(pagoInicialActivo, (active) => {
 watch(
   () => form.ubicacionPlan.productId,
   (productId) => {
-    if (!productId && planInnerTab.value === 'financiamiento') {
+    if (
+      !productId &&
+      (planInnerTab.value === 'financiamiento' ||
+        planInnerTab.value === 'metodoPago')
+    ) {
       planInnerTab.value = 'plan';
     }
   },
 );
+
+watch(
+  () => form.contacto.tipoCobranza,
+  (tipo) => {
+    const kind = normalizeTipoCobranza(tipo);
+    if (kind === 'DOMICILIADO') {
+      if (!form.pago.titularTarjeta.trim()) {
+        form.pago.titularTarjeta = fullName(form.contacto);
+      }
+      form.pago.numeroEmpleado = '';
+      form.pago.nombreEmpleado = '';
+      form.pago.empresaNomina = '';
+      form.pago.empresaNominaId = null;
+      form.pago.infoNomina = '';
+      return;
+    }
+    form.documentos.tarjetaFrente = null;
+    form.documentos.tarjetaReverso = null;
+    form.documentos.tarjetaPdf = null;
+    form.pago.cuenta = '';
+    form.pago.cvv = '';
+    form.pago.vencimientoTarjeta = '';
+    form.pago.titularTarjeta = '';
+    form.pago.banco = '';
+    metodoBancoChoice.value = '';
+    metodoBancoOtro.value = '';
+    if (kind === 'NOMINA') {
+      void loadEmpresasConvenio();
+      prefillNombreEmpleado();
+      return;
+    }
+    form.pago.numeroEmpleado = '';
+    form.pago.nombreEmpleado = '';
+    form.pago.empresaNomina = '';
+    form.pago.empresaNominaId = null;
+    form.pago.infoNomina = '';
+  },
+);
+
+watch(
+  () => [
+    form.contacto.nombres,
+    form.contacto.apellidoPaterno,
+    form.contacto.apellidoMaterno,
+  ],
+  () => {
+    prefillNombreEmpleado();
+  },
+);
+
+watch(metodoBancoChoice, applyMetodoBanco);
+watch(metodoBancoOtro, applyMetodoBanco);
+watch(() => form.pago.banco, syncMetodoBancoFromForm, { immediate: true });
 
 /** @deprecated alias interno */
 function recomputeSaldo() {
@@ -332,6 +676,7 @@ const financingHint = computed(() => {
     frecuencia: form.pago.frecuencia,
     plazo: form.pago.plazo,
     config: planFinancingConfig(),
+    recognizedBalance: recognizedBalance.value,
   }).numberFrequencies;
   if (code === 'CONTADO') {
     return 'Un solo pago por el precio de contado.';
@@ -404,11 +749,73 @@ watch(
 );
 
 const pideFactura = computed(() => form.contacto.factura === 'SI');
+const rechazaFactura = computed(() => form.contacto.factura === 'NO');
+
+const regimenCartaOptions = FISCAL_REGIMEN_CARTA.map((r) => ({
+  value: r.value,
+  label: r.label,
+}));
+const regimenOtroOptions = [
+  ...regimenCartaOptions,
+  { value: FISCAL_REGIMEN_OTRO, label: 'Otro' },
+];
+const regimenExtraOptions = FISCAL_REGIMEN_OTROS.map((r) => ({
+  value: r.value,
+  label: r.label,
+}));
+
+function clearFacturaFields() {
+  form.contacto.tipoPersona = '';
+  form.contacto.razonSocial = '';
+  form.contacto.rfc = '';
+  form.contacto.facturaCp = '';
+  form.contacto.regimenFiscal = '';
+  form.contacto.regimenFiscalOtro = '';
+  form.contacto.telefonoFactura = '';
+}
+
+function prefillFacturaFields() {
+  if (!form.contacto.tipoPersona) form.contacto.tipoPersona = 'FISICA';
+  if (!form.contacto.razonSocial.trim()) {
+    form.contacto.razonSocial = fullName(form.contacto);
+  }
+  if (!form.contacto.facturaCp.trim()) {
+    form.contacto.facturaCp = form.contacto.cp;
+  }
+  if (!form.contacto.telefonoFactura.trim()) {
+    form.contacto.telefonoFactura = form.contacto.celular1;
+  }
+}
+
+function onRegimenCartaChange(raw: string | number | null) {
+  const value = String(raw ?? '');
+  if (value === FISCAL_REGIMEN_OTRO) {
+    form.contacto.regimenFiscal = FISCAL_REGIMEN_OTRO;
+    return;
+  }
+  form.contacto.regimenFiscal = value;
+  form.contacto.regimenFiscalOtro = '';
+}
+
+function onRegimenOtroChange(raw: string | number | null) {
+  const value = String(raw ?? '');
+  form.contacto.regimenFiscalOtro = value;
+  if (value) form.contacto.regimenFiscal = FISCAL_REGIMEN_OTRO;
+}
 
 watch(
   () => form.contacto.factura,
   (value) => {
-    if (value !== 'SI') form.documentos.constanciaSituacionFiscal = null;
+    if (value === 'SI') {
+      prefillFacturaFields();
+      titularInnerTab.value = 'factura';
+      return;
+    }
+    form.documentos.constanciaSituacionFiscal = null;
+    clearFacturaFields();
+    if (titularInnerTab.value === 'factura') {
+      titularInnerTab.value = 'personales';
+    }
   },
 );
 
@@ -446,6 +853,83 @@ function firstBeneficiaryHasName(): boolean {
   return personHasName(form.beneficiarios[0]);
 }
 
+function anyText(...vals: Array<string | null | undefined>) {
+  return vals.some((v) => hasText(v));
+}
+
+/** Hay captura en la sección (aunque aún no esté completa). */
+const stepHasData = computed<Record<StepKey, boolean>>(() => {
+  const c = form.contacto;
+  const sc = form.segundoContacto;
+  const ts = form.derechohabientes.titularSustituto;
+  const plan = form.ubicacionPlan;
+  const pago = form.pago;
+  const docs = form.documentos;
+  const decl = form.declaraciones;
+  return {
+    meta:
+      anyText(form.meta.origenVenta, form.meta.fechaServicio, form.meta.anterior) ||
+      Boolean(form.meta.branchId) ||
+      Boolean(form.meta.serviceTypeId) ||
+      form.meta.reconocimientoVentas.length > 0,
+    titular:
+      personHasName(c) ||
+      anyText(
+        c.curp,
+        c.sexo,
+        c.fechaNacimiento,
+        c.celular1,
+        c.celular2,
+        c.correo,
+        c.direccion,
+        c.colonia,
+        c.municipio,
+        c.estado,
+        c.cp,
+        c.razonSocial,
+        c.rfc,
+      ),
+    titularSustituto:
+      personHasName(ts) ||
+      anyText(ts.celular, ts.parentesco, ts.fechaNacimiento),
+    beneficiarios: form.beneficiarios.some(
+      (b) =>
+        personHasName(b) ||
+        anyText(b.celular, b.parentesco, b.fechaNacimiento),
+    ),
+    segundo:
+      personHasName(sc) ||
+      anyText(
+        sc.celular,
+        sc.parentesco,
+        sc.direccion,
+        sc.colonia,
+        sc.cp,
+        sc.fechaNacimiento,
+      ),
+    plan:
+      Boolean(plan.productId) ||
+      anyText(plan.nombrePlan, plan.precioPlan, plan.parqueFuneral) ||
+      Boolean(plan.parkId) ||
+      anyText(
+        pago.frecuencia,
+        pago.plazo,
+        pago.importeCadaPago,
+        pago.formaPago,
+        form.contacto.tipoCobranza,
+      ) ||
+      (hasText(pago.anticipo) && pago.anticipo.trim() !== '0'),
+    docs:
+      Boolean(docs.ine) ||
+      Boolean(docs.comprobanteDomicilio) ||
+      Boolean(docs.constanciaSituacionFiscal) ||
+      Boolean(docs.tarjetaFrente) ||
+      Boolean(docs.tarjetaReverso) ||
+      Boolean(docs.tarjetaPdf) ||
+      anyText(decl.aceptaMercadotecnia, decl.aceptaPublicidad),
+  };
+});
+
 /** Completitud por sección (check en el menú de pasos). */
 const stepComplete = computed<Record<StepKey, boolean>>(() => {
   const c = form.contacto;
@@ -470,6 +954,7 @@ const stepComplete = computed<Record<StepKey, boolean>>(() => {
     parseMoney(pago.importeCadaPago) > 0 &&
     (contado || hasText(pago.anticipo));
   const descOk = discountError() === null;
+  const metodoOk = metodoPagoMissing().length === 0;
 
   return {
     meta:
@@ -485,6 +970,16 @@ const stepComplete = computed<Record<StepKey, boolean>>(() => {
       hasText(c.sexo) &&
       isValidMxPhone(c.celular1) &&
       isEmptyOrValidMxPhone(c.celular2) &&
+      (!isDomiciliado.value || isLikelyEmail(c.correo)) &&
+      (c.factura !== 'SI' ||
+        ((c.tipoPersona === 'FISICA' || c.tipoPersona === 'MORAL') &&
+          hasText(c.razonSocial) &&
+          isValidRfc(c.rfc) &&
+          digitsOnly(c.facturaCp).length === 5 &&
+          hasText(c.regimenFiscal) &&
+          (c.regimenFiscal !== FISCAL_REGIMEN_OTRO ||
+            hasText(c.regimenFiscalOtro)) &&
+          isValidMxPhone(c.telefonoFactura))) &&
       hasText(c.direccion) &&
       hasText(c.colonia) &&
       hasText(c.municipio) &&
@@ -505,24 +1000,162 @@ const stepComplete = computed<Record<StepKey, boolean>>(() => {
       (plan.planKind !== 'PLAN_FUTURO' || hasText(plan.servicioFunerario)) &&
       precioOk &&
       finOk &&
-      descOk,
+      descOk &&
+      metodoOk,
     docs:
       Boolean(form.documentos.ine) &&
       Boolean(form.documentos.comprobanteDomicilio) &&
-      (form.contacto.factura !== 'SI' ||
-        Boolean(form.documentos.constanciaSituacionFiscal)) &&
+      (!isDomiciliado.value ||
+        (Boolean(form.documentos.tarjetaFrente) &&
+          Boolean(form.documentos.tarjetaReverso))) &&
       hasText(form.declaraciones.aceptaMercadotecnia) &&
       hasText(form.declaraciones.aceptaPublicidad),
   };
 });
 
+function missingFieldsFor(key: StepKey): string[] {
+  const missing: string[] = [];
+  const c = form.contacto;
+  const sc = form.segundoContacto;
+  const ts = form.derechohabientes.titularSustituto;
+  const plan = form.ubicacionPlan;
+  const pago = form.pago;
+
+  if (key === 'meta') {
+    if (!hasText(form.meta.fecha)) missing.push('Fecha');
+    if (!hasText(form.meta.origenVenta)) missing.push('Origen de venta');
+    if (!form.meta.branchId) missing.push('Sucursal');
+    if (!form.meta.serviceTypeId) missing.push('Tipo de servicio');
+  }
+
+  if (key === 'titular') {
+    if (!hasText(c.nombres)) missing.push('Nombres');
+    if (!hasText(c.apellidoPaterno)) missing.push('Apellido paterno');
+    if (!hasText(c.curp)) missing.push('CURP');
+    else if (!isValidCurp(c.curp)) missing.push('CURP válida');
+    if (!hasText(c.fechaNacimiento)) missing.push('Fecha de nacimiento');
+    if (!hasText(c.sexo)) missing.push('Sexo');
+    if (!hasText(c.celular1)) missing.push('Celular 1');
+    else if (!isValidMxPhone(c.celular1)) missing.push('Celular 1 válido');
+    if (!isEmptyOrValidMxPhone(c.celular2)) missing.push('Celular 2 válido');
+    if (isDomiciliado.value) {
+      if (!hasText(c.correo)) missing.push('Correo (domiciliación)');
+      else if (!isLikelyEmail(c.correo)) missing.push('Correo válido');
+    }
+    if (!hasText(c.direccion)) missing.push('Dirección');
+    if (!hasText(c.colonia)) missing.push('Colonia');
+    if (!hasText(c.municipio)) missing.push('Municipio');
+    if (!hasText(c.estado)) missing.push('Estado');
+    if (c.factura === 'SI') {
+      if (c.tipoPersona !== 'FISICA' && c.tipoPersona !== 'MORAL') {
+        missing.push('Tipo de persona');
+      }
+      if (!hasText(c.razonSocial)) missing.push('Razón social');
+      if (!hasText(c.rfc)) missing.push('RFC');
+      else if (!isValidRfc(c.rfc)) missing.push('RFC válido');
+      if (digitsOnly(c.facturaCp).length !== 5) {
+        missing.push('C.P. de factura');
+      }
+      if (!hasText(c.regimenFiscal)) missing.push('Régimen fiscal');
+      else if (
+        c.regimenFiscal === FISCAL_REGIMEN_OTRO &&
+        !hasText(c.regimenFiscalOtro)
+      ) {
+        missing.push('Otro régimen fiscal');
+      }
+      if (!hasText(c.telefonoFactura)) missing.push('Teléfono de factura');
+      else if (!isValidMxPhone(c.telefonoFactura)) {
+        missing.push('Teléfono de factura válido');
+      }
+    }
+  }
+
+  if (key === 'titularSustituto') {
+    if (!personHasName(ts)) missing.push('Nombre del titular sustituto');
+    if (!isEmptyOrValidMxPhone(ts.celular)) {
+      missing.push('Celular del titular sustituto válido');
+    }
+  }
+
+  if (key === 'beneficiarios') {
+    if (!firstBeneficiaryHasName()) {
+      missing.push('Nombre del primer beneficiario');
+    }
+    form.beneficiarios.forEach((b, i) => {
+      if (!isEmptyOrValidMxPhone(b.celular)) {
+        missing.push(`Celular del beneficiario ${i + 1} válido`);
+      }
+    });
+  }
+
+  if (key === 'segundo') {
+    if (!hasText(sc.nombres)) missing.push('Nombres');
+    if (!hasText(sc.apellidoPaterno)) missing.push('Apellido paterno');
+    if (!hasText(sc.celular)) missing.push('Celular');
+    else if (!isValidMxPhone(sc.celular)) missing.push('Celular válido');
+  }
+
+  if (key === 'plan') {
+    if (!plan.productId) missing.push('Plan');
+    if (
+      plan.planKind === 'PARQUE' &&
+      plan.preasignacion &&
+      !(plan.parkId && plan.sectionId && plan.quadrantId && plan.spaceId)
+    ) {
+      missing.push('Ubicación del parque');
+    }
+    if (plan.planKind === 'PLAN_FUTURO' && !hasText(plan.servicioFunerario)) {
+      missing.push('Servicio funerario');
+    }
+    if (parseMoney(plan.precioPlan || pago.precioPlan) <= 0) {
+      missing.push('Precio del plan');
+    }
+    if (!hasText(pago.frecuencia)) missing.push('Frecuencia');
+    const contado = normalizeFrequency(pago.frecuencia) === 'CONTADO';
+    if (!contado && !hasText(pago.plazo)) missing.push('Plazo');
+    if (!hasText(pago.fechaProximoPago)) missing.push('Fecha del próximo pago');
+    if (parseMoney(pago.importeCadaPago) <= 0) {
+      missing.push('Importe de cada pago');
+    }
+    if (!contado && !hasText(pago.anticipo)) missing.push('Anticipo');
+    const descErr = discountError();
+    if (descErr) missing.push(descErr);
+    missing.push(...metodoPagoMissing());
+  }
+
+  if (key === 'docs') {
+    if (!form.documentos.ine) missing.push('INE');
+    if (!form.documentos.comprobanteDomicilio) {
+      missing.push('Comprobante de domicilio');
+    }
+    if (isDomiciliado.value) {
+      if (!form.documentos.tarjetaFrente) missing.push('Tarjeta (frente)');
+      if (!form.documentos.tarjetaReverso) missing.push('Tarjeta (reverso)');
+    }
+    if (!hasText(form.declaraciones.aceptaMercadotecnia)) {
+      missing.push('Aceptación de mercadotecnia');
+    }
+    if (!hasText(form.declaraciones.aceptaPublicidad)) {
+      missing.push('Aceptación de publicidad');
+    }
+  }
+
+  return missing;
+}
+
 const stepsMenu = computed(() =>
-  STEPS.map((s, index) => ({
-    ...s,
-    index,
-    complete: stepComplete.value[s.key],
-    statusLabel: stepComplete.value[s.key] ? 'Completo' : 'Pendiente',
-  })),
+  STEPS.map((s, index) => {
+    const complete = stepComplete.value[s.key];
+    const hasData = complete || stepHasData.value[s.key];
+    return {
+      ...s,
+      index,
+      complete,
+      hasData,
+      missing: missingFieldsFor(s.key),
+      statusLabel: complete ? 'Completo' : hasData ? 'Con datos' : 'Pendiente',
+    };
+  }),
 );
 
 const completedCount = computed(
@@ -619,6 +1252,7 @@ function openStep(index: number) {
   if (index === 1) titularInnerTab.value = 'personales';
   if (index === 3) segundoInnerTab.value = 'personales';
   if (index === 4) planInnerTab.value = 'plan';
+  if (index === 6) docsInnerTab.value = 'subir';
   formOpen.value = true;
 }
 
@@ -626,10 +1260,17 @@ function closeStepForm() {
   formOpen.value = false;
 }
 
+function openMissingInfo(s: { title: string; missing: string[] }) {
+  missingTitle.value = s.title;
+  missingItems.value = s.missing;
+  missingOpen.value = true;
+}
+
 function syncNombreAsesor() {
   if (sellerAsesorName.value) {
     form.pago.nombreAsesor = sellerAsesorName.value;
   }
+  form.pago.nombreJefeVentas = sellerJefeVentasName.value;
 }
 
 function syncFolioFromSaleId() {
@@ -757,6 +1398,8 @@ async function loadSale(id: number) {
     recomputeSaldo();
     restorePagoInicialActivoFromForm();
     syncNombreAsesor();
+    prefillNombreEmpleado();
+    await syncWithoutInterestFromPlan();
   } catch (e: unknown) {
     await alert({
       title: 'Venta',
@@ -776,9 +1419,32 @@ onMounted(async () => {
     await loadSale(Number(idParam));
   } else {
     ensureBeneficiarios();
+    const kind = parseSaleKind(route.query.tipo);
+    if (
+      kind === 'RECONOCIMIENTO' ||
+      kind === 'MEJORA' ||
+      kind === 'MINORIA'
+    ) {
+      const pending = takePendingRecognition();
+      if (!pending) {
+        void router.replace({
+          name: 'vendedor-ventas',
+          query: { pick: kind },
+        });
+        return;
+      }
+      applySaleKind(kind);
+      applyRecognition(pending);
+    } else if (kind) {
+      applySaleKind(kind);
+    } else {
+      kindOpen.value = true;
+    }
   }
+  await auth.refreshMe();
   syncNombreAsesor();
-  void loadSellerDefaults();
+  await loadSellerDefaults();
+  prefillNombreEmpleado();
 });
 
 function addBeneficiario() {
@@ -862,6 +1528,7 @@ async function saveDraft() {
 
   saving.value = true;
   try {
+    await refreshCardSidesPdf();
     const body = payloadMeta();
     if (saleId.value) {
       const { data } = await http.patch<SaleListItem>(
@@ -976,6 +1643,7 @@ async function finalizeSale() {
 
   submitting.value = true;
   try {
+    await refreshCardSidesPdf();
     const body = payloadMeta();
     const { data } = saleId.value
       ? await http.post<SaleListItem>(`/sales/${saleId.value}/finalize`, body)
@@ -1096,28 +1764,8 @@ function applyReuse() {
       (c) => c.id === Number(selectedCatalogId.value),
     );
     if (!cliente) return;
-    if (reuseGroups.contacto) Object.assign(form.contacto, cliente.contacto);
-    if (reuseGroups.segundoContacto && cliente.segundoContacto) {
-      Object.assign(form.segundoContacto, cliente.segundoContacto);
-    }
-    if (reuseGroups.titularSustituto && clienteHasSustituto(cliente)) {
-      Object.assign(
-        form.derechohabientes.titularSustituto,
-        { ...emptyBeneficiary(), ...cliente.titularSustituto },
-      );
-    }
-    if (reuseGroups.beneficiarios && clienteHasBeneficiarios(cliente)) {
-      form.beneficiarios.splice(
-        0,
-        form.beneficiarios.length,
-        ...(cliente.beneficiarios || []).map((b) => ({
-          ...emptyBeneficiary(),
-          ...b,
-        })),
-      );
-      ensureBeneficiarios();
-      syncBeneficiariosToDerechos(form);
-    }
+    applyCatalogClienteToForm(form, cliente, reuseGroups);
+    ensureBeneficiarios();
     uppercaseSaleFormText(form);
     reuseOpen.value = false;
     return;
@@ -1151,6 +1799,22 @@ function applyReuse() {
   reuseOpen.value = false;
 }
 
+function applyRecognition(payload: {
+  cliente: CatalogCliente;
+  ventas: typeof form.meta.reconocimientoVentas;
+}) {
+  applyCatalogClienteToForm(form, payload.cliente);
+  form.meta.reconocimientoVentas = payload.ventas;
+  recomputeSaldo();
+  form.meta.anterior = payload.ventas
+    .map((v) => String(v.folio || '').trim())
+    .filter(Boolean)
+    .join(', ')
+    .slice(0, 80);
+  ensureBeneficiarios();
+  uppercaseSaleFormText(form);
+}
+
 function openDevPrefill() {
   if (!isDev || !canEdit.value) return;
   devPrefillOpen.value = true;
@@ -1166,7 +1830,10 @@ function toggleAllDevPrefill(on: boolean) {
 
 async function applyDevPrefill() {
   if (!isDev || !canEdit.value) return;
-  const selected = STEPS.filter((s) => devPrefillSteps[s.key]);
+  const selected = [
+    ...STEPS.filter((s) => devPrefillSteps[s.key]),
+    ...DEV_PREFILL_EXTRAS.filter((s) => devPrefillSteps[s.key]),
+  ];
   if (!selected.length) {
     await alert({
       title: 'Prellenar (dev)',
@@ -1176,13 +1843,19 @@ async function applyDevPrefill() {
     return;
   }
 
-  const { label, form: mock } = pickRandomDevSaleMock();
+  const { label, form: mock, invoice } = pickRandomDevSaleMock();
   if (devPrefillSteps.meta) {
     const contrato = form.meta.contrato;
     Object.assign(form.meta, mock.meta);
     form.meta.contrato = contrato;
   }
-  if (devPrefillSteps.titular) Object.assign(form.contacto, mock.contacto);
+  if (devPrefillSteps.titular) {
+    const contacto = { ...mock.contacto };
+    if (!devPrefillSteps.factura) {
+      for (const key of FACTURA_CONTACTO_KEYS) delete contacto[key];
+    }
+    Object.assign(form.contacto, contacto);
+  }
   if (devPrefillSteps.titularSustituto) {
     Object.assign(
       form.derechohabientes.titularSustituto,
@@ -1211,9 +1884,20 @@ async function applyDevPrefill() {
   if (devPrefillSteps.docs) {
     form.documentos.ine = mock.documentos.ine;
     form.documentos.comprobanteDomicilio = mock.documentos.comprobanteDomicilio;
-    form.documentos.constanciaSituacionFiscal =
-      mock.documentos.constanciaSituacionFiscal;
+    form.documentos.tarjetaFrente = mock.documentos.tarjetaFrente;
+    form.documentos.tarjetaReverso = mock.documentos.tarjetaReverso;
+    if (!devPrefillSteps.factura) {
+      form.documentos.constanciaSituacionFiscal =
+        mock.documentos.constanciaSituacionFiscal;
+    }
     Object.assign(form.declaraciones, mock.declaraciones);
+    await refreshCardSidesPdf();
+  }
+  if (devPrefillSteps.factura) {
+    Object.assign(form.contacto, invoice);
+    form.documentos.constanciaSituacionFiscal =
+      mock.documentos.constanciaSituacionFiscal ?? mockConstanciaAttachment();
+    titularInnerTab.value = 'factura';
   }
 
   uppercaseSaleFormText(form);
@@ -1228,7 +1912,30 @@ async function applyDevPrefill() {
 type CaptureDocKind =
   | 'ine'
   | 'comprobanteDomicilio'
-  | 'constanciaSituacionFiscal';
+  | 'constanciaSituacionFiscal'
+  | 'tarjetaFrente'
+  | 'tarjetaReverso';
+
+let cardPdfSeq = 0;
+
+async function refreshCardSidesPdf() {
+  const seq = ++cardPdfSeq;
+  const frente = form.documentos.tarjetaFrente;
+  const reverso = form.documentos.tarjetaReverso;
+  if (!frente || !reverso) {
+    form.documentos.tarjetaPdf = null;
+    return;
+  }
+  try {
+    const pdf = await buildCardSidesAttachment(frente, reverso);
+    if (seq !== cardPdfSeq) return;
+    form.documentos.tarjetaPdf = pdf;
+  } catch (e) {
+    if (seq !== cardPdfSeq) return;
+    form.documentos.tarjetaPdf = null;
+    console.warn('No se pudo armar el PDF de la tarjeta', e);
+  }
+}
 
 async function onFile(kind: CaptureDocKind, ev: Event) {
   const input = ev.target as HTMLInputElement;
@@ -1239,6 +1946,9 @@ async function onFile(kind: CaptureDocKind, ev: Event) {
       kind === 'constanciaSituacionFiscal'
         ? await fileToPdfAttachment(file)
         : await fileToAttachment(file);
+    if (kind === 'tarjetaFrente' || kind === 'tarjetaReverso') {
+      await refreshCardSidesPdf();
+    }
   } catch (e: unknown) {
     await alert({
       title: 'Archivo',
@@ -1253,6 +1963,9 @@ async function onFile(kind: CaptureDocKind, ev: Event) {
 function clearFile(kind: CaptureDocKind) {
   if (!canEdit.value) return;
   form.documentos[kind] = null;
+  if (kind === 'tarjetaFrente' || kind === 'tarjetaReverso') {
+    form.documentos.tarjetaPdf = null;
+  }
 }
 
 function fileKindLabel(mime?: string) {
@@ -1285,7 +1998,7 @@ async function goBack() {
         <button type="button" class="link-back" @click="goBack">
           ← Mis ventas
         </button>
-        <h1>{{ canEdit ? 'Nueva venta' : 'Venta' }}</h1>
+        <h1>{{ captureTitle }}</h1>
         <p class="capture__meta">
           {{ stepTitle }} · {{ completedCount }}/{{ STEPS.length }} secciones
           completas
@@ -1299,7 +2012,7 @@ async function goBack() {
             class="btn btn-ghost btn-compact"
             @click="openReuse"
           >
-            Cotización
+            Precargar
           </button>
           <button
             type="button"
@@ -1353,33 +2066,81 @@ async function goBack() {
       </header>
       <ol class="step-list__items">
         <li v-for="s in stepsMenu" :key="s.key">
-          <button
-            type="button"
+          <div
             class="step-row"
-            :class="{ complete: s.complete }"
-            @click="openStep(s.index)"
+            :class="{
+              complete: s.complete,
+              'has-data': s.hasData && !s.complete,
+            }"
           >
-            <span class="step-row__mark" aria-hidden="true">
-              <svg v-if="s.complete" viewBox="0 0 24 24" fill="none">
-                <path
-                  d="M5 12.5l4.5 4.5L19 7.5"
-                  stroke="currentColor"
-                  stroke-width="2.4"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                />
-              </svg>
-              <template v-else>{{ s.index + 1 }}</template>
-            </span>
-            <span class="step-row__body">
-              <strong>{{ s.title }}</strong>
-              <small>{{ s.statusLabel }}</small>
-            </span>
-            <span class="step-row__chevron" aria-hidden="true">›</span>
-          </button>
+            <button
+              type="button"
+              class="step-row__open"
+              @click="openStep(s.index)"
+            >
+              <span class="step-row__mark" aria-hidden="true">
+                <svg v-if="s.complete" viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M5 12.5l4.5 4.5L19 7.5"
+                    stroke="currentColor"
+                    stroke-width="2.4"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+                <svg
+                  v-else-if="s.hasData"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                >
+                  <circle cx="12" cy="12" r="5" />
+                </svg>
+                <template v-else>{{ s.index + 1 }}</template>
+              </span>
+              <span class="step-row__body">
+                <strong>{{ s.title }}</strong>
+                <small>{{ s.statusLabel }}</small>
+              </span>
+              <span class="step-row__chevron" aria-hidden="true">›</span>
+            </button>
+            <button
+              type="button"
+              class="step-row__info"
+              :title="`Qué falta en ${s.title}`"
+              :aria-label="`Qué falta en ${s.title}`"
+              @click="openMissingInfo(s)"
+            >
+              i
+            </button>
+          </div>
         </li>
       </ol>
     </nav>
+
+    <VdModal
+      :open="missingOpen"
+      :title="missingTitle"
+      @close="missingOpen = false"
+    >
+      <p v-if="!missingItems.length" class="missing-ok">
+        Esta sección ya está completa.
+      </p>
+      <template v-else>
+        <p class="missing-hint">Falta capturar:</p>
+        <ul class="missing-list">
+          <li v-for="item in missingItems" :key="item">{{ item }}</li>
+        </ul>
+      </template>
+      <template #footer>
+        <button
+          type="button"
+          class="btn btn-primary"
+          @click="missingOpen = false"
+        >
+          Entendido
+        </button>
+      </template>
+    </VdModal>
 
     <VdModal
       :open="formOpen"
@@ -1464,13 +2225,21 @@ async function goBack() {
           />
         </label>
         <label>
+          Tipo de venta
+          <input :value="tipoVentaLabel" disabled />
+        </label>
+        <label>
           Estatus
-          <select v-model="form.meta.estatus" :disabled="!canEdit">
+          <select v-model="form.meta.estatus" disabled>
             <option value="ACTIVO">Activo</option>
             <option value="MEJORA">Mejora</option>
             <option value="MINORIA">Minoría</option>
             <option value="REACTIVACION">Reactivación</option>
           </select>
+        </label>
+        <label v-if="showAnterior">
+          Anterior
+          <input v-model="form.meta.anterior" disabled />
         </label>
       </div>
 
@@ -1492,6 +2261,15 @@ async function goBack() {
             @click="titularInnerTab = 'domicilio'"
           >
             Domicilio
+          </button>
+          <button
+            v-if="pideFactura"
+            type="button"
+            class="tab"
+            :class="{ active: titularInnerTab === 'factura' }"
+            @click="titularInnerTab = 'factura'"
+          >
+            Factura
           </button>
         </div>
 
@@ -1606,11 +2384,18 @@ async function goBack() {
           </div>
           <label class="span-2">
             Correo electrónico
+            <span v-if="isDomiciliado" class="field-req">Obligatorio en domiciliación</span>
             <input
               v-model="form.contacto.correo"
               type="email"
               :disabled="!canEdit"
             />
+            <small
+              v-if="isDomiciliado && form.contacto.correo && !isLikelyEmail(form.contacto.correo)"
+              class="field-error"
+            >
+              Escribe un correo válido
+            </small>
           </label>
 
           <p class="hint span-2 section-gap">Datos adicionales</p>
@@ -1701,21 +2486,110 @@ async function goBack() {
           </label>
 
           <p class="hint span-2 section-gap">Datos adicionales</p>
-          <label>
-            Tipo de cobranza
-            <select v-model="form.contacto.tipoCobranza" :disabled="!canEdit">
-              <option value="">—</option>
-              <option>VENTANILLA</option>
-              <option>DOMICILIADO</option>
-              <option>NOMINA</option>
-              <option>OTRO</option>
-            </select>
-          </label>
           <label class="span-2">
             Domicilio entrega documentación
             <input
               v-model="form.contacto.domicilioEntregaDocumentacion"
               :disabled="!canEdit"
+            />
+          </label>
+        </div>
+
+        <div v-show="titularInnerTab === 'factura'" class="fields">
+          <p class="hint span-2">
+            Carta de requerimiento de factura. Escríbela tal cual estás
+            registrado en el SAT.
+          </p>
+          <label>
+            Tipo de persona
+            <VdSelect
+              :model-value="form.contacto.tipoPersona || null"
+              :options="[...TIPO_PERSONA_OPTIONS]"
+              placeholder="Selecciona"
+              :disabled="!canEdit"
+              @update:model-value="
+                form.contacto.tipoPersona = String($event ?? '')
+              "
+            />
+          </label>
+          <label>
+            RFC
+            <input
+              v-model="form.contacto.rfc"
+              maxlength="13"
+              :disabled="!canEdit"
+              placeholder="12 o 13 caracteres"
+            />
+            <small
+              v-if="form.contacto.rfc && !isValidRfc(form.contacto.rfc)"
+              class="field-error"
+            >
+              RFC inválido
+            </small>
+          </label>
+          <label class="span-2">
+            Razón social
+            <input
+              v-model="form.contacto.razonSocial"
+              :disabled="!canEdit"
+              placeholder="Como aparece en el SAT, sin régimen de capital"
+            />
+          </label>
+          <div class="field-row">
+            <label>
+              Código postal
+              <input
+                v-model="form.contacto.facturaCp"
+                inputmode="numeric"
+                maxlength="5"
+                :disabled="!canEdit"
+              />
+            </label>
+            <label>
+              Teléfono de contacto
+              <input
+                :value="form.contacto.telefonoFactura"
+                inputmode="numeric"
+                maxlength="10"
+                autocomplete="tel"
+                :disabled="!canEdit"
+                @input="
+                  onPhoneInput(
+                    $event,
+                    (v) => (form.contacto.telefonoFactura = v),
+                  )
+                "
+              />
+              <small
+                v-if="mxPhoneError(form.contacto.telefonoFactura)"
+                class="field-error"
+              >
+                {{ mxPhoneError(form.contacto.telefonoFactura) }}
+              </small>
+            </label>
+          </div>
+          <label class="span-2">
+            Régimen fiscal
+            <VdSelect
+              :model-value="regimenSelectValue(form.contacto.regimenFiscal)"
+              :options="regimenOtroOptions"
+              placeholder="Selecciona"
+              :disabled="!canEdit"
+              @update:model-value="onRegimenCartaChange"
+            />
+          </label>
+          <label
+            v-if="form.contacto.regimenFiscal === FISCAL_REGIMEN_OTRO"
+            class="span-2"
+          >
+            Otro régimen
+            <VdSelect
+              :model-value="form.contacto.regimenFiscalOtro || null"
+              :options="regimenExtraOptions"
+              placeholder="Selecciona el régimen"
+              searchable
+              :disabled="!canEdit"
+              @update:model-value="onRegimenOtroChange"
             />
           </label>
         </div>
@@ -1991,7 +2865,7 @@ async function goBack() {
 
       <!-- 5 · Plan -->
       <div v-show="step === 5" class="step-scroll">
-        <div class="tabs" role="tablist" aria-label="Plan y financiamiento">
+        <div class="tabs" role="tablist" aria-label="Plan, financiamiento y método de pago">
           <button
             type="button"
             class="tab"
@@ -2016,6 +2890,23 @@ async function goBack() {
             @click="openPlanFinanciamientoTab"
           >
             Financiamiento
+          </button>
+          <button
+            type="button"
+            class="tab"
+            :class="{
+              active: planInnerTab === 'metodoPago',
+              'tab--disabled': !planSelected,
+            }"
+            :disabled="!planSelected"
+            :title="
+              planSelected
+                ? undefined
+                : 'Selecciona un plan antes de capturar el método de pago'
+            "
+            @click="openPlanMetodoPagoTab"
+          >
+            Método de pago
           </button>
         </div>
 
@@ -2042,6 +2933,8 @@ async function goBack() {
                   canEdit ? 'Selecciona un plan con Buscar plan…' : '—'
                 "
                 class="plan-name__readonly"
+                :class="{ 'plan-name__readonly--pick': canEdit }"
+                @click="canEdit && (planSearchOpen = true)"
               />
             </label>
             <button
@@ -2050,7 +2943,7 @@ async function goBack() {
               :disabled="!canEdit"
               @click="planSearchOpen = true"
             >
-              Buscar plan
+              {{ form.ubicacionPlan.productId ? 'Cambiar plan' : 'Buscar plan' }}
             </button>
           </div>
           <p
@@ -2138,7 +3031,8 @@ async function goBack() {
             :class="{
               'plan-readonly--3col':
                 form.ubicacionPlan.productId &&
-                form.ubicacionPlan.withoutInterest,
+                form.ubicacionPlan.withoutInterest &&
+                recognizedBalance <= 0,
             }"
           >
             <div class="plan-readonly__item">
@@ -2148,6 +3042,20 @@ async function goBack() {
                   form.ubicacionPlan.precioPlan || form.pago.precioPlan,
                 )
               }}</strong>
+            </div>
+            <div
+              v-if="
+                form.meta.tipoVenta === 'RECONOCIMIENTO' || recognizedBalance > 0
+              "
+              class="plan-readonly__item"
+            >
+              <span>{{
+                form.meta.tipoVenta === 'MEJORA' ||
+                form.meta.tipoVenta === 'MINORIA'
+                  ? 'Saldo a reconocer (cambio de plan)'
+                  : 'Saldo a reconocer'
+              }}</span>
+              <strong>{{ formatMoneyLabel(recognizedBalance) }}</strong>
             </div>
             <div class="plan-readonly__item">
               <span>Saldo</span>
@@ -2270,15 +3178,188 @@ async function goBack() {
             />
           </label>
         </div>
+
+        <div v-show="planInnerTab === 'metodoPago'" class="fields">
+          <label class="span-2">
+            Tipo de cobranza
+            <VdSelect
+              v-model="form.contacto.tipoCobranza"
+              :options="tipoCobranzaOptions"
+              :disabled="!canEdit"
+              placeholder="Selecciona"
+            />
+          </label>
+          <p v-if="tipoCobranzaNorm === 'OTRO'" class="hint span-2">
+            En Otro no se piden datos extra de cobranza.
+          </p>
+
+          <template v-if="isDomiciliado">
+            <label class="span-2">
+              Número de tarjeta *
+              <input
+                :value="formatCardNumber(form.pago.cuenta)"
+                inputmode="numeric"
+                autocomplete="off"
+                maxlength="19"
+                :disabled="!canEdit"
+                placeholder="ACCT-000003"
+                @input="onCuentaTarjetaInput"
+              />
+            </label>
+            <label>
+              Vencimiento *
+              <input
+                :value="form.pago.vencimientoTarjeta"
+                inputmode="numeric"
+                autocomplete="off"
+                maxlength="5"
+                :disabled="!canEdit"
+                placeholder="MM/AA"
+                @input="onVencimientoInput"
+              />
+              <small class="field-hint">Mínimo 6 meses de vigencia</small>
+              <small v-if="vencimientoError" class="field-error">
+                {{ vencimientoError }}
+              </small>
+            </label>
+            <label>
+              Dígitos de seguridad *
+              <input
+                :value="form.pago.cvv"
+                type="password"
+                inputmode="numeric"
+                autocomplete="off"
+                maxlength="3"
+                :disabled="!canEdit"
+                placeholder="***"
+                @input="onCvvInput"
+              />
+            </label>
+            <label class="span-2">
+              Titular de la tarjeta *
+              <input
+                v-model="form.pago.titularTarjeta"
+                :disabled="!canEdit"
+                placeholder="Nombre como aparece en la tarjeta"
+              />
+            </label>
+            <label>
+              Celular *
+              <input
+                v-model="form.contacto.celular1"
+                inputmode="numeric"
+                maxlength="10"
+                :disabled="!canEdit"
+              />
+            </label>
+            <label>
+              Correo *
+              <input
+                v-model="form.contacto.correo"
+                type="email"
+                :disabled="!canEdit"
+              />
+            </label>
+            <label class="span-2">
+              Dirección de domiciliación *
+              <input
+                v-model="form.contacto.direccion"
+                :disabled="!canEdit"
+              />
+            </label>
+          </template>
+
+          <template v-else-if="isNomina">
+            <label class="span-2">
+              Empresa de convenio *
+              <VdSelect
+                :model-value="form.pago.empresaNominaId"
+                :options="empresaNominaOptions"
+                :disabled="!canEdit"
+                searchable
+                placeholder="Selecciona empresa"
+                search-placeholder="Buscar empresa"
+                @update:model-value="onEmpresaNominaChange"
+              />
+              <span
+                v-if="empresasConvenioLoaded && !empresasConvenio.length"
+                class="hint"
+              >
+                No se encontraron empresas de convenio.
+              </span>
+            </label>
+            <label class="span-2">
+              Nombre del empleado *
+              <input
+                v-model="form.pago.nombreEmpleado"
+                :disabled="!canEdit"
+              />
+            </label>
+            <label>
+              Número de empleado *
+              <input
+                v-model="form.pago.numeroEmpleado"
+                :disabled="!canEdit"
+              />
+            </label>
+            <label class="span-2">
+              Información de nómina
+              <input
+                v-model="form.pago.infoNomina"
+                :disabled="!canEdit"
+              />
+              <small class="field-hint">Opcional</small>
+            </label>
+          </template>
+
+          <template v-if="showMetodoBanco">
+            <label>
+              Banco *
+              <select
+                v-model="metodoBancoChoice"
+                :disabled="!canEdit"
+              >
+                <option value="">—</option>
+                <option v-for="b in BANK_OPTIONS" :key="b" :value="b">
+                  {{ b }}
+                </option>
+              </select>
+            </label>
+            <label v-if="showMetodoBancoOtro" class="span-2">
+              Nombre del banco
+              <input
+                v-model="metodoBancoOtro"
+                :disabled="!canEdit"
+                placeholder="Escribe el banco"
+              />
+            </label>
+          </template>
+        </div>
         </div>
       </div>
 
       <!-- 6 · Documentos + declaraciones -->
-      <div v-show="step === 6" class="fields docs">
-        <p class="hint span-2">
-          Imagen o PDF. Al completar todos los pasos podrás guardar la venta.
-        </p>
+      <div v-show="step === 6" class="docs-step">
+        <div class="tabs" role="tablist" aria-label="Documentos">
+          <button
+            type="button"
+            class="tab"
+            :class="{ active: docsInnerTab === 'subir' }"
+            @click="docsInnerTab = 'subir'"
+          >
+            Subir
+          </button>
+          <button
+            type="button"
+            class="tab"
+            :class="{ active: docsInnerTab === 'vista' }"
+            @click="docsInnerTab = 'vista'"
+          >
+            Vista previa
+          </button>
+        </div>
 
+        <div v-show="docsInnerTab === 'subir'" class="fields docs">
         <div class="upload-grid span-2">
           <div
             class="upload-card"
@@ -2446,6 +3527,167 @@ async function goBack() {
           </div>
 
           <div
+            v-if="isDomiciliado"
+            class="upload-card"
+            :class="{
+              'upload-card--filled': form.documentos.tarjetaFrente,
+              'upload-card--disabled': !canEdit,
+            }"
+          >
+            <div class="upload-card__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <rect
+                  x="3"
+                  y="6"
+                  width="18"
+                  height="12"
+                  rx="2"
+                  stroke="currentColor"
+                  stroke-width="1.7"
+                />
+                <path d="M3 10h18" stroke="currentColor" stroke-width="1.7" />
+              </svg>
+            </div>
+            <div class="upload-card__body">
+              <strong>Tarjeta (frente)</strong>
+              <template v-if="form.documentos.tarjetaFrente">
+                <span class="upload-card__name">{{
+                  form.documentos.tarjetaFrente.name
+                }}</span>
+                <span class="upload-card__meta">{{
+                  fileKindLabel(form.documentos.tarjetaFrente.mime)
+                }}</span>
+              </template>
+              <span v-else class="upload-card__hint"
+                >Imagen o PDF del frente. Se junta con el reverso en un PDF de
+                una hoja</span
+              >
+            </div>
+            <div class="upload-card__actions">
+              <label class="upload-card__btn">
+                <input
+                  type="file"
+                  accept="image/*,.pdf"
+                  :disabled="!canEdit"
+                  @change="onFile('tarjetaFrente', $event)"
+                />
+                <span class="upload-card__btn-ui" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none">
+                    <path
+                      d="M12 16V5M12 5l-3.5 3.5M12 5l3.5 3.5"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
+                    <path
+                      d="M5 16.5V18a1.5 1.5 0 0 0 1.5 1.5h11A1.5 1.5 0 0 0 19 18v-1.5"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                    />
+                  </svg>
+                </span>
+                <span class="upload-card__btn-text">{{
+                  form.documentos.tarjetaFrente ? 'Cambiar' : 'Adjuntar'
+                }}</span>
+              </label>
+              <button
+                v-if="form.documentos.tarjetaFrente && canEdit"
+                type="button"
+                class="upload-card__remove"
+                @click="clearFile('tarjetaFrente')"
+              >
+                Quitar
+              </button>
+            </div>
+          </div>
+
+          <div
+            v-if="isDomiciliado"
+            class="upload-card"
+            :class="{
+              'upload-card--filled': form.documentos.tarjetaReverso,
+              'upload-card--disabled': !canEdit,
+            }"
+          >
+            <div class="upload-card__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <rect
+                  x="3"
+                  y="6"
+                  width="18"
+                  height="12"
+                  rx="2"
+                  stroke="currentColor"
+                  stroke-width="1.7"
+                />
+                <path d="M7 14h6" stroke="currentColor" stroke-width="1.7" />
+              </svg>
+            </div>
+            <div class="upload-card__body">
+              <strong>Tarjeta (reverso)</strong>
+              <template v-if="form.documentos.tarjetaReverso">
+                <span class="upload-card__name">{{
+                  form.documentos.tarjetaReverso.name
+                }}</span>
+                <span class="upload-card__meta">{{
+                  fileKindLabel(form.documentos.tarjetaReverso.mime)
+                }}</span>
+              </template>
+              <span v-else class="upload-card__hint"
+                >Imagen o PDF del reverso. Se junta con el frente en un PDF de
+                una hoja</span
+              >
+            </div>
+            <div class="upload-card__actions">
+              <label class="upload-card__btn">
+                <input
+                  type="file"
+                  accept="image/*,.pdf"
+                  :disabled="!canEdit"
+                  @change="onFile('tarjetaReverso', $event)"
+                />
+                <span class="upload-card__btn-ui" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none">
+                    <path
+                      d="M12 16V5M12 5l-3.5 3.5M12 5l3.5 3.5"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
+                    <path
+                      d="M5 16.5V18a1.5 1.5 0 0 0 1.5 1.5h11A1.5 1.5 0 0 0 19 18v-1.5"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                    />
+                  </svg>
+                </span>
+                <span class="upload-card__btn-text">{{
+                  form.documentos.tarjetaReverso ? 'Cambiar' : 'Adjuntar'
+                }}</span>
+              </label>
+              <button
+                v-if="form.documentos.tarjetaReverso && canEdit"
+                type="button"
+                class="upload-card__remove"
+                @click="clearFile('tarjetaReverso')"
+              >
+                Quitar
+              </button>
+            </div>
+          </div>
+
+          <p
+            v-if="isDomiciliado && form.documentos.tarjetaPdf"
+            class="upload-card__hint span-2"
+          >
+            Ya se armó el PDF con ambos lados en una hoja para el expediente.
+          </p>
+
+          <div
             v-if="pideFactura"
             class="upload-card"
             :class="{
@@ -2484,7 +3726,8 @@ async function goBack() {
                 <span class="upload-card__meta">PDF</span>
               </template>
               <span v-else class="upload-card__hint"
-                >Solo PDF. Obligatoria si el titular requiere factura</span
+                >Solo PDF. No es obligatoria; sirve para corroborar los
+                datos</span
               >
             </div>
             <div class="upload-card__actions">
@@ -2553,6 +3796,268 @@ async function goBack() {
             <option value="NO">No</option>
           </select>
         </label>
+        </div>
+
+        <div v-show="docsInnerTab === 'vista'" class="fields docs">
+          <div class="upload-grid span-2">
+            <div class="upload-card upload-card--filled">
+              <div class="upload-card__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M7 3.5h7.2L19 8.3V20a1.5 1.5 0 0 1-1.5 1.5h-10A1.5 1.5 0 0 1 6 20V5a1.5 1.5 0 0 1 1-1.5z"
+                    stroke="currentColor"
+                    stroke-width="1.7"
+                    stroke-linejoin="round"
+                  />
+                  <path
+                    d="M14 3.5V8h5"
+                    stroke="currentColor"
+                    stroke-width="1.7"
+                    stroke-linejoin="round"
+                  />
+                  <path
+                    d="M9 13h6M9 16.5h4"
+                    stroke="currentColor"
+                    stroke-width="1.7"
+                    stroke-linecap="round"
+                  />
+                </svg>
+              </div>
+              <div class="upload-card__body">
+                <strong>Carátula del contrato</strong>
+                <span class="upload-card__hint"
+                  >Se llena con los datos de la venta. Mientras no se firme
+                  aparece como borrador</span
+                >
+              </div>
+              <div class="upload-card__actions">
+                <button
+                  type="button"
+                  class="upload-card__btn"
+                  @click="previewOpen = true"
+                >
+                  <span class="upload-card__btn-text">Vista previa</span>
+                </button>
+              </div>
+            </div>
+
+            <div
+              v-if="isParque"
+              class="upload-card upload-card--filled"
+            >
+              <div class="upload-card__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M7 3.5h7.2L19 8.3V20a1.5 1.5 0 0 1-1.5 1.5h-10A1.5 1.5 0 0 1 6 20V5a1.5 1.5 0 0 1 1-1.5z"
+                    stroke="currentColor"
+                    stroke-width="1.7"
+                    stroke-linejoin="round"
+                  />
+                  <path
+                    d="M14 3.5V8h5"
+                    stroke="currentColor"
+                    stroke-width="1.7"
+                    stroke-linejoin="round"
+                  />
+                  <path
+                    d="M9 13h6M9 16.5h4"
+                    stroke="currentColor"
+                    stroke-width="1.7"
+                    stroke-linecap="round"
+                  />
+                </svg>
+              </div>
+              <div class="upload-card__body">
+                <strong>Reglamento de parque</strong>
+                <span class="upload-card__hint"
+                  >Se llena con el titular, contrato y fecha. Mientras no se
+                  firme aparece como borrador</span
+                >
+              </div>
+              <div class="upload-card__actions">
+                <button
+                  type="button"
+                  class="upload-card__btn"
+                  @click="reglamentoParquePreviewOpen = true"
+                >
+                  <span class="upload-card__btn-text">Vista previa</span>
+                </button>
+              </div>
+            </div>
+
+            <div
+              v-if="isDomiciliado"
+              class="upload-card upload-card--filled"
+            >
+              <div class="upload-card__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M7 3.5h7.2L19 8.3V20a1.5 1.5 0 0 1-1.5 1.5h-10A1.5 1.5 0 0 1 6 20V5a1.5 1.5 0 0 1 1-1.5z"
+                    stroke="currentColor"
+                    stroke-width="1.7"
+                    stroke-linejoin="round"
+                  />
+                  <path
+                    d="M14 3.5V8h5"
+                    stroke="currentColor"
+                    stroke-width="1.7"
+                    stroke-linejoin="round"
+                  />
+                  <path
+                    d="M9 13h6M9 16.5h4"
+                    stroke="currentColor"
+                    stroke-width="1.7"
+                    stroke-linecap="round"
+                  />
+                </svg>
+              </div>
+              <div class="upload-card__body">
+                <strong>Carta de autorización</strong>
+                <span class="upload-card__hint">
+                  Cargo automático.
+                  {{
+                    form.ubicacionPlan.planKind === 'PARQUE'
+                      ? 'Empresa San Martín (plan parque)'
+                      : 'Empresa Inhumaciones (plan a futuro)'
+                  }}. Mientras no se firme aparece como borrador
+                </span>
+              </div>
+              <div class="upload-card__actions">
+                <button
+                  type="button"
+                  class="upload-card__btn"
+                  @click="cartaAuthPreviewOpen = true"
+                >
+                  <span class="upload-card__btn-text">Vista previa</span>
+                </button>
+              </div>
+            </div>
+
+            <div
+              v-if="isDomiciliado && form.documentos.tarjetaFrente && form.documentos.tarjetaReverso"
+              class="upload-card upload-card--filled"
+            >
+              <div class="upload-card__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <rect
+                    x="3"
+                    y="6"
+                    width="18"
+                    height="12"
+                    rx="2"
+                    stroke="currentColor"
+                    stroke-width="1.7"
+                  />
+                  <path d="M3 10h18" stroke="currentColor" stroke-width="1.7" />
+                </svg>
+              </div>
+              <div class="upload-card__body">
+                <strong>Tarjeta (ambos lados)</strong>
+                <span class="upload-card__hint"
+                  >PDF de una hoja con frente y reverso. Este es el archivo que
+                  se guarda en el expediente</span
+                >
+              </div>
+              <div class="upload-card__actions">
+                <button
+                  type="button"
+                  class="upload-card__btn"
+                  @click="tarjetaPreviewOpen = true"
+                >
+                  <span class="upload-card__btn-text">Vista previa</span>
+                </button>
+              </div>
+            </div>
+
+            <div
+              v-if="rechazaFactura"
+              class="upload-card upload-card--filled"
+            >
+              <div class="upload-card__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M7 3.5h7.2L19 8.3V20a1.5 1.5 0 0 1-1.5 1.5h-10A1.5 1.5 0 0 1 6 20V5a1.5 1.5 0 0 1 1-1.5z"
+                    stroke="currentColor"
+                    stroke-width="1.7"
+                    stroke-linejoin="round"
+                  />
+                  <path
+                    d="M14 3.5V8h5"
+                    stroke="currentColor"
+                    stroke-width="1.7"
+                    stroke-linejoin="round"
+                  />
+                  <path
+                    d="M9 13h6M9 16.5h4"
+                    stroke="currentColor"
+                    stroke-width="1.7"
+                    stroke-linecap="round"
+                  />
+                </svg>
+              </div>
+              <div class="upload-card__body">
+                <strong>Consentimiento de no factura</strong>
+                <span class="upload-card__hint"
+                  >Se llena con el nombre del titular y la empresa. Mientras no
+                  se firme aparece como borrador</span
+                >
+              </div>
+              <div class="upload-card__actions">
+                <button
+                  type="button"
+                  class="upload-card__btn"
+                  @click="cartaNoFacturaPreviewOpen = true"
+                >
+                  <span class="upload-card__btn-text">Vista previa</span>
+                </button>
+              </div>
+            </div>
+
+            <div
+              v-if="pideFactura"
+              class="upload-card upload-card--filled"
+            >
+              <div class="upload-card__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M7 3.5h7.2L19 8.3V20a1.5 1.5 0 0 1-1.5 1.5h-10A1.5 1.5 0 0 1 6 20V5a1.5 1.5 0 0 1 1-1.5z"
+                    stroke="currentColor"
+                    stroke-width="1.7"
+                    stroke-linejoin="round"
+                  />
+                  <path
+                    d="M14 3.5V8h5"
+                    stroke="currentColor"
+                    stroke-width="1.7"
+                    stroke-linejoin="round"
+                  />
+                  <path
+                    d="M9 13h6M9 16.5h4"
+                    stroke="currentColor"
+                    stroke-width="1.7"
+                    stroke-linecap="round"
+                  />
+                </svg>
+              </div>
+              <div class="upload-card__body">
+                <strong>Carta de requerimiento de factura</strong>
+                <span class="upload-card__hint"
+                  >Se llena con los datos fiscales. Mientras no se firme aparece
+                  como borrador</span
+                >
+              </div>
+              <div class="upload-card__actions">
+                <button
+                  type="button"
+                  class="upload-card__btn"
+                  @click="cartaPreviewOpen = true"
+                >
+                  <span class="upload-card__btn-text">Vista previa</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
       </form>
       <template #footer>
@@ -2614,6 +4119,46 @@ async function goBack() {
       :status="status === 'NEW' ? undefined : status"
       @close="previewOpen = false"
     />
+    <SalePdfPreviewModal
+      kind="cartaFactura"
+      :open="cartaPreviewOpen"
+      :form="form"
+      :sale-id="saleId"
+      :status="status === 'NEW' ? undefined : status"
+      @close="cartaPreviewOpen = false"
+    />
+    <SalePdfPreviewModal
+      kind="cartaNoFactura"
+      :open="cartaNoFacturaPreviewOpen"
+      :form="form"
+      :sale-id="saleId"
+      :status="status === 'NEW' ? undefined : status"
+      @close="cartaNoFacturaPreviewOpen = false"
+    />
+    <SalePdfPreviewModal
+      kind="reglamentoParque"
+      :open="reglamentoParquePreviewOpen"
+      :form="form"
+      :sale-id="saleId"
+      :status="status === 'NEW' ? undefined : status"
+      @close="reglamentoParquePreviewOpen = false"
+    />
+    <SalePdfPreviewModal
+      kind="cartaAutorizacion"
+      :open="cartaAuthPreviewOpen"
+      :form="form"
+      :sale-id="saleId"
+      :status="status === 'NEW' ? undefined : status"
+      @close="cartaAuthPreviewOpen = false"
+    />
+    <SalePdfPreviewModal
+      kind="tarjeta"
+      :open="tarjetaPreviewOpen"
+      :form="form"
+      :sale-id="saleId"
+      :status="status === 'NEW' ? undefined : status"
+      @close="tarjetaPreviewOpen = false"
+    />
 
     <SalePlanSearchModal
       :open="planSearchOpen"
@@ -2629,6 +4174,12 @@ async function goBack() {
       @select="onLocationSelected"
     />
 
+    <SaleKindModal
+      :open="kindOpen"
+      @close="onKindCancel"
+      @select="onKindSelect"
+    />
+
     <VdModal
       v-if="isDev"
       :open="devPrefillOpen"
@@ -2638,7 +4189,8 @@ async function goBack() {
       <div class="dev-prefill">
         <p class="hint">
           Marca los pasos a rellenar. Se usará un cliente/venta al azar de los
-          10 mocks.
+          10 mocks. Si marcas factura, se llena la carta (tipo, RFC, régimen)
+          aunque el mock no pida factura.
         </p>
         <div class="dev-prefill__actions">
           <button
@@ -2657,6 +4209,14 @@ async function goBack() {
           </button>
         </div>
         <label v-for="s in STEPS" :key="s.key" class="check">
+          <input v-model="devPrefillSteps[s.key]" type="checkbox" />
+          {{ s.title }}
+        </label>
+        <label
+          v-for="s in DEV_PREFILL_EXTRAS"
+          :key="s.key"
+          class="check"
+        >
           <input v-model="devPrefillSteps[s.key]" type="checkbox" />
           {{ s.title }}
         </label>
@@ -2929,17 +4489,15 @@ async function goBack() {
 .step-row {
   width: 100%;
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: 1fr auto;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.35rem;
   min-height: 64px;
-  padding: 0.75rem 0.9rem;
+  padding: 0.35rem 0.45rem 0.35rem 0.15rem;
   border: 1px solid var(--vd-line);
   border-radius: 12px;
   background: #fff;
   color: var(--vd-ink);
-  cursor: pointer;
-  text-align: left;
   transition:
     border-color 0.15s ease,
     background 0.15s ease,
@@ -2949,6 +4507,43 @@ async function goBack() {
 .step-row:hover {
   border-color: rgba(53, 100, 125, 0.4);
   box-shadow: 0 4px 14px rgba(2, 53, 125, 0.06);
+}
+
+.step-row__open {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 56px;
+  padding: 0.4rem 0.35rem 0.4rem 0.75rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.step-row__info {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.85rem;
+  height: 1.85rem;
+  margin-right: 0.25rem;
+  border: 1.5px solid var(--gsm-blue);
+  border-radius: 50%;
+  background: #fff;
+  color: var(--gsm-blue);
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 0.95rem;
+  font-style: italic;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.step-row__info:hover {
+  background: #e8f0f4;
 }
 
 .step-row__mark {
@@ -3008,6 +4603,37 @@ async function goBack() {
   color: var(--vd-ok);
 }
 
+.step-row.has-data {
+  border-color: rgba(204, 160, 121, 0.55);
+  background: rgba(204, 160, 121, 0.08);
+}
+
+.step-row.has-data .step-row__mark {
+  background: var(--gsm-cafe);
+  color: #fff;
+}
+
+.step-row.has-data .step-row__body small {
+  color: var(--gsm-cafe);
+}
+
+.missing-ok,
+.missing-hint {
+  margin: 0 0 0.55rem;
+  color: var(--vd-muted);
+  font-size: 0.9rem;
+}
+
+.missing-list {
+  margin: 0;
+  padding-left: 1.15rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  color: var(--vd-ink);
+  font-size: 0.92rem;
+}
+
 .form-panel--modal {
   margin: 0;
   padding: 0.15rem 0 0.25rem;
@@ -3035,7 +4661,8 @@ async function goBack() {
   padding-bottom: 0.15rem;
 }
 
-.titular-step {
+.titular-step,
+.docs-step {
   display: flex;
   flex-direction: column;
   gap: 0.85rem;
@@ -3158,6 +4785,10 @@ async function goBack() {
   color: var(--vd-ink);
 }
 
+.plan-name__readonly--pick {
+  cursor: pointer;
+}
+
 .plan-name__readonly:read-only:focus {
   outline: none;
   border-color: var(--vd-line);
@@ -3225,6 +4856,14 @@ async function goBack() {
   font-size: 0.78rem;
   font-weight: 600;
   color: #b42318;
+}
+
+.field-req {
+  display: block;
+  margin: 0.15rem 0 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--vd-muted);
 }
 
 .field-label {

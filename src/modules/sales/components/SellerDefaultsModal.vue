@@ -1,11 +1,24 @@
 <script setup lang="ts">
 import { reactive, ref, watch } from 'vue';
 import { extractApiError, http } from '../../../shared/api/http';
+import { useAuthStore } from '../../auth/stores/auth.store';
 import VdModal from '../../../shared/ui/modal/VdModal.vue';
 import type { PlanProduct } from './SalePlanSearchModal.vue';
 import type { SaleBranch, SellerDefaults } from '../types/seller-defaults';
 import { emptySellerDefaults } from '../types/seller-defaults';
-import { fetchPlanesByIds, mapPlanProduct } from '../utils/odoo-plans';
+import {
+  defaultsNeedPlanNames,
+  fetchPlanesByIds,
+  mapPlanProduct,
+  mergeDefaultPlanCache,
+  toCachedDefaultPlan,
+  toPlanProduct,
+} from '../utils/odoo-plans';
+import {
+  patchSellerPrefetch,
+  prefetchSellerSession,
+  readSellerPrefetch,
+} from '../utils/seller-session-cache';
 
 const props = defineProps<{
   open: boolean;
@@ -16,6 +29,7 @@ const emit = defineEmits<{
   saved: [defaults: SellerDefaults];
 }>();
 
+const auth = useAuthStore();
 const loading = ref(false);
 const saving = ref(false);
 const error = ref<string | null>(null);
@@ -36,8 +50,8 @@ function rememberLabel(plan: PlanProduct) {
   planLabels[plan.id] = plan.name;
 }
 
-function planLabel(id: number) {
-  return planLabels[id] || `Plan #${id}`;
+function planLabel(plan: { id: number; name?: string }) {
+  return plan.name || planLabels[plan.id] || `Plan #${plan.id}`;
 }
 
 function money(n: number) {
@@ -96,7 +110,7 @@ function addPlan(kind: 'future' | 'park', plan: PlanProduct) {
     return;
   }
   rememberLabel(plan);
-  list.push({ id: plan.id });
+  list.push(toCachedDefaultPlan(plan));
   if (kind === 'future') {
     futureQ.value = '';
     futureResults.value = [];
@@ -123,23 +137,45 @@ async function load() {
   loading.value = true;
   error.value = null;
   try {
-    const [{ data: branchData }, { data: defaults }] = await Promise.all([
-      http.get<SaleBranch[]>('/odoo/sucursales'),
-      http.get<SellerDefaults>('/users/me/defaults'),
-    ]);
-    branches.value = branchData || [];
-    Object.assign(form, emptySellerDefaults(), defaults);
-    const [futureLive, parkLive] = await Promise.all([
-      fetchPlanesByIds(
-        'PLAN_FUTURO',
-        form.defaultFuturePlans.map((plan) => plan.id),
-      ),
-      fetchPlanesByIds(
-        'PARQUE',
-        form.defaultParkPlans.map((plan) => plan.id),
-      ),
-    ]);
-    for (const plan of [...futureLive, ...parkLive]) rememberLabel(plan);
+    const userId = auth.user?.id;
+    const cached = readSellerPrefetch(userId);
+    if (cached) {
+      branches.value = cached.branches;
+      Object.assign(form, emptySellerDefaults(), cached.defaults);
+    } else if (userId) {
+      const data = await prefetchSellerSession(userId);
+      branches.value = data.branches;
+      Object.assign(form, emptySellerDefaults(), data.defaults);
+    } else {
+      branches.value = [];
+    }
+    for (const plan of [
+      ...form.defaultFuturePlans,
+      ...form.defaultParkPlans,
+    ]) {
+      if (plan.name) planLabels[plan.id] = plan.name;
+    }
+    if (defaultsNeedPlanNames(form)) {
+      const [futureLive, parkLive] = await Promise.all([
+        fetchPlanesByIds(
+          'PLAN_FUTURO',
+          form.defaultFuturePlans.map((plan) => plan.id),
+        ),
+        fetchPlanesByIds(
+          'PARQUE',
+          form.defaultParkPlans.map((plan) => plan.id),
+        ),
+      ]);
+      form.defaultFuturePlans = mergeDefaultPlanCache(
+        form.defaultFuturePlans,
+        futureLive,
+      );
+      form.defaultParkPlans = mergeDefaultPlanCache(
+        form.defaultParkPlans,
+        parkLive,
+      );
+      for (const plan of [...futureLive, ...parkLive]) rememberLabel(plan);
+    }
   } catch (e: unknown) {
     error.value = extractApiError(e, 'No se pudieron cargar los valores predeterminados');
   } finally {
@@ -155,8 +191,36 @@ async function save() {
     const { data } = await http.patch<SellerDefaults>('/users/me/defaults', {
       defaultBranchId: form.defaultBranchId,
       defaultBranchName: form.defaultBranchName,
-      defaultFuturePlans: form.defaultFuturePlans,
-      defaultParkPlans: form.defaultParkPlans,
+      defaultFuturePlans: form.defaultFuturePlans.map((p) => ({ id: p.id })),
+      defaultParkPlans: form.defaultParkPlans.map((p) => ({ id: p.id })),
+    });
+    patchSellerPrefetch({
+      userId: auth.user?.id,
+      defaults: {
+        ...data,
+        defaultFuturePlans: mergeDefaultPlanCache(
+          data.defaultFuturePlans,
+          form.defaultFuturePlans
+            .map((plan) =>
+              toPlanProduct({
+                ...plan,
+                name: plan.name || planLabels[plan.id],
+              }),
+            )
+            .filter((plan): plan is NonNullable<typeof plan> => Boolean(plan)),
+        ),
+        defaultParkPlans: mergeDefaultPlanCache(
+          data.defaultParkPlans,
+          form.defaultParkPlans
+            .map((plan) =>
+              toPlanProduct({
+                ...plan,
+                name: plan.name || planLabels[plan.id],
+              }),
+            )
+            .filter((plan): plan is NonNullable<typeof plan> => Boolean(plan)),
+        ),
+      },
     });
     emit('saved', data);
     emit('close');
@@ -215,7 +279,7 @@ watch(
               class="chip"
               @click="removePlan('future', p.id)"
             >
-              {{ planLabel(p.id) }}
+              {{ planLabel(p) }}
               <span aria-hidden="true">×</span>
             </button>
           </div>
@@ -247,7 +311,7 @@ watch(
               class="chip"
               @click="removePlan('park', p.id)"
             >
-              {{ planLabel(p.id) }}
+              {{ planLabel(p) }}
               <span aria-hidden="true">×</span>
             </button>
           </div>

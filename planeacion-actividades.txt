@@ -53,3 +53,23 @@ Venta Digital — Actividades realizadas (resumen)
 51. Valores predeterminados del vendedor (sucursal y planes favoritos)
 52. Sucursal y tipo de servicio obligatorios en datos de contrato
 53. Sucursal y tipo de servicio enviados y mostrados en expediente Odoo y en el wizard de cotización
+54. Precargar cotización: venta previa de VD o cliente por catálogo
+55. Pago con tarjeta débito / crédito (banco y cuenta)
+56. Constancia de situación fiscal obligatoria si el titular factura
+57. Tipos de venta: Nueva, Reconocimiento, Mejora y Minoría
+58. Reconocimiento de saldo: cliente + ventas suspendidas antes de entrar a captura
+59. Saldo a reconocer restado del financiamiento y del saldo
+60. Campo Anterior oculto en venta nueva
+61. Valores predeterminados del vendedor consultados al iniciar sesión y guardados en sessionStorage
+62. Modales anclados arriba, con scroll si no caben en pantalla
+63. Reconocimiento: ventas origen y saldo guardados en expediente y ligados al generar cotización
+64. Mejora y minoría: mismas ventas del cliente pero activas; cotización como cambio de plan
+65. Validación de celulares MX (10 dígitos)
+66. Folio de contrato = número de cotización al generar cotización
+67. Captura de texto en mayúsculas
+68. Marca de agua BORRADOR en carátula hasta firmar
+69. Listado vendedor: sin fechas muestra todas las ventas
+70. Listado monitor: montos en la fila sin cargar el formulario completo
+71. Textos del vendedor sin mencionar Odoo
+72. Pasos de captura con marca cuando ya tienen datos
+73. Botón de información (i) con los campos que faltan por capturar

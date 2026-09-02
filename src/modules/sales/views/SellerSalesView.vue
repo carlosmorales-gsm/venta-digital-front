@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onActivated, onMounted, reactive, ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { extractApiError, http } from '../../../shared/api/http';
 import { formatUtcToLocal } from '../../../shared/utils/datetime';
 import { useDialog } from '../../../shared/ui/dialog';
@@ -10,6 +10,11 @@ import SalePdfPreviewModal from '../components/SalePdfPreviewModal.vue';
 import SalePaymentModal from '../components/SalePaymentModal.vue';
 import SaleManualSignModal from '../components/SaleManualSignModal.vue';
 import SellerDefaultsModal from '../components/SellerDefaultsModal.vue';
+import SaleKindModal from '../components/SaleKindModal.vue';
+import SaleRecognitionModal from '../components/SaleRecognitionModal.vue';
+import type { SaleKind } from '../constants/sale-kinds';
+import { setPendingRecognition } from '../utils/pending-recognition';
+import { ensureSellerPrefetch } from '../utils/seller-session-cache';
 import { useAuthStore } from '../../auth/stores/auth.store';
 import {
   mergeSaleForm,
@@ -23,7 +28,13 @@ import {
   type AttachmentListItem,
 } from '../utils/attachment-preview';
 import { buildPaymentTicketPdf } from '../utils/payment-ticket-pdf';
+import { buildAuthorizationLetterPdf } from '../utils/authorization-letter-pdf';
+import { buildCardSidesAttachment } from '../utils/card-sides-pdf';
+import { buildInvoiceLetterPdf } from '../utils/invoice-letter-pdf';
+import { buildNoInvoiceConsentPdf } from '../utils/no-invoice-consent-pdf';
+import { buildParkRegulationPdf } from '../utils/park-regulation-pdf';
 import { buildSalePreviewPdf } from '../utils/sale-pdf';
+import { normalizeTipoCobranza } from '../utils/payment-method';
 import {
   matchesDateRange,
   textEqualsNormalized,
@@ -53,6 +64,7 @@ interface SalesResponse {
 }
 
 const router = useRouter();
+const route = useRoute();
 const auth = useAuthStore();
 const { alert, confirm } = useDialog();
 
@@ -112,6 +124,117 @@ const filteredSubmitted = computed(() =>
   (data.value?.submitted ?? []).filter(matchesSaleFilters),
 );
 
+type ProcessStageKey = 'payment' | 'sign' | 'done' | 'rejected';
+
+type ProcessStage = {
+  key: ProcessStageKey;
+  title: string;
+  empty: string;
+  tone: ProcessStageKey;
+  items: SaleListItem[];
+  total: number;
+};
+
+function isCompletedStatus(status: SaleStatus | string): boolean {
+  return status === 'COMPLETED' || status === 'SUBMITTED';
+}
+
+function byCreatedDesc(a: SaleListItem, b: SaleListItem): number {
+  return String(b.createdAt).localeCompare(String(a.createdAt));
+}
+
+const processStages = computed<ProcessStage[]>(() => {
+  const all = data.value?.submitted ?? [];
+  const filtered = filteredSubmitted.value;
+  const stages: ProcessStage[] = [
+    {
+      key: 'payment',
+      title: 'Pendiente de pago',
+      empty: 'No hay ventas esperando pago con los filtros actuales.',
+      tone: 'payment',
+      items: filtered
+        .filter((s) => s.status === 'PENDING_PAYMENT')
+        .slice()
+        .sort(byCreatedDesc),
+      total: all.filter((s) => s.status === 'PENDING_PAYMENT').length,
+    },
+    {
+      key: 'sign',
+      title: 'Pendiente de firma',
+      empty: 'No hay ventas esperando firma con los filtros actuales.',
+      tone: 'sign',
+      items: filtered
+        .filter((s) => s.status === 'PENDING_SIGNATURE')
+        .slice()
+        .sort(byCreatedDesc),
+      total: all.filter((s) => s.status === 'PENDING_SIGNATURE').length,
+    },
+    {
+      key: 'done',
+      title: 'Completadas',
+      empty: 'No hay ventas completadas con los filtros actuales.',
+      tone: 'done',
+      items: filtered
+        .filter((s) => isCompletedStatus(s.status))
+        .slice()
+        .sort(byCreatedDesc),
+      total: all.filter((s) => isCompletedStatus(s.status)).length,
+    },
+  ];
+
+  const rejectedTotal = all.filter((s) => s.status === 'REJECTED').length;
+  if (rejectedTotal) {
+    stages.push({
+      key: 'rejected',
+      title: 'Rechazadas',
+      empty: 'No hay ventas rechazadas con los filtros actuales.',
+      tone: 'rejected',
+      items: filtered
+        .filter((s) => s.status === 'REJECTED')
+        .slice()
+        .sort(byCreatedDesc),
+      total: rejectedTotal,
+    });
+  }
+
+  return stages;
+});
+
+const visibleStages = computed(() =>
+  processStages.value.filter((stage) => stage.total > 0 || stage.items.length > 0),
+);
+
+type StageId = 'draft' | ProcessStageKey;
+
+const expandedStages = reactive<Record<StageId, boolean>>({
+  draft: true,
+  payment: true,
+  sign: true,
+  done: false,
+  rejected: false,
+});
+
+function isStageOpen(key: StageId): boolean {
+  return expandedStages[key] !== false;
+}
+
+function toggleStage(key: StageId) {
+  expandedStages[key] = !isStageOpen(key);
+}
+
+function stageToggleLabel(key: StageId, title: string): string {
+  return isStageOpen(key) ? `Ocultar ${title}` : `Mostrar ${title}`;
+}
+
+const hasAnySales = computed(
+  () =>
+    (data.value?.drafts?.length ?? 0) + (data.value?.submitted?.length ?? 0) > 0,
+);
+
+const hasAnyFilteredSales = computed(
+  () => filteredDrafts.value.length + filteredSubmitted.value.length > 0,
+);
+
 const hasActiveFilters = computed(
   () =>
     !!filters.client.trim() ||
@@ -152,6 +275,7 @@ const previewStatus = ref<string | undefined>();
 
 const actionForm = ref<SaleFormData>(mergeSaleForm({}));
 const actionSaleId = ref<number | null>(null);
+const actionStatus = ref<string | undefined>();
 
 const paymentOpen = ref(false);
 const paymentSaving = ref(false);
@@ -159,6 +283,9 @@ const paymentSaving = ref(false);
 const signOpen = ref(false);
 const signSubmitting = ref(false);
 const defaultsOpen = ref(false);
+const kindOpen = ref(false);
+const recognitionOpen = ref(false);
+const originKind = ref<SaleKind>('RECONOCIMIENTO');
 
 const attachmentsOpen = ref(false);
 const attachmentsLoading = ref(false);
@@ -180,8 +307,35 @@ async function load() {
   }
 }
 
-onMounted(load);
-onActivated(load);
+function maybeOpenRecognition() {
+  const pick = String(route.query.pick || '').toUpperCase();
+  if (pick === 'MEJORA' || pick === 'MINORIA' || pick === 'RECONOCIMIENTO') {
+    originKind.value = pick;
+    recognitionOpen.value = true;
+    const query = { ...route.query };
+    delete query.pick;
+    delete query.reconocer;
+    void router.replace({ query });
+    return;
+  }
+  if (String(route.query.reconocer || '') !== '1') return;
+  originKind.value = 'RECONOCIMIENTO';
+  recognitionOpen.value = true;
+  const query = { ...route.query };
+  delete query.reconocer;
+  void router.replace({ query });
+}
+
+onMounted(() => {
+  ensureSellerPrefetch(auth.user?.id);
+  void auth.refreshMe();
+  load();
+  maybeOpenRecognition();
+});
+onActivated(() => {
+  load();
+  maybeOpenRecognition();
+});
 
 function goNew() {
   if ((data.value?.draftCount ?? 0) >= (data.value?.draftLimit ?? 3)) {
@@ -192,7 +346,40 @@ function goNew() {
     });
     return;
   }
-  router.push({ name: 'vendedor-venta-nueva' });
+  kindOpen.value = true;
+}
+
+function startSale(kind: SaleKind) {
+  kindOpen.value = false;
+  if (
+    kind === 'RECONOCIMIENTO' ||
+    kind === 'MEJORA' ||
+    kind === 'MINORIA'
+  ) {
+    originKind.value = kind;
+    recognitionOpen.value = true;
+    return;
+  }
+  router.push({
+    name: 'vendedor-venta-nueva',
+    query: { tipo: kind },
+  });
+}
+
+function onRecognitionBack() {
+  recognitionOpen.value = false;
+  kindOpen.value = true;
+}
+
+function onRecognitionApply(payload: Parameters<
+  typeof setPendingRecognition
+>[0]) {
+  setPendingRecognition(payload);
+  recognitionOpen.value = false;
+  router.push({
+    name: 'vendedor-venta-nueva',
+    query: { tipo: originKind.value },
+  });
 }
 
 function editDraft(id: number) {
@@ -285,6 +472,9 @@ async function openPayment(item: SaleListItem) {
   try {
     const sale = await fetchSaleForm(item);
     actionForm.value = mergeSaleForm(sale.payload);
+    actionForm.value.pago.nombreJefeVentas =
+      auth.user?.nombreJefeVentas?.trim() ||
+      actionForm.value.pago.nombreJefeVentas;
     actionSaleId.value = sale.id;
     paymentOpen.value = true;
   } catch (e: unknown) {
@@ -296,7 +486,10 @@ async function openPayment(item: SaleListItem) {
   }
 }
 
-async function savePayment(pago: SaleFormData['pago']) {
+async function savePayment(
+  pago: SaleFormData['pago'],
+  comprobanteTransferencia?: SaleAttachment | null,
+) {
   if (!actionSaleId.value) return;
   paymentSaving.value = true;
   try {
@@ -308,6 +501,16 @@ async function savePayment(pago: SaleFormData['pago']) {
           pago.nombreAsesor?.trim() ||
           auth.user?.fullName ||
           actionForm.value.pago.nombreAsesor,
+        nombreJefeVentas:
+          auth.user?.nombreJefeVentas?.trim() ||
+          pago.nombreJefeVentas ||
+          actionForm.value.pago.nombreJefeVentas,
+      },
+      documentos: {
+        ...actionForm.value.documentos,
+        ...(comprobanteTransferencia
+          ? { comprobanteTransferencia }
+          : {}),
       },
     });
 
@@ -333,14 +536,19 @@ async function savePayment(pago: SaleFormData['pago']) {
       {
         pago,
         ...(ticketPdf ? { ticketPdf } : {}),
+        ...(comprobanteTransferencia?.dataBase64
+          ? { comprobanteTransferencia }
+          : {}),
       },
     );
     paymentOpen.value = false;
     await alert({
       title: 'Pago registrado',
-      message: ticketPdf
-        ? 'El pago y el ticket se guardaron.'
-        : 'El pago se guardó.',
+      message: comprobanteTransferencia?.dataBase64
+        ? 'El pago, el ticket y el comprobante de transferencia se guardaron.'
+        : ticketPdf
+          ? 'El pago y el ticket se guardaron.'
+          : 'El pago se guardó.',
       variant: 'success',
     });
     await load();
@@ -360,6 +568,7 @@ async function openSign(item: SaleListItem) {
     const sale = await fetchSaleForm(item);
     actionForm.value = mergeSaleForm(sale.payload);
     actionSaleId.value = sale.id;
+    actionStatus.value = sale.status;
     signOpen.value = true;
   } catch (e: unknown) {
     await alert({
@@ -374,6 +583,7 @@ async function confirmSign(dataUrl: string) {
   if (!actionSaleId.value) return;
   const base64 = dataUrl.includes(',') ? dataUrl.split(',')[1]! : dataUrl;
   signSubmitting.value = true;
+  let hasCaratula = false;
   try {
     const firmaCliente = {
       name: 'firma-cliente.png',
@@ -392,6 +602,21 @@ async function confirmSign(dataUrl: string) {
     let caratulaPdf:
       | { name: string; mime: string; dataBase64: string }
       | undefined;
+    let cartaFacturaPdf:
+      | { name: string; mime: string; dataBase64: string }
+      | undefined;
+    let cartaNoFacturaPdf:
+      | { name: string; mime: string; dataBase64: string }
+      | undefined;
+    let reglamentoParquePdf:
+      | { name: string; mime: string; dataBase64: string }
+      | undefined;
+    let cartaAutorizacionPdf:
+      | { name: string; mime: string; dataBase64: string }
+      | undefined;
+    let tarjetaPdf:
+      | { name: string; mime: string; dataBase64: string }
+      | undefined;
     try {
       const blob = await buildSalePreviewPdf(formForPdf, {
         saleId: actionSaleId.value,
@@ -405,24 +630,104 @@ async function confirmSign(dataUrl: string) {
     } catch (pdfErr) {
       console.warn('No se pudo generar carátula para Drive', pdfErr);
     }
+    if (formForPdf.contacto.factura === 'SI') {
+      try {
+        const letter = await buildInvoiceLetterPdf(formForPdf, {
+          saleId: actionSaleId.value,
+          status: 'COMPLETED',
+        });
+        cartaFacturaPdf = {
+          name: `carta-requerimiento-factura_venta-${actionSaleId.value}.pdf`,
+          mime: 'application/pdf',
+          dataBase64: await blobToBase64(letter),
+        };
+      } catch (pdfErr) {
+        console.warn('No se pudo generar carta de factura para Drive', pdfErr);
+      }
+    }
+    if (formForPdf.contacto.factura === 'NO') {
+      try {
+        const letter = await buildNoInvoiceConsentPdf(formForPdf, {
+          saleId: actionSaleId.value,
+          status: 'COMPLETED',
+        });
+        cartaNoFacturaPdf = {
+          name: `consentimiento-no-factura_venta-${actionSaleId.value}.pdf`,
+          mime: 'application/pdf',
+          dataBase64: await blobToBase64(letter),
+        };
+      } catch (pdfErr) {
+        console.warn('No se pudo generar consentimiento de no factura', pdfErr);
+      }
+    }
+    if (formForPdf.ubicacionPlan.planKind === 'PARQUE') {
+      try {
+        const letter = await buildParkRegulationPdf(formForPdf, {
+          saleId: actionSaleId.value,
+          status: 'COMPLETED',
+        });
+        reglamentoParquePdf = {
+          name: `reglamento-parque_venta-${actionSaleId.value}.pdf`,
+          mime: 'application/pdf',
+          dataBase64: await blobToBase64(letter),
+        };
+      } catch (pdfErr) {
+        console.warn('No se pudo generar reglamento de parque', pdfErr);
+      }
+    }
+    if (normalizeTipoCobranza(formForPdf.contacto.tipoCobranza) === 'DOMICILIADO') {
+      try {
+        const authLetter = await buildAuthorizationLetterPdf(formForPdf, {
+          saleId: actionSaleId.value,
+          status: 'COMPLETED',
+        });
+        cartaAutorizacionPdf = {
+          name: `carta-autorizacion_venta-${actionSaleId.value}.pdf`,
+          mime: 'application/pdf',
+          dataBase64: await blobToBase64(authLetter),
+        };
+      } catch (pdfErr) {
+        console.warn('No se pudo generar carta de autorización para Drive', pdfErr);
+      }
+      const frente = formForPdf.documentos.tarjetaFrente;
+      const reverso = formForPdf.documentos.tarjetaReverso;
+      if (frente && reverso) {
+        try {
+          const cardPdf = await buildCardSidesAttachment(
+            frente,
+            reverso,
+            `tarjeta-ambos-lados_venta-${actionSaleId.value}.pdf`,
+          );
+          tarjetaPdf = cardPdf;
+          formForPdf.documentos.tarjetaPdf = cardPdf;
+        } catch (pdfErr) {
+          console.warn('No se pudo armar el PDF de la tarjeta', pdfErr);
+        }
+      }
+    }
 
-    const { data } = await http.post<SaleListItem>(
+    hasCaratula = Boolean(caratulaPdf);
+    await http.post<SaleListItem>(
       `/sales/${actionSaleId.value}/sign`,
       {
         firmaCliente,
         ...(caratulaPdf ? { caratulaPdf } : {}),
+        ...(cartaFacturaPdf ? { cartaFacturaPdf } : {}),
+        ...(cartaNoFacturaPdf ? { cartaNoFacturaPdf } : {}),
+        ...(reglamentoParquePdf ? { reglamentoParquePdf } : {}),
+        ...(cartaAutorizacionPdf ? { cartaAutorizacionPdf } : {}),
+        ...(tarjetaPdf ? { tarjetaPdf } : {}),
       },
+      // Drive + PDFs + expediente suelen pasar de 30s; el API igual termina y guarda.
+      { timeout: 180000 },
     );
-    signOpen.value = false;
-    await alert({
-      title: 'Firma registrada',
-      message: caratulaPdf
-        ? 'La firma y el contrato se guardaron.'
-        : 'La firma se guardó.',
-      variant: 'success',
-    });
-    await load();
+    await finishSignSuccess(hasCaratula);
   } catch (e: unknown) {
+    const alreadySigned = await saleAlreadySigned(actionSaleId.value);
+    if (alreadySigned) {
+      await finishSignSuccess(hasCaratula);
+      return;
+    }
     await alert({
       title: 'Firma',
       message: extractApiError(e, 'No se pudo registrar la firma'),
@@ -430,6 +735,34 @@ async function confirmSign(dataUrl: string) {
     });
   } finally {
     signSubmitting.value = false;
+  }
+}
+
+async function saleAlreadySigned(id: number | null): Promise<boolean> {
+  if (!id) return false;
+  try {
+    const { data: sale } = await http.get<SaleListItem>(`/sales/${id}`, {
+      timeout: 15000,
+    });
+    return sale.status === 'COMPLETED';
+  } catch {
+    return false;
+  }
+}
+
+async function finishSignSuccess(hasCaratula: boolean) {
+  signOpen.value = false;
+  await alert({
+    title: 'Firma registrada',
+    message: hasCaratula
+      ? 'La firma y el contrato se guardaron.'
+      : 'La firma se guardó.',
+    variant: 'success',
+  });
+  try {
+    await load();
+  } catch {
+    /* la firma ya quedó; el listado se actualiza al recargar */
   }
 }
 
@@ -460,7 +793,7 @@ async function removeDraft(id: number) {
     <header class="page-head head-row">
       <div>
         <h1>Mis ventas</h1>
-        <p>Borradores, pagos, firmas y ventas en proceso.</p>
+        <p>Agrupadas por etapa: borrador, pago, firma y completada.</p>
       </div>
       <div class="head-actions">
         <button type="button" class="btn btn-secondary" @click="defaultsOpen = true">
@@ -553,183 +886,253 @@ async function removeDraft(id: number) {
     </div>
 
     <template v-else>
-      <div v-if="filteredDrafts.length" class="panel">
-        <div class="section-head">
-          <h2>Borradores</h2>
-          <span class="muted">
-            {{ filteredDrafts.length }}
-            <template v-if="(data?.drafts?.length ?? 0) !== filteredDrafts.length">
-              de {{ data?.drafts?.length }}
-            </template>
-            · {{ data?.draftCount }} / {{ data?.draftLimit }}
-          </span>
+      <div v-if="!hasAnySales" class="panel">
+        <div class="empty-state">
+          <strong>Aún no hay ventas</strong>
+          Usa <em>Nueva venta</em> para capturar la carátula.
         </div>
-        <ul class="card-list">
-          <li v-for="d in filteredDrafts" :key="d.id" class="sale-card">
-            <div class="sale-card__main">
-              <strong>{{ d.titularName || 'Sin titular' }}</strong>
-              <span class="muted">
-                Caduca {{ formatUtcToLocal(d.draftExpiresAt) }}
-              </span>
-            </div>
-            <div class="sale-card__actions">
-              <button
-                type="button"
-                class="icon-btn"
-                title="Archivos anexados"
-                aria-label="Archivos anexados"
-                @click="openAttachments(d)"
-              >
-                <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-                  <path
-                    fill="currentColor"
-                    d="M16.5 6.5v10.25a4.25 4.25 0 1 1-8.5 0V5.75a2.75 2.75 0 1 1 5.5 0v10.5a1.25 1.25 0 1 1-2.5 0V7.25h-1.5v9a2.75 2.75 0 1 0 5.5 0V5.75a4.25 4.25 0 1 0-8.5 0v11a5.75 5.75 0 1 0 11.5 0V6.5h-1.5z"
-                  />
-                </svg>
-              </button>
-              <button
-                type="button"
-                class="icon-btn"
-                title="Vista previa carátula"
-                aria-label="Vista previa carátula"
-                @click="openPreview(d)"
-              >
-                <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-                  <path
-                    fill="currentColor"
-                    d="M12 5c-5 0-9.27 3.11-11 7 1.73 3.89 6 7 11 7s9.27-3.11 11-7c-1.73-3.89-6-7-11-7Zm0 12a5 5 0 1 1 0-10 5 5 0 0 1 0 10Zm0-2.5A2.5 2.5 0 1 0 12 9a2.5 2.5 0 0 0 0 5Z"
-                  />
-                </svg>
-              </button>
-              <button type="button" class="btn btn-ghost btn-sm" @click="editDraft(d.id)">
-                Continuar
-              </button>
-              <button type="button" class="btn btn-ghost btn-sm" @click="removeDraft(d.id)">
-                Eliminar
-              </button>
-            </div>
-          </li>
-        </ul>
       </div>
 
-      <div class="panel">
-        <div class="section-head">
-          <h2>En proceso</h2>
-          <span class="muted">
-            {{ filteredSubmitted.length }}
-            <template
-              v-if="(data?.submitted?.length ?? 0) !== filteredSubmitted.length"
-            >
-              de {{ data?.submitted?.length }}
-            </template>
-          </span>
+      <div v-else-if="!hasAnyFilteredSales" class="panel">
+        <div class="empty-state">
+          <strong>Sin resultados</strong>
+          No hay ventas con los filtros actuales.
         </div>
+      </div>
 
-        <div v-if="!data?.submitted?.length" class="empty-state">
-          <strong>Aún no hay ventas en proceso</strong>
-          Usa <em>Nueva venta</em> para capturar la carátula.
+      <template v-else>
+        <div
+          v-if="filteredDrafts.length"
+          class="panel stage-panel stage-panel--draft"
+          :class="{ 'stage-panel--collapsed': !isStageOpen('draft') }"
+        >
+          <button
+            type="button"
+            class="stage-toggle"
+            :aria-expanded="isStageOpen('draft')"
+            aria-controls="stage-draft"
+            :title="stageToggleLabel('draft', 'borradores')"
+            @click="toggleStage('draft')"
+          >
+            <span class="stage-toggle__title">
+              <svg
+                class="stage-chevron"
+                viewBox="0 0 24 24"
+                width="18"
+                height="18"
+                aria-hidden="true"
+              >
+                <path
+                  fill="currentColor"
+                  d="M8.1 9.3 12 13.2l3.9-3.9 1.4 1.4L12 16 6.7 10.7z"
+                />
+              </svg>
+              <h2>Borradores</h2>
+            </span>
+            <span class="muted">
+              {{ filteredDrafts.length }}
+              <template v-if="(data?.drafts?.length ?? 0) !== filteredDrafts.length">
+                de {{ data?.drafts?.length }}
+              </template>
+              · {{ data?.draftCount }} / {{ data?.draftLimit }}
+            </span>
+          </button>
+          <ul v-show="isStageOpen('draft')" id="stage-draft" class="card-list">
+            <li v-for="d in filteredDrafts" :key="d.id" class="sale-card">
+              <div class="sale-card__main">
+                <strong>{{ d.titularName || 'Sin titular' }}</strong>
+                <span class="muted">
+                  Caduca {{ formatUtcToLocal(d.draftExpiresAt) }}
+                </span>
+              </div>
+              <div class="sale-card__actions">
+                <button
+                  type="button"
+                  class="icon-btn"
+                  title="Archivos anexados"
+                  aria-label="Archivos anexados"
+                  @click="openAttachments(d)"
+                >
+                  <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                    <path
+                      fill="currentColor"
+                      d="M16.5 6.5v10.25a4.25 4.25 0 1 1-8.5 0V5.75a2.75 2.75 0 1 1 5.5 0v10.5a1.25 1.25 0 1 1-2.5 0V7.25h-1.5v9a2.75 2.75 0 1 0 5.5 0V5.75a4.25 4.25 0 1 0-8.5 0v11a5.75 5.75 0 1 0 11.5 0V6.5h-1.5z"
+                    />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  class="icon-btn"
+                  title="Vista previa carátula"
+                  aria-label="Vista previa carátula"
+                  @click="openPreview(d)"
+                >
+                  <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                    <path
+                      fill="currentColor"
+                      d="M12 5c-5 0-9.27 3.11-11 7 1.73 3.89 6 7 11 7s9.27-3.11 11-7c-1.73-3.89-6-7-11-7Zm0 12a5 5 0 1 1 0-10 5 5 0 0 1 0 10Zm0-2.5A2.5 2.5 0 1 0 12 9a2.5 2.5 0 0 0 0 5Z"
+                    />
+                  </svg>
+                </button>
+                <button type="button" class="btn btn-ghost btn-sm" @click="editDraft(d.id)">
+                  Continuar
+                </button>
+                <button type="button" class="btn btn-ghost btn-sm" @click="removeDraft(d.id)">
+                  Eliminar
+                </button>
+              </div>
+            </li>
+          </ul>
         </div>
 
         <div
-          v-else-if="!filteredSubmitted.length"
-          class="empty-state"
+          v-for="stage in visibleStages"
+          :key="stage.key"
+          class="panel stage-panel"
+          :class="[
+            `stage-panel--${stage.tone}`,
+            { 'stage-panel--collapsed': !isStageOpen(stage.key) },
+          ]"
         >
-          <strong>Sin resultados</strong>
-          No hay ventas en proceso con los filtros actuales.
-        </div>
+          <button
+            type="button"
+            class="stage-toggle"
+            :aria-expanded="isStageOpen(stage.key)"
+            :aria-controls="`stage-${stage.key}`"
+            :title="stageToggleLabel(stage.key, stage.title)"
+            @click="toggleStage(stage.key)"
+          >
+            <span class="stage-toggle__title">
+              <svg
+                class="stage-chevron"
+                viewBox="0 0 24 24"
+                width="18"
+                height="18"
+                aria-hidden="true"
+              >
+                <path
+                  fill="currentColor"
+                  d="M8.1 9.3 12 13.2l3.9-3.9 1.4 1.4L12 16 6.7 10.7z"
+                />
+              </svg>
+              <h2>{{ stage.title }}</h2>
+            </span>
+            <span class="muted">
+              {{ stage.items.length }}
+              <template v-if="stage.total !== stage.items.length">
+                de {{ stage.total }}
+              </template>
+            </span>
+          </button>
 
-        <ul v-else class="card-list">
-          <li v-for="item in filteredSubmitted" :key="item.id" class="sale-card">
-            <div class="sale-card__main">
-              <div class="sale-card__title">
-                <strong>#{{ item.id }} · {{ item.titularName || 'Sin titular' }}</strong>
-                <span :class="statusBadgeClass(item.status)">
-                  <svg
-                    v-if="item.status === 'COMPLETED' || item.status === 'SUBMITTED'"
-                    class="status-badge__icon"
-                    viewBox="0 0 24 24"
-                    width="12"
-                    height="12"
-                    aria-hidden="true"
-                  >
-                    <path
-                      fill="currentColor"
-                      d="M9.5 16.2 5.3 12l-1.4 1.4 5.6 5.6L20.5 8l-1.4-1.4z"
-                    />
-                  </svg>
-                  {{ statusLabel(item.status) }}
+          <div
+            v-if="!stage.items.length"
+            v-show="isStageOpen(stage.key)"
+            :id="`stage-${stage.key}`"
+            class="empty-state"
+          >
+            <strong>Sin resultados</strong>
+            {{ stage.empty }}
+          </div>
+
+          <ul
+            v-else
+            v-show="isStageOpen(stage.key)"
+            :id="`stage-${stage.key}`"
+            class="card-list"
+          >
+            <li v-for="item in stage.items" :key="item.id" class="sale-card">
+              <div class="sale-card__main">
+                <div class="sale-card__title">
+                  <strong>#{{ item.id }} · {{ item.titularName || 'Sin titular' }}</strong>
+                  <span :class="statusBadgeClass(item.status)">
+                    <svg
+                      v-if="isCompletedStatus(item.status)"
+                      class="status-badge__icon"
+                      viewBox="0 0 24 24"
+                      width="12"
+                      height="12"
+                      aria-hidden="true"
+                    >
+                      <path
+                        fill="currentColor"
+                        d="M9.5 16.2 5.3 12l-1.4 1.4 5.6 5.6L20.5 8l-1.4-1.4z"
+                      />
+                    </svg>
+                    {{ statusLabel(item.status) }}
+                  </span>
+                </div>
+                <span class="muted">
+                  {{ formatUtcToLocal(item.createdAt) }}
+                  <template v-if="item.amount">
+                    · ${{ item.amount.toLocaleString('es-MX') }}
+                  </template>
                 </span>
               </div>
-              <span class="muted">
-                {{ formatUtcToLocal(item.createdAt) }}
-                <template v-if="item.amount">
-                  · ${{ item.amount.toLocaleString('es-MX') }}
-                </template>
-              </span>
-            </div>
-            <div class="sale-card__actions">
-              <button
-                type="button"
-                class="icon-btn"
-                title="Archivos anexados"
-                aria-label="Archivos anexados"
-                @click="openAttachments(item)"
-              >
-                <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
-                  <path
-                    fill="currentColor"
-                    d="M16.5 6.5v10.25a4.25 4.25 0 1 1-8.5 0V5.75a2.75 2.75 0 1 1 5.5 0v10.5a1.25 1.25 0 1 1-2.5 0V7.25h-1.5v9a2.75 2.75 0 1 0 5.5 0V5.75a4.25 4.25 0 1 0-8.5 0v11a5.75 5.75 0 1 0 11.5 0V6.5h-1.5z"
-                  />
-                </svg>
-              </button>
-              <button
-                v-if="item.status === 'PENDING_PAYMENT'"
-                type="button"
-                class="icon-btn icon-btn--payment"
-                title="Registrar pago"
-                aria-label="Registrar pago"
-                @click="openPayment(item)"
-              >
-                <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
-                  <path
-                    fill="currentColor"
-                    d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1.41 16.09V20h-2.67v-1.93c-1.71-.36-3.16-1.46-3.27-3.4h1.96c.1 1.05.82 1.87 2.65 1.87 1.96 0 2.4-.98 2.4-1.59 0-.83-.44-1.61-2.67-2.14-2.48-.6-4.18-1.62-4.18-3.67 0-1.72 1.39-2.84 3.11-3.21V4h2.67v1.95c1.86.45 2.79 1.86 2.85 3.39H15.3c-.05-1.11-.64-1.87-2.22-1.87-1.5 0-2.4.68-2.4 1.64 0 .84.65 1.39 2.8 1.95 2.37.62 4.05 1.67 4.05 3.83 0 1.84-1.38 2.94-3.12 3.3z"
-                  />
-                </svg>
-              </button>
-              <button
-                v-if="item.status === 'PENDING_SIGNATURE'"
-                type="button"
-                class="icon-btn icon-btn--sign"
-                title="Firmar"
-                aria-label="Firmar"
-                @click="openSign(item)"
-              >
-                <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
-                  <path
-                    fill="currentColor"
-                    d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1.003 1.003 0 0 0 0-1.42l-2.34-2.34a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 1.84-1.82z"
-                  />
-                </svg>
-              </button>
-              <button
-                type="button"
-                class="icon-btn"
-                title="Vista previa carátula"
-                aria-label="Vista previa carátula"
-                @click="openPreview(item)"
-              >
-                <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
-                  <path
-                    fill="currentColor"
-                    d="M12 5c-5 0-9.27 3.11-11 7 1.73 3.89 6 7 11 7s9.27-3.11 11-7c-1.73-3.89-6-7-11-7Zm0 12a5 5 0 1 1 0-10 5 5 0 0 1 0 10Zm0-2.5A2.5 2.5 0 1 0 12 9a2.5 2.5 0 0 0 0 5Z"
-                  />
-                </svg>
-              </button>
-            </div>
-          </li>
-        </ul>
-      </div>
+              <div class="sale-card__actions">
+                <button
+                  type="button"
+                  class="icon-btn"
+                  title="Archivos anexados"
+                  aria-label="Archivos anexados"
+                  @click="openAttachments(item)"
+                >
+                  <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+                    <path
+                      fill="currentColor"
+                      d="M16.5 6.5v10.25a4.25 4.25 0 1 1-8.5 0V5.75a2.75 2.75 0 1 1 5.5 0v10.5a1.25 1.25 0 1 1-2.5 0V7.25h-1.5v9a2.75 2.75 0 1 0 5.5 0V5.75a4.25 4.25 0 1 0-8.5 0v11a5.75 5.75 0 1 0 11.5 0V6.5h-1.5z"
+                    />
+                  </svg>
+                </button>
+                <button
+                  v-if="item.status === 'PENDING_PAYMENT'"
+                  type="button"
+                  class="icon-btn icon-btn--payment"
+                  title="Registrar pago"
+                  aria-label="Registrar pago"
+                  @click="openPayment(item)"
+                >
+                  <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+                    <path
+                      fill="currentColor"
+                      d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1.41 16.09V20h-2.67v-1.93c-1.71-.36-3.16-1.46-3.27-3.4h1.96c.1 1.05.82 1.87 2.65 1.87 1.96 0 2.4-.98 2.4-1.59 0-.83-.44-1.61-2.67-2.14-2.48-.6-4.18-1.62-4.18-3.67 0-1.72 1.39-2.84 3.11-3.21V4h2.67v1.95c1.86.45 2.79 1.86 2.85 3.39H15.3c-.05-1.11-.64-1.87-2.22-1.87-1.5 0-2.4.68-2.4 1.64 0 .84.65 1.39 2.8 1.95 2.37.62 4.05 1.67 4.05 3.83 0 1.84-1.38 2.94-3.12 3.3z"
+                    />
+                  </svg>
+                </button>
+                <button
+                  v-if="item.status === 'PENDING_SIGNATURE'"
+                  type="button"
+                  class="icon-btn icon-btn--sign"
+                  title="Firmar"
+                  aria-label="Firmar"
+                  @click="openSign(item)"
+                >
+                  <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+                    <path
+                      fill="currentColor"
+                      d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1.003 1.003 0 0 0 0-1.42l-2.34-2.34a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 1.84-1.82z"
+                    />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  class="icon-btn"
+                  title="Vista previa carátula"
+                  aria-label="Vista previa carátula"
+                  @click="openPreview(item)"
+                >
+                  <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+                    <path
+                      fill="currentColor"
+                      d="M12 5c-5 0-9.27 3.11-11 7 1.73 3.89 6 7 11 7s9.27-3.11 11-7c-1.73-3.89-6-7-11-7Zm0 12a5 5 0 1 1 0-10 5 5 0 0 1 0 10Zm0-2.5A2.5 2.5 0 1 0 12 9a2.5 2.5 0 0 0 0 5Z"
+                    />
+                  </svg>
+                </button>
+              </div>
+            </li>
+          </ul>
+        </div>
+      </template>
     </template>
 
     <SaleAttachmentsModal
@@ -766,12 +1169,26 @@ async function removeDraft(id: number) {
     <SaleManualSignModal
       :open="signOpen"
       :form="actionForm"
+      :sale-id="actionSaleId"
+      :status="actionStatus"
       :submitting="signSubmitting"
       @close="signOpen = false"
       @confirm="confirmSign"
     />
 
     <SellerDefaultsModal :open="defaultsOpen" @close="defaultsOpen = false" />
+    <SaleKindModal
+      :open="kindOpen"
+      @close="kindOpen = false"
+      @select="startSale"
+    />
+    <SaleRecognitionModal
+      :open="recognitionOpen"
+      :kind="originKind"
+      @close="recognitionOpen = false"
+      @back="onRecognitionBack"
+      @apply="onRecognitionApply"
+    />
   </section>
 </template>
 
@@ -911,10 +1328,90 @@ async function removeDraft(id: number) {
   margin-bottom: 0.75rem;
 }
 
-.section-head h2 {
+.section-head h2,
+.stage-toggle h2 {
   margin: 0;
   font-size: 1.15rem;
   color: var(--gsm-blue);
+}
+
+.stage-panel {
+  border-left: 4px solid var(--vd-line);
+  margin-top: 0.85rem;
+}
+
+.stage-panel--collapsed {
+  padding-top: 0.85rem;
+  padding-bottom: 0.85rem;
+}
+
+.stage-toggle {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  margin: 0 0 0.75rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.stage-panel--collapsed .stage-toggle {
+  margin-bottom: 0;
+}
+
+.stage-toggle__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.stage-chevron {
+  flex-shrink: 0;
+  color: var(--vd-muted);
+  transition: transform 0.16s ease;
+}
+
+.stage-panel--collapsed .stage-chevron {
+  transform: rotate(-90deg);
+}
+
+.stage-toggle:hover h2,
+.stage-toggle:focus-visible h2 {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.stage-toggle:focus-visible {
+  outline: 2px solid var(--gsm-blue);
+  outline-offset: 4px;
+  border-radius: 6px;
+}
+
+.stage-panel--draft {
+  border-left-color: rgba(53, 100, 125, 0.35);
+}
+
+.stage-panel--payment {
+  border-left-color: #c48a22;
+}
+
+.stage-panel--sign {
+  border-left-color: var(--gsm-blue);
+}
+
+.stage-panel--done {
+  border-left-color: var(--vd-ok);
+}
+
+.stage-panel--rejected {
+  border-left-color: var(--vd-danger);
 }
 
 .muted {

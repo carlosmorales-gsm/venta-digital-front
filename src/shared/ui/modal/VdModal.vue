@@ -10,11 +10,14 @@ const props = withDefaults(
     wide?: boolean;
     /** Modal extra ancho (p. ej. vista previa PDF) */
     xlarge?: boolean;
+    /** El cuerpo no hace scroll; el contenido interno se encarga. */
+    lockBody?: boolean;
   }>(),
   {
     closeOnScrim: true,
     wide: false,
     xlarge: false,
+    lockBody: false,
   },
 );
 
@@ -72,7 +75,10 @@ function onScrim() {
           </button>
         </header>
 
-        <div class="vd-modal__body">
+        <div
+          class="vd-modal__body"
+          :class="{ 'vd-modal__body--locked': lockBody }"
+        >
           <slot />
         </div>
 
@@ -89,9 +95,12 @@ function onScrim() {
   position: fixed;
   inset: 0;
   z-index: 900;
-  display: grid;
-  place-items: center;
-  padding: 1rem;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: max(1rem, env(safe-area-inset-top)) 1rem
+    max(0.75rem, env(safe-area-inset-bottom));
+  overflow: hidden;
 }
 
 .vd-modal-scrim {
@@ -104,9 +113,12 @@ function onScrim() {
   position: relative;
   z-index: 1;
   width: min(440px, 100%);
-  max-height: min(90vh, 720px);
+  max-height: calc(
+    100dvh - 1.75rem - env(safe-area-inset-top) - env(safe-area-inset-bottom)
+  );
   display: flex;
   flex-direction: column;
+  min-height: 0;
   gap: 0;
   padding: 0;
   border-top: 3px solid var(--gsm-cafe);
@@ -120,19 +132,10 @@ function onScrim() {
 
 .vd-modal--xlarge {
   width: min(820px, 100%);
-  max-height: min(94vh, 900px);
-  display: flex;
-  flex-direction: column;
 }
 
 .vd-modal--xlarge .vd-modal__body {
   padding: 0.75rem 0.85rem;
-  flex: 1;
-  min-height: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  -webkit-overflow-scrolling: touch;
   display: flex;
   flex-direction: column;
 }
@@ -173,9 +176,19 @@ function onScrim() {
 }
 
 .vd-modal__body {
+  flex: 1 1 auto;
+  min-height: 0;
   padding: 1.1rem 1.25rem;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
+}
+
+.vd-modal__body--locked {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .vd-modal__footer {
@@ -202,26 +215,17 @@ function onScrim() {
 
 @media (max-width: 1024px) {
   .vd-modal-root {
-    padding: 0.45rem;
-    align-items: stretch;
+    padding: max(0.65rem, env(safe-area-inset-top)) 0.65rem
+      max(0.65rem, env(safe-area-inset-bottom));
   }
 
-  .vd-modal--xlarge {
+  .vd-modal--xlarge,
+  .vd-modal--wide {
     width: 100%;
-    max-height: 96dvh;
-    height: 96dvh;
-    border-radius: 12px;
   }
 
   .vd-modal--xlarge .vd-modal__body {
-    flex: 1;
-    min-height: 0;
     padding: 0.65rem 0.75rem;
-  }
-
-  .vd-modal--wide {
-    width: 100%;
-    max-height: 92dvh;
   }
 
   .vd-modal__close {
@@ -234,23 +238,10 @@ function onScrim() {
   }
 }
 
-@media (max-width: 900px) {
-  .vd-modal-root {
-    padding: 0.45rem;
-    align-items: stretch;
-  }
-}
-
 @media (max-width: 600px) {
-  .vd-modal-root {
-    padding: 0.65rem;
-    align-items: flex-end;
-  }
-
   .vd-modal {
     width: 100%;
-    max-height: 92vh;
-    border-radius: 14px 14px 8px 8px;
+    border-radius: 14px;
   }
 
   .vd-modal__footer {
