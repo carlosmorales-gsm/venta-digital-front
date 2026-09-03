@@ -1,6 +1,6 @@
 import { jsPDF } from 'jspdf';
 import { saleCompanyName } from '../constants/sale-companies';
-import { fullName, type SaleFormData } from '../types/sale-form';
+import { fullName, hasIneDocumentos, type SaleFormData } from '../types/sale-form';
 
 const PAGE_W = 612.28;
 const PAGE_H = 792;
@@ -229,9 +229,7 @@ function drawJustified(
 function drawLetter(doc: Doc, form: SaleFormData, logo: LogoAsset | null) {
   const cliente = fullName(form.contacto);
   const company = saleCompanyName(form.ubicacionPlan.planKind);
-  const hasIne = Boolean(
-    form.documentos.ine?.dataBase64 || form.documentos.ine?.driveFileUrl,
-  );
+  const hasIne = hasIneDocumentos(form.documentos);
   const date = parseDate(form.meta.fecha);
 
   drawOfficialHeader(doc, logo);

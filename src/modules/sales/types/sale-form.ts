@@ -180,7 +180,10 @@ export interface SaleFormData {
     aceptaPublicidad: string;
   };
   documentos: {
-    ine: SaleAttachment | null;
+    ineFrente: SaleAttachment | null;
+    ineReverso: SaleAttachment | null;
+    /** PDF de una hoja con frente y reverso de la INE. */
+    inePdf: SaleAttachment | null;
     comprobanteDomicilio: SaleAttachment | null;
     constanciaSituacionFiscal: SaleAttachment | null;
     tarjetaFrente: SaleAttachment | null;
@@ -376,7 +379,9 @@ export function createEmptySaleForm(): SaleFormData {
       aceptaPublicidad: '',
     },
     documentos: {
-      ine: null,
+      ineFrente: null,
+      ineReverso: null,
+      inePdf: null,
       comprobanteDomicilio: null,
       constanciaSituacionFiscal: null,
       tarjetaFrente: null,
@@ -711,7 +716,12 @@ export function mergeSaleForm(raw: unknown): SaleFormData {
     pago: normalizePagoDefaults({ ...base.pago, ...(src.pago ?? {}) }),
     declaraciones: { ...base.declaraciones, ...(src.declaraciones ?? {}) },
     documentos: {
-      ine: src.documentos?.ine ?? null,
+      ineFrente: src.documentos?.ineFrente ?? null,
+      ineReverso: src.documentos?.ineReverso ?? null,
+      inePdf:
+        src.documentos?.inePdf ??
+        (src.documentos as { ine?: SaleAttachment | null } | undefined)?.ine ??
+        null,
       comprobanteDomicilio: src.documentos?.comprobanteDomicilio ?? null,
       constanciaSituacionFiscal:
         src.documentos?.constanciaSituacionFiscal ?? null,
@@ -728,6 +738,25 @@ export function mergeSaleForm(raw: unknown): SaleFormData {
       cartaAutorizacionPdf: src.documentos?.cartaAutorizacionPdf ?? null,
     },
   };
+}
+
+/** INE completa: ambos lados o PDF combinado (incluye ventas antiguas con un solo archivo). */
+export function hasIneDocumentos(docs: SaleFormData['documentos']): boolean {
+  if (docs.inePdf?.dataBase64?.trim() || docs.inePdf?.driveFileUrl?.trim()) {
+    return true;
+  }
+  const frente = docs.ineFrente?.dataBase64?.trim() || docs.ineFrente?.driveFileUrl?.trim();
+  const reverso = docs.ineReverso?.dataBase64?.trim() || docs.ineReverso?.driveFileUrl?.trim();
+  return Boolean(frente && reverso);
+}
+
+/** Adjunto principal de INE para PDFs (preferir frente si aún no hay PDF combinado). */
+export function primaryIneAttachment(
+  docs: SaleFormData['documentos'],
+): SaleAttachment | null {
+  if (docs.inePdf) return docs.inePdf;
+  if (docs.ineFrente && docs.ineReverso) return docs.ineFrente;
+  return docs.ineFrente;
 }
 
 export function syncBeneficiariosToDerechos(form: SaleFormData) {

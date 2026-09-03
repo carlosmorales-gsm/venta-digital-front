@@ -29,7 +29,10 @@ import {
 } from '../utils/attachment-preview';
 import { buildPaymentTicketPdf } from '../utils/payment-ticket-pdf';
 import { buildAuthorizationLetterPdf } from '../utils/authorization-letter-pdf';
-import { buildCardSidesAttachment } from '../utils/card-sides-pdf';
+import {
+  buildCardSidesAttachment,
+  buildIneSidesAttachment,
+} from '../utils/card-sides-pdf';
 import { buildInvoiceLetterPdf } from '../utils/invoice-letter-pdf';
 import { buildNoInvoiceConsentPdf } from '../utils/no-invoice-consent-pdf';
 import { buildParkRegulationPdf } from '../utils/park-regulation-pdf';
@@ -617,6 +620,9 @@ async function confirmSign(dataUrl: string) {
     let tarjetaPdf:
       | { name: string; mime: string; dataBase64: string }
       | undefined;
+    let inePdf:
+      | { name: string; mime: string; dataBase64: string }
+      | undefined;
     try {
       const blob = await buildSalePreviewPdf(formForPdf, {
         saleId: actionSaleId.value,
@@ -706,6 +712,26 @@ async function confirmSign(dataUrl: string) {
       }
     }
 
+    const ineFrente = formForPdf.documentos.ineFrente;
+    const ineReverso = formForPdf.documentos.ineReverso;
+    if (ineFrente && ineReverso) {
+      try {
+        const combined = await buildIneSidesAttachment(
+          ineFrente,
+          ineReverso,
+          `ine-ambos-lados_venta-${actionSaleId.value}.pdf`,
+        );
+        inePdf = {
+          name: combined.name,
+          mime: combined.mime,
+          dataBase64: combined.dataBase64!,
+        };
+        formForPdf.documentos.inePdf = combined;
+      } catch (pdfErr) {
+        console.warn('No se pudo armar el PDF de la INE', pdfErr);
+      }
+    }
+
     hasCaratula = Boolean(caratulaPdf);
     await http.post<SaleListItem>(
       `/sales/${actionSaleId.value}/sign`,
@@ -717,6 +743,7 @@ async function confirmSign(dataUrl: string) {
         ...(reglamentoParquePdf ? { reglamentoParquePdf } : {}),
         ...(cartaAutorizacionPdf ? { cartaAutorizacionPdf } : {}),
         ...(tarjetaPdf ? { tarjetaPdf } : {}),
+        ...(inePdf ? { inePdf } : {}),
       },
       // Drive + PDFs + expediente suelen pasar de 30s; el API igual termina y guarda.
       { timeout: 180000 },

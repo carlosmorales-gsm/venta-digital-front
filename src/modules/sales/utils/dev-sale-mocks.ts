@@ -1093,7 +1093,9 @@ function buildFromSeed(seed: DevSaleSeed): SaleFormData {
     pago: { ...createEmptySaleForm().pago, ...seed.pago },
     declaraciones: seed.declaraciones,
     documentos: {
-      ine: mockDoc('ine-mock.png'),
+      ineFrente: mockDoc('ine-frente-mock.png'),
+      ineReverso: mockDoc('ine-reverso-mock.png'),
+      inePdf: null,
       comprobanteDomicilio: mockDoc('comprobante-mock.png'),
       constanciaSituacionFiscal:
         seed.contacto.factura === 'SI' || seed.factura

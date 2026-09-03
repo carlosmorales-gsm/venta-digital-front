@@ -19,7 +19,7 @@ import {
   isDraftParkRegulation,
 } from '../utils/park-regulation-pdf';
 import { buildSalePreviewBundle, isDraftCaratula } from '../utils/sale-pdf';
-import { buildCardSidesBundle } from '../utils/card-sides-pdf';
+import { buildCardSidesBundle, buildIneSidesBundle } from '../utils/card-sides-pdf';
 import type { SaleFormData } from '../types/sale-form';
 
 const props = withDefaults(
@@ -34,7 +34,8 @@ const props = withDefaults(
       | 'cartaNoFactura'
       | 'reglamentoParque'
       | 'cartaAutorizacion'
-      | 'tarjeta';
+      | 'tarjeta'
+      | 'ine';
   }>(),
   { kind: 'caratula' },
 );
@@ -56,8 +57,9 @@ const isNoFactura = computed(() => props.kind === 'cartaNoFactura');
 const isReglamento = computed(() => props.kind === 'reglamentoParque');
 const isAuth = computed(() => props.kind === 'cartaAutorizacion');
 const isTarjeta = computed(() => props.kind === 'tarjeta');
+const isIne = computed(() => props.kind === 'ine');
 const isDraft = computed(() => {
-  if (isTarjeta.value) return false;
+  if (isTarjeta.value || isIne.value) return false;
   const opts = { saleId: props.saleId, status: props.status };
   if (isAuth.value) return isDraftAuthorizationLetter(props.form, opts);
   if (isReglamento.value) return isDraftParkRegulation(props.form, opts);
@@ -67,6 +69,7 @@ const isDraft = computed(() => {
 });
 const modalTitle = computed(() => {
   if (isTarjeta.value) return 'Tarjeta (ambos lados)';
+  if (isIne.value) return 'INE (ambos lados)';
   if (isAuth.value) {
     return isDraft.value
       ? 'Carta de autorización (borrador)'
@@ -93,6 +96,7 @@ const modalTitle = computed(() => {
 });
 const downloadName = computed(() => {
   if (isTarjeta.value) return 'tarjeta-ambos-lados.pdf';
+  if (isIne.value) return 'ine-ambos-lados.pdf';
   if (isAuth.value) {
     return isDraft.value
       ? 'carta-autorizacion-borrador.pdf'
@@ -117,6 +121,7 @@ const downloadName = computed(() => {
 });
 const generatingLabel = computed(() => {
   if (isTarjeta.value) return 'Armando PDF de la tarjeta…';
+  if (isIne.value) return 'Armando PDF de la INE…';
   if (isAuth.value || isCarta.value || isNoFactura.value || isReglamento.value) {
     return 'Generando carta…';
   }
@@ -144,12 +149,24 @@ async function render() {
         throw new Error('Faltan las fotos de la tarjeta');
       }
     }
+    if (isIne.value) {
+      const frente = props.form.documentos.ineFrente;
+      const reverso = props.form.documentos.ineReverso;
+      if (!frente || !reverso) {
+        throw new Error('Faltan las fotos de la INE');
+      }
+    }
     const { blob, pages } = isTarjeta.value
       ? await buildCardSidesBundle(
           props.form.documentos.tarjetaFrente!,
           props.form.documentos.tarjetaReverso!,
         )
-      : isAuth.value
+      : isIne.value
+        ? await buildIneSidesBundle(
+            props.form.documentos.ineFrente!,
+            props.form.documentos.ineReverso!,
+          )
+        : isAuth.value
         ? await buildAuthorizationLetterBundle(props.form, opts)
         : isReglamento.value
           ? await buildParkRegulationBundle(props.form, opts)
@@ -167,7 +184,9 @@ async function render() {
   } catch {
     error.value = isTarjeta.value
       ? 'No se pudo armar el PDF con ambos lados de la tarjeta.'
-      : isAuth.value
+      : isIne.value
+        ? 'No se pudo armar el PDF con ambos lados de la INE.'
+        : isAuth.value
         ? 'No se pudo generar la carta de autorización.'
         : isReglamento.value
           ? 'No se pudo generar el reglamento de parque.'

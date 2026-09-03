@@ -1,6 +1,6 @@
 import { jsPDF } from 'jspdf';
 import { saleCompanyLetter } from '../constants/sale-companies';
-import { fullName, type SaleFormData } from '../types/sale-form';
+import { fullName, hasIneDocumentos, type SaleFormData } from '../types/sale-form';
 import { formatMoneyDisplay, normalizeFrequency } from './sale-finance';
 
 const PAGE_W = 612;
@@ -231,9 +231,7 @@ function drawLetter(
   const card = digits(p.cuenta).slice(0, 16);
   const venc = v(p.vencimientoTarjeta);
   const inicio = formatShortDate(form.meta.fecha);
-  const hasIne = Boolean(
-    form.documentos.ine?.dataBase64 || form.documentos.ine?.driveFileUrl,
-  );
+  const hasIne = hasIneDocumentos(form.documentos);
 
   if (logo) {
     const logoH = 68;

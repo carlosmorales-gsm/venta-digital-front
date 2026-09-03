@@ -96,9 +96,16 @@ function imageFormat(src: string): 'PNG' | 'JPEG' {
   return 'JPEG';
 }
 
-export async function buildCardSidesPdf(
+export type TwoSidesPdfLabels = {
+  title: string;
+  frontLabel?: string;
+  backLabel?: string;
+};
+
+export async function buildTwoSidesPdf(
   frente: SaleAttachment,
   reverso: SaleAttachment,
+  labels: TwoSidesPdfLabels,
 ): Promise<Blob> {
   const [frontSrc, backSrc] = await Promise.all([
     attachmentToImageDataUrl(frente),
@@ -117,13 +124,15 @@ export async function buildCardSidesPdf(
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(12);
   doc.setTextColor(...INK);
-  doc.text('TARJETA DE DOMICILIACIÓN', PAGE_W / 2, 28, { align: 'center' });
+  doc.text(labels.title, PAGE_W / 2, 28, { align: 'center' });
 
   const colW = PAGE_W - M * 2;
   const halfH = (PAGE_H - 56) / 2;
+  const frontLabel = labels.frontLabel ?? 'FRENTE';
+  const backLabel = labels.backLabel ?? 'REVERSO';
   const boxes = [
-    { label: 'FRENTE', src: frontSrc, size: frontSize, top: 40 },
-    { label: 'REVERSO', src: backSrc, size: backSize, top: 40 + halfH },
+    { label: frontLabel, src: frontSrc, size: frontSize, top: 40 },
+    { label: backLabel, src: backSrc, size: backSize, top: 40 + halfH },
   ];
 
   for (const box of boxes) {
@@ -151,12 +160,29 @@ export async function buildCardSidesPdf(
   return doc.output('blob');
 }
 
-export async function buildCardSidesAttachment(
+export async function buildCardSidesPdf(
   frente: SaleAttachment,
   reverso: SaleAttachment,
-  name = 'tarjeta-ambos-lados.pdf',
+): Promise<Blob> {
+  return buildTwoSidesPdf(frente, reverso, {
+    title: 'TARJETA DE DOMICILIACIÓN',
+  });
+}
+
+export async function buildIneSidesPdf(
+  frente: SaleAttachment,
+  reverso: SaleAttachment,
+): Promise<Blob> {
+  return buildTwoSidesPdf(frente, reverso, { title: 'INE' });
+}
+
+async function buildTwoSidesAttachment(
+  frente: SaleAttachment,
+  reverso: SaleAttachment,
+  buildPdf: (f: SaleAttachment, r: SaleAttachment) => Promise<Blob>,
+  name: string,
 ): Promise<SaleAttachment> {
-  const blob = await buildCardSidesPdf(frente, reverso);
+  const blob = await buildPdf(frente, reverso);
   const buf = await blob.arrayBuffer();
   const bytes = new Uint8Array(buf);
   let binary = '';
@@ -171,11 +197,42 @@ export async function buildCardSidesAttachment(
   };
 }
 
+export async function buildCardSidesAttachment(
+  frente: SaleAttachment,
+  reverso: SaleAttachment,
+  name = 'tarjeta-ambos-lados.pdf',
+): Promise<SaleAttachment> {
+  return buildTwoSidesAttachment(frente, reverso, buildCardSidesPdf, name);
+}
+
+export async function buildIneSidesAttachment(
+  frente: SaleAttachment,
+  reverso: SaleAttachment,
+  name = 'ine-ambos-lados.pdf',
+): Promise<SaleAttachment> {
+  return buildTwoSidesAttachment(frente, reverso, buildIneSidesPdf, name);
+}
+
+async function buildTwoSidesBundle(
+  frente: SaleAttachment,
+  reverso: SaleAttachment,
+  buildPdf: (f: SaleAttachment, r: SaleAttachment) => Promise<Blob>,
+) {
+  const blob = await buildPdf(frente, reverso);
+  const pages = await renderPdfToPageImages(blob);
+  return { blob, pages };
+}
+
 export async function buildCardSidesBundle(
   frente: SaleAttachment,
   reverso: SaleAttachment,
 ) {
-  const blob = await buildCardSidesPdf(frente, reverso);
-  const pages = await renderPdfToPageImages(blob);
-  return { blob, pages };
+  return buildTwoSidesBundle(frente, reverso, buildCardSidesPdf);
+}
+
+export async function buildIneSidesBundle(
+  frente: SaleAttachment,
+  reverso: SaleAttachment,
+) {
+  return buildTwoSidesBundle(frente, reverso, buildIneSidesPdf);
 }

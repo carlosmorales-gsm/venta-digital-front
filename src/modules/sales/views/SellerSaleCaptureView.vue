@@ -50,6 +50,7 @@ import {
   DEFAULT_SERVICIO_FUNERARIO,
   emptyBeneficiary,
   mergeSaleForm,
+  hasIneDocumentos,
   normalizePagoDefaults,
   syncBeneficiariosToDerechos,
   fullName,
@@ -95,7 +96,10 @@ import {
   fileToAttachment,
   fileToPdfAttachment,
 } from '../utils/file-to-attachment';
-import { buildCardSidesAttachment } from '../utils/card-sides-pdf';
+import {
+  buildCardSidesAttachment,
+  buildIneSidesAttachment,
+} from '../utils/card-sides-pdf';
 import { useAuthStore } from '../../auth/stores/auth.store';
 import {
   clampIsoDateMin,
@@ -151,6 +155,7 @@ const cartaNoFacturaPreviewOpen = ref(false);
 const reglamentoParquePreviewOpen = ref(false);
 const cartaAuthPreviewOpen = ref(false);
 const tarjetaPreviewOpen = ref(false);
+const inePreviewOpen = ref(false);
 const reuseOpen = ref(false);
 const kindOpen = ref(false);
 const missingOpen = ref(false);
@@ -920,7 +925,7 @@ const stepHasData = computed<Record<StepKey, boolean>>(() => {
       ) ||
       (hasText(pago.anticipo) && pago.anticipo.trim() !== '0'),
     docs:
-      Boolean(docs.ine) ||
+      hasIneDocumentos(docs) ||
       Boolean(docs.comprobanteDomicilio) ||
       Boolean(docs.constanciaSituacionFiscal) ||
       Boolean(docs.tarjetaFrente) ||
@@ -1003,7 +1008,7 @@ const stepComplete = computed<Record<StepKey, boolean>>(() => {
       descOk &&
       metodoOk,
     docs:
-      Boolean(form.documentos.ine) &&
+      hasIneDocumentos(form.documentos) &&
       Boolean(form.documentos.comprobanteDomicilio) &&
       (!isDomiciliado.value ||
         (Boolean(form.documentos.tarjetaFrente) &&
@@ -1124,7 +1129,10 @@ function missingFieldsFor(key: StepKey): string[] {
   }
 
   if (key === 'docs') {
-    if (!form.documentos.ine) missing.push('INE');
+    if (!hasIneDocumentos(form.documentos)) {
+      if (!form.documentos.ineFrente) missing.push('INE (frente)');
+      if (!form.documentos.ineReverso) missing.push('INE (reverso)');
+    }
     if (!form.documentos.comprobanteDomicilio) {
       missing.push('Comprobante de domicilio');
     }
@@ -1400,6 +1408,8 @@ async function loadSale(id: number) {
     syncNombreAsesor();
     prefillNombreEmpleado();
     await syncWithoutInterestFromPlan();
+    await refreshIneSidesPdf();
+    await refreshCardSidesPdf();
   } catch (e: unknown) {
     await alert({
       title: 'Venta',
@@ -1528,6 +1538,7 @@ async function saveDraft() {
 
   saving.value = true;
   try {
+    await refreshIneSidesPdf();
     await refreshCardSidesPdf();
     const body = payloadMeta();
     if (saleId.value) {
@@ -1643,6 +1654,7 @@ async function finalizeSale() {
 
   submitting.value = true;
   try {
+    await refreshIneSidesPdf();
     await refreshCardSidesPdf();
     const body = payloadMeta();
     const { data } = saleId.value
@@ -1882,7 +1894,8 @@ async function applyDevPrefill() {
     restorePagoInicialActivoFromForm();
   }
   if (devPrefillSteps.docs) {
-    form.documentos.ine = mock.documentos.ine;
+    form.documentos.ineFrente = mock.documentos.ineFrente;
+    form.documentos.ineReverso = mock.documentos.ineReverso;
     form.documentos.comprobanteDomicilio = mock.documentos.comprobanteDomicilio;
     form.documentos.tarjetaFrente = mock.documentos.tarjetaFrente;
     form.documentos.tarjetaReverso = mock.documentos.tarjetaReverso;
@@ -1891,6 +1904,7 @@ async function applyDevPrefill() {
         mock.documentos.constanciaSituacionFiscal;
     }
     Object.assign(form.declaraciones, mock.declaraciones);
+    await refreshIneSidesPdf();
     await refreshCardSidesPdf();
   }
   if (devPrefillSteps.factura) {
@@ -1910,13 +1924,34 @@ async function applyDevPrefill() {
 }
 
 type CaptureDocKind =
-  | 'ine'
+  | 'ineFrente'
+  | 'ineReverso'
   | 'comprobanteDomicilio'
   | 'constanciaSituacionFiscal'
   | 'tarjetaFrente'
   | 'tarjetaReverso';
 
+let inePdfSeq = 0;
 let cardPdfSeq = 0;
+
+async function refreshIneSidesPdf() {
+  const seq = ++inePdfSeq;
+  const frente = form.documentos.ineFrente;
+  const reverso = form.documentos.ineReverso;
+  if (!frente || !reverso) {
+    form.documentos.inePdf = null;
+    return;
+  }
+  try {
+    const pdf = await buildIneSidesAttachment(frente, reverso);
+    if (seq !== inePdfSeq) return;
+    form.documentos.inePdf = pdf;
+  } catch (e) {
+    if (seq !== inePdfSeq) return;
+    form.documentos.inePdf = null;
+    console.warn('No se pudo armar el PDF de la INE', e);
+  }
+}
 
 async function refreshCardSidesPdf() {
   const seq = ++cardPdfSeq;
@@ -1946,6 +1981,9 @@ async function onFile(kind: CaptureDocKind, ev: Event) {
       kind === 'constanciaSituacionFiscal'
         ? await fileToPdfAttachment(file)
         : await fileToAttachment(file);
+    if (kind === 'ineFrente' || kind === 'ineReverso') {
+      await refreshIneSidesPdf();
+    }
     if (kind === 'tarjetaFrente' || kind === 'tarjetaReverso') {
       await refreshCardSidesPdf();
     }
@@ -1963,6 +2001,9 @@ async function onFile(kind: CaptureDocKind, ev: Event) {
 function clearFile(kind: CaptureDocKind) {
   if (!canEdit.value) return;
   form.documentos[kind] = null;
+  if (kind === 'ineFrente' || kind === 'ineReverso') {
+    form.documentos.inePdf = null;
+  }
   if (kind === 'tarjetaFrente' || kind === 'tarjetaReverso') {
     form.documentos.tarjetaPdf = null;
   }
@@ -3364,7 +3405,7 @@ async function goBack() {
           <div
             class="upload-card"
             :class="{
-              'upload-card--filled': form.documentos.ine,
+              'upload-card--filled': form.documentos.ineFrente,
               'upload-card--disabled': !canEdit,
             }"
           >
@@ -3390,17 +3431,18 @@ async function goBack() {
               </svg>
             </div>
             <div class="upload-card__body">
-              <strong>INE</strong>
-              <template v-if="form.documentos.ine">
+              <strong>INE (frente)</strong>
+              <template v-if="form.documentos.ineFrente">
                 <span class="upload-card__name">{{
-                  form.documentos.ine.name
+                  form.documentos.ineFrente.name
                 }}</span>
                 <span class="upload-card__meta">{{
-                  fileKindLabel(form.documentos.ine.mime)
+                  fileKindLabel(form.documentos.ineFrente.mime)
                 }}</span>
               </template>
               <span v-else class="upload-card__hint"
-                >Toca para seleccionar imagen o PDF</span
+                >Imagen o PDF del frente. Se junta con el reverso en un PDF de
+                una hoja</span
               >
             </div>
             <div class="upload-card__actions">
@@ -3409,7 +3451,7 @@ async function goBack() {
                   type="file"
                   accept="image/*,.pdf"
                   :disabled="!canEdit"
-                  @change="onFile('ine', $event)"
+                  @change="onFile('ineFrente', $event)"
                 />
                 <span class="upload-card__btn-ui" aria-hidden="true">
                   <svg viewBox="0 0 24 24" fill="none">
@@ -3429,19 +3471,109 @@ async function goBack() {
                   </svg>
                 </span>
                 <span class="upload-card__btn-text">{{
-                  form.documentos.ine ? 'Cambiar' : 'Adjuntar'
+                  form.documentos.ineFrente ? 'Cambiar' : 'Adjuntar'
                 }}</span>
               </label>
               <button
-                v-if="form.documentos.ine && canEdit"
+                v-if="form.documentos.ineFrente && canEdit"
                 type="button"
                 class="upload-card__remove"
-                @click="clearFile('ine')"
+                @click="clearFile('ineFrente')"
               >
                 Quitar
               </button>
             </div>
           </div>
+
+          <div
+            class="upload-card"
+            :class="{
+              'upload-card--filled': form.documentos.ineReverso,
+              'upload-card--disabled': !canEdit,
+            }"
+          >
+            <div class="upload-card__icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <rect
+                  x="3"
+                  y="5"
+                  width="18"
+                  height="14"
+                  rx="2"
+                  stroke="currentColor"
+                  stroke-width="1.7"
+                />
+                <circle cx="8.5" cy="10" r="1.4" fill="currentColor" />
+                <path
+                  d="M4.5 16l4.2-4.2a1 1 0 0 1 1.4 0L14 16l2.1-2.1a1 1 0 0 1 1.4 0L19.5 16"
+                  stroke="currentColor"
+                  stroke-width="1.7"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </div>
+            <div class="upload-card__body">
+              <strong>INE (reverso)</strong>
+              <template v-if="form.documentos.ineReverso">
+                <span class="upload-card__name">{{
+                  form.documentos.ineReverso.name
+                }}</span>
+                <span class="upload-card__meta">{{
+                  fileKindLabel(form.documentos.ineReverso.mime)
+                }}</span>
+              </template>
+              <span v-else class="upload-card__hint"
+                >Imagen o PDF del reverso</span
+              >
+            </div>
+            <div class="upload-card__actions">
+              <label class="upload-card__btn">
+                <input
+                  type="file"
+                  accept="image/*,.pdf"
+                  :disabled="!canEdit"
+                  @change="onFile('ineReverso', $event)"
+                />
+                <span class="upload-card__btn-ui" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none">
+                    <path
+                      d="M12 16V5M12 5l-3.5 3.5M12 5l3.5 3.5"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
+                    <path
+                      d="M5 16.5V18a1.5 1.5 0 0 0 1.5 1.5h11A1.5 1.5 0 0 0 19 18v-1.5"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                    />
+                  </svg>
+                </span>
+                <span class="upload-card__btn-text">{{
+                  form.documentos.ineReverso ? 'Cambiar' : 'Adjuntar'
+                }}</span>
+              </label>
+              <button
+                v-if="form.documentos.ineReverso && canEdit"
+                type="button"
+                class="upload-card__remove"
+                @click="clearFile('ineReverso')"
+              >
+                Quitar
+              </button>
+            </div>
+          </div>
+
+          <p
+            v-if="form.documentos.inePdf"
+            class="upload-card__hint span-2"
+          >
+            Ya se armó el PDF con ambos lados de la INE en una hoja para el
+            expediente.
+          </p>
 
           <div
             class="upload-card"
@@ -3842,6 +3974,42 @@ async function goBack() {
             </div>
 
             <div
+              v-if="form.documentos.ineFrente && form.documentos.ineReverso"
+              class="upload-card upload-card--filled"
+            >
+              <div class="upload-card__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <rect
+                    x="3"
+                    y="5"
+                    width="18"
+                    height="14"
+                    rx="2"
+                    stroke="currentColor"
+                    stroke-width="1.7"
+                  />
+                  <circle cx="8.5" cy="10" r="1.4" fill="currentColor" />
+                </svg>
+              </div>
+              <div class="upload-card__body">
+                <strong>INE (ambos lados)</strong>
+                <span class="upload-card__hint"
+                  >PDF de una hoja con frente y reverso. Este es el archivo que
+                  se guarda en el expediente</span
+                >
+              </div>
+              <div class="upload-card__actions">
+                <button
+                  type="button"
+                  class="upload-card__btn"
+                  @click="inePreviewOpen = true"
+                >
+                  <span class="upload-card__btn-text">Vista previa</span>
+                </button>
+              </div>
+            </div>
+
+            <div
               v-if="isParque"
               class="upload-card upload-card--filled"
             >
@@ -4158,6 +4326,14 @@ async function goBack() {
       :sale-id="saleId"
       :status="status === 'NEW' ? undefined : status"
       @close="tarjetaPreviewOpen = false"
+    />
+    <SalePdfPreviewModal
+      kind="ine"
+      :open="inePreviewOpen"
+      :form="form"
+      :sale-id="saleId"
+      :status="status === 'NEW' ? undefined : status"
+      @close="inePreviewOpen = false"
     />
 
     <SalePlanSearchModal
