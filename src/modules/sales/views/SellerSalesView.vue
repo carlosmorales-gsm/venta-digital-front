@@ -534,7 +534,7 @@ async function savePayment(
       console.warn('No se pudo generar ticket de pago', pdfErr);
     }
 
-    const { data } = await http.patch<SaleListItem>(
+    await http.patch<SaleListItem>(
       `/sales/${actionSaleId.value}/payment`,
       {
         pago,
