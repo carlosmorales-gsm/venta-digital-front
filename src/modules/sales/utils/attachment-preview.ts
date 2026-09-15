@@ -53,10 +53,18 @@ const LABELS: Record<AttachmentKind, string> = {
   cartaNominaPdf: 'Carta de consentimiento (nómina)',
 };
 
+const ALLOWED_IMAGE_MIMES = new Set([
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+  'image/bmp',
+]);
+
 export function isAllowedUploadFile(file: File): boolean {
   const mime = (file.type || '').toLowerCase();
-  if (mime.startsWith('image/')) return true;
-  if (mime === 'application/pdf') return true;
+  if (ALLOWED_IMAGE_MIMES.has(mime) || mime === 'application/pdf') return true;
   const name = file.name.toLowerCase();
   return /\.(jpe?g|png|gif|webp|bmp|pdf)$/.test(name);
 }

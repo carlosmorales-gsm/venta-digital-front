@@ -17,6 +17,7 @@ import { setPendingRecognition } from '../utils/pending-recognition';
 import { ensureSellerPrefetch } from '../utils/seller-session-cache';
 import { useAuthStore } from '../../auth/stores/auth.store';
 import {
+  isSignedSaleStatus,
   mergeSaleForm,
   type SaleAttachment,
   type SaleFormData,
@@ -131,7 +132,7 @@ const filteredSubmitted = computed(() =>
   (data.value?.submitted ?? []).filter(matchesSaleFilters),
 );
 
-type ProcessStageKey = 'payment' | 'sign' | 'done' | 'rejected';
+type ProcessStageKey = 'payment' | 'sign' | 'validation' | 'done' | 'rejected';
 
 type ProcessStage = {
   key: ProcessStageKey;
@@ -177,6 +178,17 @@ const processStages = computed<ProcessStage[]>(() => {
       total: all.filter((s) => s.status === 'PENDING_SIGNATURE').length,
     },
     {
+      key: 'validation',
+      title: 'Pendiente de validación',
+      empty: 'No hay ventas esperando validación con los filtros actuales.',
+      tone: 'validation',
+      items: filtered
+        .filter((s) => s.status === 'PENDING_VALIDATION')
+        .slice()
+        .sort(byCreatedDesc),
+      total: all.filter((s) => s.status === 'PENDING_VALIDATION').length,
+    },
+    {
       key: 'done',
       title: 'Completadas',
       empty: 'No hay ventas completadas con los filtros actuales.',
@@ -217,6 +229,7 @@ const expandedStages = reactive<Record<StageId, boolean>>({
   draft: true,
   payment: true,
   sign: true,
+  validation: true,
   done: false,
   rejected: false,
 });
@@ -399,6 +412,8 @@ function statusLabel(status: SaleStatus | string): string {
       return 'Pendiente de pago';
     case 'PENDING_SIGNATURE':
       return 'Pendiente de firma';
+    case 'PENDING_VALIDATION':
+      return 'Pendiente de validación';
     case 'COMPLETED':
     case 'SUBMITTED':
       return 'Completada';
@@ -417,6 +432,8 @@ function statusBadgeClass(status: SaleStatus | string): string {
       return 'status-badge status-badge--payment';
     case 'PENDING_SIGNATURE':
       return 'status-badge status-badge--sign';
+    case 'PENDING_VALIDATION':
+      return 'status-badge status-badge--validation';
     case 'COMPLETED':
     case 'SUBMITTED':
       return 'status-badge status-badge--done';
@@ -768,8 +785,14 @@ async function confirmSign(dataUrl: string) {
             reverso,
             `tarjeta-ambos-lados_venta-${actionSaleId.value}.pdf`,
           );
-          tarjetaPdf = cardPdf;
-          formForPdf.documentos.tarjetaPdf = cardPdf;
+          if (cardPdf.dataBase64) {
+            tarjetaPdf = {
+              name: cardPdf.name,
+              mime: cardPdf.mime,
+              dataBase64: cardPdf.dataBase64,
+            };
+            formForPdf.documentos.tarjetaPdf = cardPdf;
+          }
         } catch (pdfErr) {
           console.warn('No se pudo armar el PDF de la tarjeta', pdfErr);
         }
@@ -838,7 +861,7 @@ async function saleAlreadySigned(id: number | null): Promise<boolean> {
     const { data: sale } = await http.get<SaleListItem>(`/sales/${id}`, {
       timeout: 15000,
     });
-    return sale.status === 'COMPLETED';
+    return isSignedSaleStatus(sale.status);
   } catch {
     return false;
   }
@@ -1500,6 +1523,10 @@ async function removeDraft(id: number) {
   border-left-color: var(--gsm-blue);
 }
 
+.stage-panel--validation {
+  border-left-color: #c48a22;
+}
+
 .stage-panel--done {
   border-left-color: var(--vd-ok);
 }
@@ -1584,6 +1611,11 @@ async function removeDraft(id: number) {
 .status-badge--sign {
   background: rgba(53, 100, 125, 0.12);
   color: var(--gsm-blue);
+}
+
+.status-badge--validation {
+  background: rgba(180, 120, 20, 0.14);
+  color: #8a5a0a;
 }
 
 .status-badge--done {

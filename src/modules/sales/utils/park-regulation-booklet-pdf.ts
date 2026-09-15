@@ -1,4 +1,4 @@
-import { jsPDF } from 'jspdf';
+import { GState, jsPDF } from 'jspdf';
 import { fullName, realContrato, type SaleFormData } from '../types/sale-form';
 import {
   isDraftParkRegulation,
@@ -200,7 +200,7 @@ function drawArticles(doc: Doc, y: number, articles: string[]) {
 
 function drawDraftWatermark(doc: Doc) {
   doc.saveGraphicsState();
-  doc.setGState(new doc.GState({ opacity: 0.1 }));
+  doc.setGState(new GState({ opacity: 0.1 }));
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(72);
   doc.setTextColor(130, 138, 146);

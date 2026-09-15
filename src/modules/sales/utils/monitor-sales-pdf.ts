@@ -15,6 +15,7 @@ const COLORS = {
 const STATUS_LABELS: Record<string, string> = {
   PENDING_PAYMENT: 'Pendiente de pago',
   PENDING_SIGNATURE: 'Pendiente de firma',
+  PENDING_VALIDATION: 'Pendiente de validación',
   COMPLETED: 'Completada',
   REJECTED: 'Rechazada',
   SUBMITTED: 'Completada',

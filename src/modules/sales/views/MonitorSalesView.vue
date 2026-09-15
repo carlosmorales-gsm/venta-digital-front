@@ -234,6 +234,8 @@ function statusLabel(status: SaleStatus | string): string {
       return 'Pendiente de pago';
     case 'PENDING_SIGNATURE':
       return 'Pendiente de firma';
+    case 'PENDING_VALIDATION':
+      return 'Pendiente de validación';
     case 'COMPLETED':
     case 'SUBMITTED':
       return 'Completada';
@@ -252,6 +254,8 @@ function statusBadgeClass(status: SaleStatus | string): string {
       return 'status-badge status-badge--payment';
     case 'PENDING_SIGNATURE':
       return 'status-badge status-badge--sign';
+    case 'PENDING_VALIDATION':
+      return 'status-badge status-badge--validation';
     case 'COMPLETED':
     case 'SUBMITTED':
       return 'status-badge status-badge--done';
@@ -368,6 +372,7 @@ function onSelectAttachment(item: AttachmentListItem) {
           <option value="">Todos</option>
           <option value="PENDING_PAYMENT">Pendiente de pago</option>
           <option value="PENDING_SIGNATURE">Pendiente de firma</option>
+          <option value="PENDING_VALIDATION">Pendiente de validación</option>
           <option value="COMPLETED">Completada</option>
           <option value="REJECTED">Rechazada</option>
         </select>
@@ -907,6 +912,11 @@ function onSelectAttachment(item: AttachmentListItem) {
 .status-badge--sign {
   background: rgba(53, 100, 125, 0.12);
   color: var(--gsm-blue);
+}
+
+.status-badge--validation {
+  background: rgba(180, 120, 20, 0.14);
+  color: #8a5a0a;
 }
 
 .status-badge--done {

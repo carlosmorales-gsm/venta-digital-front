@@ -1,10 +1,10 @@
-import { jsPDF } from 'jspdf';
+import { GState, jsPDF } from 'jspdf';
 import {
   FISCAL_REGIMEN_CARTA,
   FISCAL_REGIMEN_OTRO,
   FISCAL_REGIMEN_OTROS,
 } from '../constants/fiscal-regimes';
-import { fullName, type SaleFormData } from '../types/sale-form';
+import { fullName, isSignedSaleStatus, type SaleFormData } from '../types/sale-form';
 
 const PAGE_W = 612.28;
 const PAGE_H = 792;
@@ -173,14 +173,14 @@ export function isDraftInvoiceLetter(
   opts?: InvoiceLetterOpts,
 ): boolean {
   const status = String(opts?.status || '').toUpperCase();
-  if (status === 'COMPLETED' || status === 'SUBMITTED') return false;
+  if (isSignedSaleStatus(status)) return false;
   return !form.documentos?.firmaCliente?.dataBase64?.trim();
 }
 
 function drawDraftWatermark(doc: Doc) {
   const ys = [PAGE_H * 0.22, PAGE_H * 0.48, PAGE_H * 0.74];
   doc.saveGraphicsState();
-  doc.setGState(new doc.GState({ opacity: 0.11 }));
+  doc.setGState(new GState({ opacity: 0.11 }));
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(72);
   doc.setTextColor(130, 138, 146);

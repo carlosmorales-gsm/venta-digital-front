@@ -1,6 +1,12 @@
-import { jsPDF } from 'jspdf';
+import { GState, jsPDF } from 'jspdf';
 import { saleCompanyLetter } from '../constants/sale-companies';
-import { fullName, hasIneDocumentos, realContrato, type SaleFormData } from '../types/sale-form';
+import {
+  fullName,
+  hasIneDocumentos,
+  isSignedSaleStatus,
+  realContrato,
+  type SaleFormData,
+} from '../types/sale-form';
 import { formatMoneyDisplay, normalizeFrequency } from './sale-finance';
 
 const PAGE_W = 612;
@@ -94,14 +100,14 @@ export function isDraftAuthorizationLetter(
   opts?: AuthorizationLetterOpts,
 ): boolean {
   const status = String(opts?.status || '').toUpperCase();
-  if (status === 'COMPLETED' || status === 'SUBMITTED') return false;
+  if (isSignedSaleStatus(status)) return false;
   return !form.documentos?.firmaCliente?.dataBase64?.trim();
 }
 
 function drawDraftWatermark(doc: Doc) {
   const ys = [PAGE_H * 0.3, PAGE_H * 0.55, PAGE_H * 0.78];
   doc.saveGraphicsState();
-  doc.setGState(new doc.GState({ opacity: 0.1 }));
+  doc.setGState(new GState({ opacity: 0.1 }));
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(68);
   doc.setTextColor(140, 148, 156);

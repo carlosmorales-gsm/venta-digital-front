@@ -1,5 +1,5 @@
-import { jsPDF } from 'jspdf';
-import { fullName, realContrato, type SaleFormData } from '../types/sale-form';
+import { GState, jsPDF } from 'jspdf';
+import { fullName, isSignedSaleStatus, realContrato, type SaleFormData } from '../types/sale-form';
 import {
   formatMoneyDisplay,
   normalizeFrequency,
@@ -164,14 +164,14 @@ export function isDraftConvenioLetter(
   opts?: ConvenioLetterOpts,
 ): boolean {
   const status = String(opts?.status || '').toUpperCase();
-  if (status === 'COMPLETED' || status === 'SUBMITTED') return false;
+  if (isSignedSaleStatus(status)) return false;
   return !form.documentos?.firmaCliente?.dataBase64?.trim();
 }
 
 function drawDraftWatermark(doc: Doc) {
   const ys = [PAGE_H * 0.28, PAGE_H * 0.52, PAGE_H * 0.76];
   doc.saveGraphicsState();
-  doc.setGState(new doc.GState({ opacity: 0.11 }));
+  doc.setGState(new GState({ opacity: 0.11 }));
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(72);
   doc.setTextColor(130, 138, 146);

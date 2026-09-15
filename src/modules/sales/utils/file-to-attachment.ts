@@ -33,7 +33,7 @@ export async function fileToPdfAttachment(file: File): Promise<SaleAttachment> {
 
 export async function fileToAttachment(file: File): Promise<SaleAttachment> {
   if (!isAllowedUploadFile(file)) {
-    throw new Error('Solo se permiten imágenes (JPG, PNG, WEBP, GIF) o PDF');
+    throw new Error('Solo se permiten imágenes (JPG, PNG, WEBP, GIF, BMP) o PDF');
   }
   const sizeErr = uploadSizeErrorMessage(file);
   if (sizeErr) {

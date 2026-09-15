@@ -105,6 +105,7 @@ import {
 import {
   fileToAttachment,
   fileToPdfAttachment,
+  UPLOAD_ACCEPT,
 } from '../utils/file-to-attachment';
 import {
   buildCardSidesAttachment,
@@ -3663,15 +3664,15 @@ async function goBack() {
                 }}</span>
               </template>
               <span v-else class="upload-card__hint"
-                >Imagen o PDF del frente. Se junta con el reverso en un PDF de
-                una hoja</span
+                >JPG, PNG, WEBP o PDF del frente. Se junta con el reverso en un
+                PDF de una hoja</span
               >
             </div>
             <div class="upload-card__actions">
               <label class="upload-card__btn">
                 <input
                   type="file"
-                  accept="image/*,.pdf"
+                  :accept="UPLOAD_ACCEPT"
                   :disabled="!canEdit"
                   @change="onFile('ineFrente', $event)"
                 />
@@ -3746,14 +3747,14 @@ async function goBack() {
                 }}</span>
               </template>
               <span v-else class="upload-card__hint"
-                >Imagen o PDF del reverso</span
+                >JPG, PNG, WEBP o PDF del reverso</span
               >
             </div>
             <div class="upload-card__actions">
               <label class="upload-card__btn">
                 <input
                   type="file"
-                  accept="image/*,.pdf"
+                  :accept="UPLOAD_ACCEPT"
                   :disabled="!canEdit"
                   @change="onFile('ineReverso', $event)"
                 />

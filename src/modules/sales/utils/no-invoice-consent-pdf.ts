@@ -1,6 +1,11 @@
-import { jsPDF } from 'jspdf';
+import { GState, jsPDF } from 'jspdf';
 import { saleCompanyName } from '../constants/sale-companies';
-import { fullName, hasIneDocumentos, type SaleFormData } from '../types/sale-form';
+import {
+  fullName,
+  hasIneDocumentos,
+  isSignedSaleStatus,
+  type SaleFormData,
+} from '../types/sale-form';
 
 const PAGE_W = 612.28;
 const PAGE_H = 792;
@@ -30,10 +35,6 @@ const MONTHS = [
   'noviembre',
   'diciembre',
 ];
-
-function v(text?: string | null) {
-  return (text ?? '').trim();
-}
 
 function setInk(doc: Doc, rgb = INK) {
   doc.setTextColor(...rgb);
@@ -192,14 +193,14 @@ export function isDraftNoInvoiceConsent(
   opts?: NoInvoiceConsentOpts,
 ): boolean {
   const status = String(opts?.status || '').toUpperCase();
-  if (status === 'COMPLETED' || status === 'SUBMITTED') return false;
+  if (isSignedSaleStatus(status)) return false;
   return !form.documentos?.firmaCliente?.dataBase64?.trim();
 }
 
 function drawDraftWatermark(doc: Doc) {
   const ys = [PAGE_H * 0.28, PAGE_H * 0.52, PAGE_H * 0.76];
   doc.saveGraphicsState();
-  doc.setGState(new doc.GState({ opacity: 0.11 }));
+  doc.setGState(new GState({ opacity: 0.11 }));
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(72);
   doc.setTextColor(130, 138, 146);

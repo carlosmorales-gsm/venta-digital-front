@@ -1,8 +1,10 @@
 import {
   createEmptySaleForm,
   DEFAULT_SERVICIO_FUNERARIO,
+  emptyBeneficiary,
   mergeSaleForm,
   type SaleAttachment,
+  type SaleBeneficiary,
   type SaleFormData,
 } from '../types/sale-form';
 
@@ -145,19 +147,27 @@ type InvoiceMock = Pick<
   | 'telefonoFactura'
 >;
 
+type DevBeneficiary = Omit<SaleBeneficiary, 'relationId'> & {
+  relationId?: number | null;
+};
+
 type DevSaleSeed = {
   label: string;
   meta: Partial<SaleFormData['meta']>;
   contacto: Partial<SaleFormData['contacto']>;
   segundoContacto: Partial<SaleFormData['segundoContacto']>;
-  titularSustituto: SaleFormData['derechohabientes']['titularSustituto'];
-  beneficiarios: SaleFormData['beneficiarios'];
+  titularSustituto: DevBeneficiary;
+  beneficiarios: DevBeneficiary[];
   ubicacionPlan: Partial<SaleFormData['ubicacionPlan']>;
   pago: Partial<SaleFormData['pago']>;
   declaraciones: SaleFormData['declaraciones'];
   /** Datos fiscales para la carta de requerimiento de factura. */
   factura?: Partial<InvoiceMock> & { tipoPersona?: 'FISICA' | 'MORAL' };
 };
+
+function withRelation(person: DevBeneficiary): SaleBeneficiary {
+  return { ...person, relationId: person.relationId ?? null };
+}
 
 function fullNameOf(c: Partial<SaleFormData['contacto']>): string {
   return [c.nombres, c.apellidoPaterno, c.apellidoMaterno]
@@ -1132,11 +1142,15 @@ function buildFromSeed(seed: DevSaleSeed): SaleFormData {
       ...createEmptySaleForm().segundoContacto,
       ...seed.segundoContacto,
     },
-    beneficiarios: seed.beneficiarios,
+    beneficiarios: seed.beneficiarios.map(withRelation),
     derechohabientes: {
-      titularSustituto: seed.titularSustituto,
-      primerBeneficiario: seed.beneficiarios[0],
-      segundoBeneficiario: seed.beneficiarios[1],
+      titularSustituto: withRelation(seed.titularSustituto),
+      primerBeneficiario: seed.beneficiarios[0]
+        ? withRelation(seed.beneficiarios[0])
+        : emptyBeneficiary(),
+      segundoBeneficiario: seed.beneficiarios[1]
+        ? withRelation(seed.beneficiarios[1])
+        : emptyBeneficiary(),
     },
     ubicacionPlan: normalizeUbicacionPlan({
       ...createEmptySaleForm().ubicacionPlan,

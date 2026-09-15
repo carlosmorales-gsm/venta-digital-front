@@ -1,5 +1,10 @@
 import { GState, jsPDF } from 'jspdf';
-import { fullName, realContrato, type SaleFormData } from '../types/sale-form';
+import {
+  fullName,
+  isSignedSaleStatus,
+  realContrato,
+  type SaleFormData,
+} from '../types/sale-form';
 import { saleOriginLabel } from '../constants/sale-origins';
 import { saleCompanyName } from '../constants/sale-companies';
 import { formatMoneyDisplay } from './sale-finance';
@@ -851,7 +856,7 @@ export function isDraftCaratula(
   opts?: SalePdfOpts,
 ): boolean {
   const status = String(opts?.status || '').toUpperCase();
-  if (status === 'COMPLETED' || status === 'SUBMITTED') return false;
+  if (isSignedSaleStatus(status)) return false;
   const firma = form.documentos?.firmaCliente;
   return !firma?.dataBase64?.trim();
 }

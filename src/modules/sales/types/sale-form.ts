@@ -9,9 +9,19 @@ export type SaleStatus =
   | 'DRAFT'
   | 'PENDING_PAYMENT'
   | 'PENDING_SIGNATURE'
+  | 'PENDING_VALIDATION'
   | 'COMPLETED'
   | 'REJECTED'
   | 'SUBMITTED'; // compat
+
+export function isSignedSaleStatus(status?: string | null): boolean {
+  const value = String(status || '').toUpperCase();
+  return (
+    value === 'COMPLETED' ||
+    value === 'SUBMITTED' ||
+    value === 'PENDING_VALIDATION'
+  );
+}
 
 export type PlanKind = 'PARQUE' | 'PLAN_FUTURO';
 
@@ -525,6 +535,7 @@ export function createPrefillSaleForm(): SaleFormData {
       apellidoPaterno: 'García',
       apellidoMaterno: 'García',
       nombres: 'Ana Sofía',
+      relationId: null,
       parentesco: 'Hija',
       celular: '6674443322',
       fechaNacimiento: '2010-11-08',
@@ -534,6 +545,7 @@ export function createPrefillSaleForm(): SaleFormData {
     apellidoPaterno: 'López',
     apellidoMaterno: 'Martínez',
     nombres: 'Carlos',
+    relationId: null,
     parentesco: 'Hermano',
     celular: '6673332211',
     fechaNacimiento: '1985-03-15',
@@ -676,9 +688,13 @@ export function mergeSaleForm(raw: unknown): SaleFormData {
       })(),
       reconocimientoVentas: Array.isArray(src.meta?.reconocimientoVentas)
         ? src.meta.reconocimientoVentas
-            .map((item) => ({
+            .map((item): ReconocimientoVenta => ({
               id: Number(item.id) || 0,
               folio: String(item.folio ?? ''),
+              partnerId:
+                item.partnerId != null && Number(item.partnerId) > 0
+                  ? Number(item.partnerId)
+                  : undefined,
               partnerName: String(item.partnerName ?? ''),
               dateOrder: String(item.dateOrder ?? ''),
               amountTotal: Number(item.amountTotal) || 0,
