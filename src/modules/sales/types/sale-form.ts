@@ -232,6 +232,8 @@ export interface SaleListItem {
   status: SaleStatus;
   amount: number;
   titularName: string | null;
+  /** Folio de cotización Odoo (sale.order.name). */
+  contrato?: string | null;
   payload: SaleFormData | Record<string, unknown>;
   draftExpiresAt: string | null;
   createdAt: string;

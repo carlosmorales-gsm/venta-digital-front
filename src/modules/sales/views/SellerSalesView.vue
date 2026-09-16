@@ -19,6 +19,7 @@ import { useAuthStore } from '../../auth/stores/auth.store';
 import {
   isSignedSaleStatus,
   mergeSaleForm,
+  realContrato,
   type SaleAttachment,
   type SaleFormData,
   type SaleListItem,
@@ -145,6 +146,11 @@ type ProcessStage = {
 
 function isCompletedStatus(status: SaleStatus | string): boolean {
   return status === 'COMPLETED' || status === 'SUBMITTED';
+}
+
+function completedSaleFolio(item: SaleListItem): string {
+  if (!isCompletedStatus(item.status)) return '';
+  return realContrato(item.contrato);
 }
 
 function byCreatedDesc(a: SaleListItem, b: SaleListItem): number {
@@ -1181,6 +1187,9 @@ async function removeDraft(id: number) {
                 </div>
                 <span class="muted">
                   {{ formatUtcToLocal(item.createdAt) }}
+                  <template v-if="completedSaleFolio(item)">
+                    · Folio {{ completedSaleFolio(item) }}
+                  </template>
                   <template v-if="item.amount">
                     · ${{ item.amount.toLocaleString('es-MX') }}
                   </template>

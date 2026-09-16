@@ -8,6 +8,7 @@ import SaleFilePreviewModal from '../components/SaleFilePreviewModal.vue';
 import SalePdfPreviewModal from '../components/SalePdfPreviewModal.vue';
 import {
   mergeSaleForm,
+  realContrato,
   type SaleAttachment,
   type SaleFormData,
   type SaleListItem,
@@ -101,6 +102,15 @@ function statusMatches(itemStatus: string, filter: string): boolean {
     return itemStatus === 'COMPLETED' || itemStatus === 'SUBMITTED';
   }
   return itemStatus === filter;
+}
+
+function isCompletedStatus(status: SaleStatus | string): boolean {
+  return status === 'COMPLETED' || status === 'SUBMITTED';
+}
+
+function completedSaleFolio(item: SaleListItem): string {
+  if (!isCompletedStatus(item.status)) return '';
+  return realContrato(item.contrato);
 }
 
 function matchesClient(titularName: string | null | undefined): boolean {
@@ -491,6 +501,7 @@ function onSelectAttachment(item: AttachmentListItem) {
               <col class="col-fecha" />
               <col class="col-titular" />
               <col class="col-vendedor" />
+              <col class="col-folio" />
               <col class="col-estatus" />
               <col class="col-money" />
               <col class="col-desc" />
@@ -503,6 +514,7 @@ function onSelectAttachment(item: AttachmentListItem) {
                 <th>Fecha local</th>
                 <th>Titular</th>
                 <th>Vendedor</th>
+                <th>Folio</th>
                 <th>Estatus</th>
                 <th class="num">Costo del plan</th>
                 <th class="num">Descuento</th>
@@ -516,6 +528,7 @@ function onSelectAttachment(item: AttachmentListItem) {
                 <td>{{ formatUtcToLocal(item.createdAt) }}</td>
                 <td class="cell-wrap">{{ item.titularName || '—' }}</td>
                 <td class="cell-wrap">{{ item.sellerName }}</td>
+                <td>{{ completedSaleFolio(item) || '—' }}</td>
                 <td>
                   <span :class="statusBadgeClass(item.status)">
                     {{ statusLabel(item.status) }}
@@ -574,6 +587,9 @@ function onSelectAttachment(item: AttachmentListItem) {
             </div>
             <span class="muted">{{ item.sellerName }}</span>
             <span class="muted">{{ formatUtcToLocal(item.createdAt) }}</span>
+            <span v-if="completedSaleFolio(item)" class="muted">
+              Folio {{ completedSaleFolio(item) }}
+            </span>
             <dl class="sale-meta">
               <div>
                 <dt>Costo del plan</dt>
@@ -789,6 +805,10 @@ function onSelectAttachment(item: AttachmentListItem) {
 
 .sales-table .col-vendedor {
   width: 14%;
+}
+
+.sales-table .col-folio {
+  width: 10%;
 }
 
 .sales-table .col-estatus {
