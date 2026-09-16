@@ -10,7 +10,7 @@ export default defineConfig({
     port: 5173,
     open: true,
     proxy: {
-      // El teléfono pega al front; Vite reenvía /api al backend local
+      // El front llama /api; Vite reenvía al back de producción
       '/api': {
         target: 'https://api-venta-digital.gsanmartin.net',
         changeOrigin: true,
