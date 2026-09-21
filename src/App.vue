@@ -9,7 +9,7 @@ const route = useRoute();
 
 <template>
   <RouterView v-slot="{ Component }">
-    <AppLayout v-if="!route.meta.public && Component">
+    <AppLayout v-if="!route.meta.public && !route.meta.standalone && Component">
       <component :is="Component" />
     </AppLayout>
     <component :is="Component" v-else-if="Component" />

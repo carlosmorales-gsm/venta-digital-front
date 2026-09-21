@@ -28,6 +28,16 @@ const router = createRouter({
       meta: { public: true, guest: true },
     },
     {
+      path: '/login/cambiar-password',
+      name: 'cambiar-password',
+      component: () =>
+        import('../modules/auth/views/ChangePasswordView.vue'),
+      meta: {
+        standalone: true,
+        roles: ['MONITOR', 'ADMIN'],
+      },
+    },
+    {
       path: '/vendedor/ventas',
       name: 'vendedor-ventas',
       component: () => import('../modules/sales/views/SellerSalesView.vue'),
@@ -115,6 +125,7 @@ router.beforeEach(async (to) => {
   if (to.meta.guest) {
     if (hasToken && auth.user && !sessionExpired()) {
       if (auth.userType === 'VENDEDOR') return { name: 'vendedor-ventas' };
+      if (auth.user.mustChangePassword) return { name: 'cambiar-password' };
       return { name: 'monitor-menu' };
     }
     return true;
@@ -136,6 +147,9 @@ router.beforeEach(async (to) => {
     }
     if (auth.user.type === 'VENDEDOR') {
       ensureSellerPrefetch(auth.user.id);
+    }
+    if (auth.user.mustChangePassword && to.name !== 'cambiar-password') {
+      return { name: 'cambiar-password' };
     }
   }
 

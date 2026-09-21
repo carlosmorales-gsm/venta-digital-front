@@ -16,6 +16,7 @@ interface PublicUser {
   cellphone: string | null;
   username: string | null;
   active: boolean;
+  mustChangePassword?: boolean;
   permissions: string[];
   nombreJefeVentas?: string | null;
   createdAt: string;
@@ -40,6 +41,7 @@ const form = reactive({
   cellphone: '',
   username: '',
   password: '',
+  mustChangePassword: true,
   nombreJefeVentas: '',
 });
 
@@ -69,6 +71,7 @@ function resetForm() {
   form.cellphone = '';
   form.username = '';
   form.password = '';
+  form.mustChangePassword = true;
   form.nombreJefeVentas = '';
   formError.value = null;
 }
@@ -85,6 +88,7 @@ function startEdit(user: PublicUser) {
   form.cellphone = user.cellphone ?? '';
   form.username = user.username ?? '';
   form.password = '';
+  form.mustChangePassword = Boolean(user.mustChangePassword);
   form.nombreJefeVentas = user.nombreJefeVentas ?? '';
   formError.value = null;
   modalOpen.value = true;
@@ -125,6 +129,7 @@ async function createUser() {
   } else {
     payload.username = form.username.trim();
     payload.password = form.password;
+    payload.mustChangePassword = form.mustChangePassword;
   }
 
   try {
@@ -162,6 +167,7 @@ async function updateUser() {
     if (form.password.trim()) {
       payload.password = form.password;
     }
+    payload.mustChangePassword = form.mustChangePassword;
   }
 
   try {
@@ -448,6 +454,19 @@ onMounted(loadUsers);
               :placeholder="isEditing ? 'Dejar vacío para no cambiar' : ''"
             />
           </div>
+          <label class="check-row" for="mustChangePassword">
+            <input
+              id="mustChangePassword"
+              v-model="form.mustChangePassword"
+              type="checkbox"
+            />
+            <span>
+              Pedir contraseña nueva al iniciar sesión
+              <small>
+                Al entrar verá una pantalla para capturar su propia contraseña.
+              </small>
+            </span>
+          </label>
         </template>
 
         <p class="hint">
@@ -684,6 +703,43 @@ onMounted(loadUsers);
   font-size: 0.78rem;
   font-weight: 500;
   color: var(--vd-muted);
+  line-height: 1.35;
+}
+
+.check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  margin: 0.15rem 0 0;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--vd-line);
+  border-radius: var(--vd-radius-sm, 8px);
+  background: rgba(53, 100, 125, 0.04);
+  cursor: pointer;
+}
+
+.check-row input {
+  margin-top: 0.2rem;
+  width: 1.05rem;
+  height: 1.05rem;
+  accent-color: var(--gsm-blue);
+  flex: 0 0 auto;
+}
+
+.check-row span {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  color: var(--gsm-blue);
+  font-weight: 600;
+  font-size: 0.92rem;
+  line-height: 1.3;
+}
+
+.check-row small {
+  font-weight: 500;
+  color: var(--vd-muted);
+  font-size: 0.78rem;
   line-height: 1.35;
 }
 

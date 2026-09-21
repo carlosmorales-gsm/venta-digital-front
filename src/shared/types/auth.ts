@@ -6,6 +6,7 @@ export interface SessionUser {
   type: UserType;
   permissions: string[];
   nombreJefeVentas?: string | null;
+  mustChangePassword?: boolean;
 }
 
 export interface AuthTokensResponse {

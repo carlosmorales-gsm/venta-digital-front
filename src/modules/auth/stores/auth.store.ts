@@ -143,6 +143,27 @@ export const useAuthStore = defineStore('auth', () => {
     return permissions.value.includes(code);
   }
 
+  async function changeOwnPassword(currentPassword: string, newPassword: string) {
+    loading.value = true;
+    error.value = null;
+    try {
+      const { data } = await http.post<{
+        message: string;
+        user: SessionUser;
+      }>('/auth/cambiar-password', { currentPassword, newPassword });
+      if (data?.user) {
+        user.value = { ...(user.value ?? data.user), ...data.user };
+        localStorage.setItem('vd_user', JSON.stringify(user.value));
+      }
+      return data;
+    } catch (e: unknown) {
+      error.value = extractApiError(e, 'No se pudo cambiar la contraseña');
+      throw e;
+    } finally {
+      loading.value = false;
+    }
+  }
+
   /** Actualiza el usuario en sesión (p. ej. jefe de ventas del catálogo). */
   async function refreshMe() {
     if (!tokenStorage.getAccess()) return null;
@@ -169,6 +190,7 @@ export const useAuthStore = defineStore('auth', () => {
     loginSellerDev,
     verifySellerPin,
     loginMonitor,
+    changeOwnPassword,
     logout,
     clearSession,
     hasPermission,

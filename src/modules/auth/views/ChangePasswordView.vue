@@ -1,29 +1,79 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth.store';
 
 const auth = useAuthStore();
 const router = useRouter();
-const route = useRoute();
 
-/** En desarrollo se precargan las credenciales del admin semilla. */
-const username = ref(import.meta.env.DEV ? 'admin' : '');
-const password = ref(import.meta.env.DEV ? 'AdminVd2026!' : '');
-const showPassword = ref(false);
+const currentPassword = ref('');
+const newPassword = ref('');
+const confirmPassword = ref('');
+const showCurrent = ref(false);
+const showNew = ref(false);
 const localError = ref<string | null>(null);
-const sessionExpired = computed(() => route.query.sesion === 'expirada');
+
+const firstName = computed(
+  () => auth.user?.fullName?.split(' ')[0] ?? 'usuario',
+);
+const mustChangePassword = computed(() => Boolean(auth.user?.mustChangePassword));
+const minNewLength = computed(() => (mustChangePassword.value ? 8 : 6));
+
+function strongPasswordError(password: string): string | null {
+  if (password.length < 8) {
+    return 'La nueva contraseña debe tener al menos 8 caracteres.';
+  }
+  if (!/[A-ZÁÉÍÓÚÜÑ]/.test(password)) {
+    return 'La nueva contraseña debe incluir al menos una letra mayúscula.';
+  }
+  if (!/\d/.test(password)) {
+    return 'La nueva contraseña debe incluir al menos un número.';
+  }
+  if (!/[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9]/.test(password)) {
+    return 'La nueva contraseña debe incluir al menos un carácter especial.';
+  }
+  return null;
+}
+
+function validate(): string | null {
+  const current = currentPassword.value;
+  const next = newPassword.value.trim();
+  const confirm = confirmPassword.value.trim();
+  if (!current) return 'Captura tu contraseña actual.';
+  if (mustChangePassword.value) {
+    const strength = strongPasswordError(next);
+    if (strength) return strength;
+  } else if (next.length < minNewLength.value) {
+    return `La nueva contraseña debe tener al menos ${minNewLength.value} caracteres.`;
+  }
+  if (next !== confirm) return 'La confirmación no coincide.';
+  if (next === current) {
+    return 'La nueva contraseña debe ser distinta a la actual.';
+  }
+  return null;
+}
 
 async function onSubmit() {
   localError.value = null;
-  try {
-    const data = await auth.loginMonitor(username.value.trim(), password.value);
-    router.replace({
-      name: data.user.mustChangePassword ? 'cambiar-password' : 'monitor-menu',
-    });
-  } catch {
-    localError.value = auth.error || 'No se pudo iniciar sesión';
+  const problem = validate();
+  if (problem) {
+    localError.value = problem;
+    return;
   }
+  try {
+    await auth.changeOwnPassword(
+      currentPassword.value,
+      newPassword.value.trim(),
+    );
+    await router.replace({ name: 'monitor-menu' });
+  } catch {
+    localError.value = auth.error || 'No se pudo cambiar la contraseña';
+  }
+}
+
+async function onLogout() {
+  await auth.logout();
+  await router.replace({ name: 'login-monitor' });
 }
 </script>
 
@@ -34,7 +84,7 @@ async function onSubmit() {
       <div class="brand-copy">
         <img src="/icons-palomasanmartin.svg" alt="" class="dove" />
         <h1>Venta Digital</h1>
-        <p>Acceso para monitores y administradores</p>
+        <p>Por seguridad, define tu propia contraseña antes de continuar.</p>
       </div>
       <small>Grupo San Martín</small>
     </aside>
@@ -42,50 +92,83 @@ async function onSubmit() {
     <section class="form-panel">
       <form class="login-card" @submit.prevent="onSubmit">
         <img src="/logo-gsm-azul.svg" alt="GSM" class="logo-blue" />
-        <h2>Iniciar sesión</h2>
-        <p class="subtitle">Ingresa con tu usuario y contraseña</p>
-        <p v-if="sessionExpired" class="session-note" role="status">
-          Tu sesión expiró. Inicia sesión de nuevo.
+        <h2>Nueva contraseña</h2>
+        <p class="subtitle">
+          Hola {{ firstName }}. Captura una contraseña nueva para tu usuario.
         </p>
 
         <div class="field">
-          <label for="username">Usuario</label>
-          <input
-            id="username"
-            v-model="username"
-            type="text"
-            autocomplete="username"
-            placeholder="usuario"
-            required
-          />
-        </div>
-
-        <div class="field">
-          <label for="password">Contraseña</label>
+          <label for="currentPassword">Contraseña actual</label>
           <div class="password-row">
             <input
-              id="password"
-              v-model="password"
-              :type="showPassword ? 'text' : 'password'"
+              id="currentPassword"
+              v-model="currentPassword"
+              :type="showCurrent ? 'text' : 'password'"
               autocomplete="current-password"
               placeholder="••••••••"
               required
             />
-            <button class="toggle-pass" type="button" @click="showPassword = !showPassword">
-              {{ showPassword ? 'Ocultar' : 'Ver' }}
+            <button
+              class="toggle-pass"
+              type="button"
+              @click="showCurrent = !showCurrent"
+            >
+              {{ showCurrent ? 'Ocultar' : 'Ver' }}
             </button>
           </div>
+        </div>
+
+        <div class="field">
+          <label for="newPassword">Nueva contraseña</label>
+          <div class="password-row">
+            <input
+              id="newPassword"
+              v-model="newPassword"
+              :type="showNew ? 'text' : 'password'"
+              autocomplete="new-password"
+              :minlength="minNewLength"
+              :placeholder="
+                mustChangePassword
+                  ? 'Ej. Abcdef1!'
+                  : `Mínimo ${minNewLength} caracteres`
+              "
+              required
+            />
+            <button
+              class="toggle-pass"
+              type="button"
+              @click="showNew = !showNew"
+            >
+              {{ showNew ? 'Ocultar' : 'Ver' }}
+            </button>
+          </div>
+          <p v-if="mustChangePassword" class="field-hint">
+            Mínimo 8 caracteres, una mayúscula, un número y un carácter especial.
+          </p>
+        </div>
+
+        <div class="field">
+          <label for="confirmPassword">Confirmar contraseña</label>
+          <input
+            id="confirmPassword"
+            v-model="confirmPassword"
+            type="password"
+            autocomplete="new-password"
+            :minlength="minNewLength"
+            placeholder="Repite la nueva contraseña"
+            required
+          />
         </div>
 
         <p v-if="localError" class="error-text" role="alert">{{ localError }}</p>
 
         <button class="btn btn-primary submit" type="submit" :disabled="auth.loading">
           <span v-if="auth.loading" class="spinner" />
-          {{ auth.loading ? 'Entrando…' : 'Entrar' }}
+          {{ auth.loading ? 'Guardando…' : 'Guardar y continuar' }}
         </button>
 
-        <button class="btn btn-ghost back" type="button" @click="router.push({ name: 'home' })">
-          Volver
+        <button class="btn btn-ghost back" type="button" @click="onLogout">
+          Cerrar sesión
         </button>
       </form>
     </section>
@@ -129,7 +212,7 @@ async function onSubmit() {
 
 .brand-copy p {
   margin: 0;
-  max-width: 280px;
+  max-width: 300px;
   line-height: 1.45;
   color: rgba(255, 255, 255, 0.9);
   font-weight: 300;
@@ -177,14 +260,10 @@ async function onSubmit() {
   font-size: 0.95rem;
 }
 
-.session-note {
-  margin: 0 0 0.35rem;
-  padding: 0.55rem 0.7rem;
-  border-radius: var(--vd-radius-sm, 8px);
-  background: #fff4e5;
-  color: #8a4b00;
-  font-size: 0.88rem;
-  font-weight: 600;
+.field-hint {
+  margin: 0.3rem 0 0;
+  color: var(--vd-muted);
+  font-size: 0.82rem;
 }
 
 .password-row {
