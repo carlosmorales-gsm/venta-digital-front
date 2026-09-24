@@ -25,6 +25,8 @@ const props = defineProps<{
   saleId?: number | null;
   status?: string;
   submitting?: boolean;
+  /** Sin cancelar ni cerrar: firma remota del cliente. */
+  persistent?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -273,8 +275,9 @@ onUnmounted(() => {
     :wide="phase !== 'read'"
     :xlarge="phase === 'read'"
     :lock-body="phase === 'read'"
-    :close-on-scrim="!submitting"
-    @close="emit('close')"
+    :close-on-scrim="!submitting && !persistent"
+    :hide-close="persistent"
+    @close="persistent ? undefined : emit('close')"
   >
     <div v-if="phase === 'list'" class="docs">
       <p class="docs__hint">
@@ -378,6 +381,7 @@ onUnmounted(() => {
     <template #footer>
       <template v-if="phase === 'list'">
         <button
+          v-if="!persistent"
           type="button"
           class="btn btn-ghost"
           :disabled="submitting"

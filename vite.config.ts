@@ -12,7 +12,7 @@ export default defineConfig({
     proxy: {
       // El front llama /api; Vite reenvía al back de producción
       '/api': {
-        target: 'https://api-venta-digital.gsanmartin.net',
+        target: 'http://localhost:3022',
         changeOrigin: true,
       },
     },
@@ -22,7 +22,7 @@ export default defineConfig({
     port: 4173,
     proxy: {
       '/api': {
-        target: 'https://api-venta-digital.gsanmartin.net',
+        target: 'http://localhost:3022',
         changeOrigin: true,
       },
     },

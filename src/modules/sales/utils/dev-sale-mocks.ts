@@ -7,6 +7,11 @@ import {
   type SaleBeneficiary,
   type SaleFormData,
 } from '../types/sale-form';
+import {
+  defaultSpecificDaysForFrequency,
+  normalizeFrequency,
+} from './sale-finance';
+import { sameContactAddress } from './contact-duplicate';
 
 /** PNG 1×1 mínimo para marcar documentos en modo dev. */
 const TINY_PNG_B64 =
@@ -32,10 +37,53 @@ function mockPdf(name: string): SaleAttachment {
   };
 }
 
-function nextMonthIso(): string {
-  const d = new Date();
-  d.setMonth(d.getMonth() + 1);
-  return d.toISOString().slice(0, 10);
+function nextMonthOnDay(day: number): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = now.getMonth() + 1;
+  const year = m === 12 ? y + 1 : y;
+  const month = m === 12 ? 1 : m + 1;
+  const last = new Date(year, month, 0).getDate();
+  const d = Math.min(Math.max(1, day), last);
+  return `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
+/**
+ * Calendario de cobro como en Odoo: quincenal 5,20 / semanal 7,14,21,28.
+ * Mensual no trae default; la captura exige un día, se usa el del próximo pago.
+ */
+function mockPagoSchedule(frecuencia: string | null | undefined): {
+  frecuencia: string;
+  fechaProximoPago: string;
+  diasEspecificosPago: string;
+} {
+  const code = normalizeFrequency(frecuencia) || 'MENSUAL';
+  if (code === 'QUINCENAL') {
+    return {
+      frecuencia: 'QUINCENAL',
+      fechaProximoPago: nextMonthOnDay(5),
+      diasEspecificosPago: defaultSpecificDaysForFrequency(code),
+    };
+  }
+  if (code === 'SEMANAL') {
+    return {
+      frecuencia: 'SEMANAL',
+      fechaProximoPago: nextMonthOnDay(7),
+      diasEspecificosPago: defaultSpecificDaysForFrequency(code),
+    };
+  }
+  if (code === 'CONTADO') {
+    return {
+      frecuencia: 'CONTADO',
+      fechaProximoPago: nextMonthOnDay(15),
+      diasEspecificosPago: '15',
+    };
+  }
+  return {
+    frecuencia: 'MENSUAL',
+    fechaProximoPago: nextMonthOnDay(15),
+    diasEspecificosPago: '15',
+  };
 }
 
 function todayIso(): string {
@@ -193,22 +241,48 @@ function seedNeedsCard(seed: DevSaleSeed): boolean {
   return seed.contacto.tipoCobranza === 'DOMICILIADO' || seedIsUas(seed);
 }
 
-/** Completa campos que la captura exige según tipo de cobranza. */
+/** Completa campos que la captura exige según tipo de cobranza y frecuencia. */
 function applyMockPagoRules(
   contacto: Partial<SaleFormData['contacto']>,
   pago: SaleFormData['pago'],
 ): SaleFormData['pago'] {
-  if (!pago.diasEspecificosPago.trim()) {
-    pago.diasEspecificosPago = '15 de cada mes';
-  }
+  const schedule = mockPagoSchedule(pago.frecuencia);
+  pago.frecuencia = schedule.frecuencia;
+  pago.fechaProximoPago = schedule.fechaProximoPago;
+  pago.diasEspecificosPago = schedule.diasEspecificosPago;
   if (contacto.tipoCobranza === 'DOMICILIADO') {
+    pago.formaPago = 'TARJETA DEBITO';
+    if (pago.cuenta.replace(/\D/g, '').length < 16) {
+      pago.cuenta = '4111111111111111';
+    }
+    if (!pago.banco.trim()) pago.banco = 'BBVA';
+    if (!pago.vencimientoTarjeta.trim()) pago.vencimientoTarjeta = '12/29';
     if (!pago.cvv.trim()) pago.cvv = '847';
     if (!pago.titularTarjeta.trim()) pago.titularTarjeta = fullNameOf(contacto);
   }
   if (contacto.tipoCobranza === 'NOMINA') {
     if (!pago.nombreEmpleado.trim()) pago.nombreEmpleado = fullNameOf(contacto);
+    if (!pago.numeroEmpleado.trim()) pago.numeroEmpleado = '48291';
+    if (!pago.empresaNomina.trim() && !pago.empresaNominaId) {
+      pago.empresaNomina = 'COBAES';
+      pago.empresaNominaId = 12;
+    }
   }
   return pago;
+}
+
+function applyMockContactoRules(form: SaleFormData): void {
+  form.contacto.domicilioEntregaDocumentacion = 'SI';
+  form.segundoContacto.domicilioEntregaDocumentacion = '';
+  const sc = form.segundoContacto;
+  if (!sc.direccion.trim()) sc.direccion = 'Calle Independencia 50';
+  if (!sc.colonia.trim()) sc.colonia = 'Centro';
+  if (!sc.cp.trim()) sc.cp = '80010';
+  if (sameContactAddress(form.contacto, sc)) {
+    sc.direccion = 'Calle Morelos 99';
+    sc.colonia = 'Guadalupe';
+    sc.cp = '80200';
+  }
 }
 
 /** RFC de prueba (13 física / 12 moral) a partir de CURP o fallback. */
@@ -328,7 +402,7 @@ const SEEDS: DevSaleSeed[] = [
       productId: 9001,
       productDefaultCode: 'PFAM-001',
       precioPlan: '45000',
-      preasignacion: true,
+      preasignacion: false,
       park: {
         parkId: 101,
         parqueFuneral: 'Parque San Martín Culiacán',
@@ -349,8 +423,6 @@ const SEEDS: DevSaleSeed[] = [
       importeCadaPago: '1666.67',
       saldo: '37750',
       frecuencia: 'MENSUAL',
-      fechaProximoPago: nextMonthIso(),
-      diasEspecificosPago: '15 de cada mes',
       formaPago: 'TRANSFERENCIA',
       banco: 'BBVA',
       cuenta: '0123456789',
@@ -435,11 +507,7 @@ const SEEDS: DevSaleSeed[] = [
       plazo: '36',
       importeCadaPago: '694.44',
       saldo: '25000',
-      frecuencia: 'MENSUAL',
-      fechaProximoPago: nextMonthIso(),
-      formaPago: 'EFECTIVO',
-      banco: 'BBVA',
-      cuenta: '4152313498765432',
+      frecuencia: 'QUINCENAL',
       vencimientoTarjeta: '11/29',
       titularTarjeta: 'Juan Carlos Pérez Gómez',
       nombreAsesor: 'Ana Ríos',
@@ -529,9 +597,7 @@ const SEEDS: DevSaleSeed[] = [
       plazo: '48',
       importeCadaPago: '812.50',
       saldo: '38800',
-      frecuencia: 'MENSUAL',
-      fechaProximoPago: nextMonthIso(),
-      diasEspecificosPago: '1 y 15',
+      frecuencia: 'SEMANAL',
       formaPago: 'TRANSFERENCIA',
       banco: 'Banorte',
       cuenta: '9988776655',
@@ -608,8 +674,6 @@ const SEEDS: DevSaleSeed[] = [
       importeCadaPago: '1000',
       saldo: '29950',
       frecuencia: 'MENSUAL',
-      fechaProximoPago: nextMonthIso(),
-      formaPago: 'CHEQUE',
       banco: 'Santander',
       cuenta: '5566778899',
       nombreEmpleado: 'Xavier Ramírez Xol',
@@ -680,7 +744,7 @@ const SEEDS: DevSaleSeed[] = [
       productId: 9005,
       productDefaultCode: 'CAP-005',
       precioPlan: '68000',
-      preasignacion: true,
+      preasignacion: false,
       park: {
         parkId: 102,
         parqueFuneral: 'Parque San Martín Navolato',
@@ -700,11 +764,7 @@ const SEEDS: DevSaleSeed[] = [
       plazo: '60',
       importeCadaPago: '875',
       saldo: '52560',
-      frecuencia: 'MENSUAL',
-      fechaProximoPago: nextMonthIso(),
-      formaPago: 'TRANSFERENCIA',
-      banco: 'BBVA',
-      cuenta: '4152313411223344',
+      frecuencia: 'QUINCENAL',
       vencimientoTarjeta: '08/28',
       titularTarjeta: 'Claudia Herrera Vega',
       nombreAsesor: 'Ana Ríos',
@@ -785,7 +845,6 @@ const SEEDS: DevSaleSeed[] = [
       importeCadaPago: '1500',
       saldo: '36000',
       frecuencia: 'MENSUAL',
-      fechaProximoPago: nextMonthIso(),
       formaPago: 'EFECTIVO',
       nombreJefeVentas: 'Luis Ortega',
     },
@@ -849,7 +908,7 @@ const SEEDS: DevSaleSeed[] = [
       productId: 9007,
       productDefaultCode: 'PARQ-GSV',
       precioPlan: '39000',
-      preasignacion: true,
+      preasignacion: false,
       park: {
         parkId: 103,
         parqueFuneral: 'Parque Guasave',
@@ -869,10 +928,7 @@ const SEEDS: DevSaleSeed[] = [
       plazo: '36',
       importeCadaPago: '904.17',
       saldo: '32550',
-      frecuencia: 'MENSUAL',
-      fechaProximoPago: nextMonthIso(),
-      formaPago: 'TRANSFERENCIA',
-      banco: 'HSBC',
+      frecuencia: 'SEMANAL',
       cuenta: '3344556677',
       nombreJefeVentas: 'Carlos Mendoza',
     },
@@ -946,10 +1002,7 @@ const SEEDS: DevSaleSeed[] = [
       plazo: '20',
       importeCadaPago: '1350',
       saldo: '26880',
-      frecuencia: 'MENSUAL',
-      fechaProximoPago: nextMonthIso(),
-      formaPago: 'TRANSFERENCIA',
-      banco: 'Banamex',
+      frecuencia: 'QUINCENAL',
       cuenta: '4152313488990011',
       vencimientoTarjeta: '03/30',
       titularTarjeta: 'Pedro Castro Ulloa',
@@ -1022,7 +1075,7 @@ const SEEDS: DevSaleSeed[] = [
       productId: 9009,
       productDefaultCode: 'NICH-009',
       precioPlan: '25000',
-      preasignacion: true,
+      preasignacion: false,
       park: {
         parkId: 101,
         parqueFuneral: 'Parque San Martín Culiacán',
@@ -1043,7 +1096,6 @@ const SEEDS: DevSaleSeed[] = [
       importeCadaPago: '1250',
       saldo: '22500',
       frecuencia: 'MENSUAL',
-      fechaProximoPago: nextMonthIso(),
       formaPago: 'EFECTIVO',
       nombreJefeVentas: 'Luis Ortega',
     },
@@ -1118,10 +1170,6 @@ const SEEDS: DevSaleSeed[] = [
       importeCadaPago: '1416.67',
       saldo: '16700',
       frecuencia: 'MENSUAL',
-      fechaProximoPago: nextMonthIso(),
-      formaPago: 'TRANSFERENCIA',
-      banco: 'BBVA',
-      cuenta: '4455667788',
       nombreEmpleado: 'Luis Miguel Nolasco Gil',
       numeroEmpleado: 'UAS-18402',
       empresaNomina: 'UAS',
@@ -1196,6 +1244,7 @@ function buildFromSeed(seed: DevSaleSeed): SaleFormData {
       cartaNominaPdf: null,
     },
   });
+  applyMockContactoRules(form);
   return form;
 }
 

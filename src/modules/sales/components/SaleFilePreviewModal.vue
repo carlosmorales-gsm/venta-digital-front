@@ -63,7 +63,7 @@ async function loadPdfPreview() {
       pdfError.value = 'No se pudo leer el PDF.';
       return;
     }
-    pdfPages.value = await renderPdfToPageImages(bytes);
+    pdfPages.value = await renderPdfToPageImages(bytes, { purpose: 'preview' });
   } catch {
     pdfError.value = 'No se pudo mostrar la vista previa del PDF.';
   } finally {

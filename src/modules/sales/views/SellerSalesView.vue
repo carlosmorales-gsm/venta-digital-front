@@ -30,20 +30,7 @@ import {
   type AttachmentListItem,
 } from '../utils/attachment-preview';
 import { buildPaymentTicketPdf } from '../utils/payment-ticket-pdf';
-import { buildAuthorizationLetterPdf } from '../utils/authorization-letter-pdf';
-import { isUasConvenio } from '../utils/convenio-letter';
-import { buildConvenioLetterPdf } from '../utils/convenio-letter-pdf';
-import {
-  buildCardSidesAttachment,
-  buildIneSidesAttachment,
-} from '../utils/card-sides-pdf';
-import { buildExclusionesLetterPdf } from '../utils/exclusiones-letter-pdf';
-import { buildInvoiceLetterPdf } from '../utils/invoice-letter-pdf';
-import { buildNoInvoiceConsentPdf } from '../utils/no-invoice-consent-pdf';
-import { buildParkRegulationPdf } from '../utils/park-regulation-pdf';
-import { buildParkRegulationBookletPdf } from '../utils/park-regulation-booklet-pdf';
-import { buildSalePreviewPdf } from '../utils/sale-pdf';
-import { normalizeTipoCobranza } from '../utils/payment-method';
+import { buildSignSaleRequest } from '../utils/submit-sign';
 import {
   matchesDateRange,
   textEqualsNormalized,
@@ -611,236 +598,18 @@ async function openSign(item: SaleListItem) {
 
 async function confirmSign(dataUrl: string) {
   if (!actionSaleId.value) return;
-  const base64 = dataUrl.includes(',') ? dataUrl.split(',')[1]! : dataUrl;
   signSubmitting.value = true;
   let hasCaratula = false;
   try {
-    const firmaCliente = {
-      name: 'firma-cliente.png',
-      mime: 'image/png',
-      dataBase64: base64,
-    };
-
-    // PDF con firma incluida → se sube a Drive junto con los demás docs.
-    const formForPdf = mergeSaleForm({
-      ...actionForm.value,
-      documentos: {
-        ...actionForm.value.documentos,
-        firmaCliente,
-      },
-    });
-    let caratulaPdf:
-      | { name: string; mime: string; dataBase64: string }
-      | undefined;
-    let cartaFacturaPdf:
-      | { name: string; mime: string; dataBase64: string }
-      | undefined;
-    let cartaNoFacturaPdf:
-      | { name: string; mime: string; dataBase64: string }
-      | undefined;
-    let cartaExclusionesPdf:
-      | { name: string; mime: string; dataBase64: string }
-      | undefined;
-    let reglamentoParquePdf:
-      | { name: string; mime: string; dataBase64: string }
-      | undefined;
-    let reglamentoParqueFolletoPdf:
-      | { name: string; mime: string; dataBase64: string }
-      | undefined;
-    let cartaAutorizacionPdf:
-      | { name: string; mime: string; dataBase64: string }
-      | undefined;
-    let cartaNominaPdf:
-      | { name: string; mime: string; dataBase64: string }
-      | undefined;
-    let tarjetaPdf:
-      | { name: string; mime: string; dataBase64: string }
-      | undefined;
-    let inePdf:
-      | { name: string; mime: string; dataBase64: string }
-      | undefined;
-    try {
-      const blob = await buildSalePreviewPdf(formForPdf, {
-        saleId: actionSaleId.value,
-        status: 'COMPLETED',
-      });
-      caratulaPdf = {
-        name: `caratula-contrato_venta-${actionSaleId.value}.pdf`,
-        mime: 'application/pdf',
-        dataBase64: await blobToBase64(blob),
-      };
-    } catch (pdfErr) {
-      console.warn('No se pudo generar carátula para Drive', pdfErr);
-    }
-    if (formForPdf.contacto.factura === 'SI') {
-      try {
-        const letter = await buildInvoiceLetterPdf(formForPdf, {
-          saleId: actionSaleId.value,
-          status: 'COMPLETED',
-        });
-        cartaFacturaPdf = {
-          name: `carta-requerimiento-factura_venta-${actionSaleId.value}.pdf`,
-          mime: 'application/pdf',
-          dataBase64: await blobToBase64(letter),
-        };
-      } catch (pdfErr) {
-        console.warn('No se pudo generar carta de factura para Drive', pdfErr);
-      }
-    }
-    if (formForPdf.contacto.factura === 'NO') {
-      try {
-        const letter = await buildNoInvoiceConsentPdf(formForPdf, {
-          saleId: actionSaleId.value,
-          status: 'COMPLETED',
-        });
-        cartaNoFacturaPdf = {
-          name: `consentimiento-no-factura_venta-${actionSaleId.value}.pdf`,
-          mime: 'application/pdf',
-          dataBase64: await blobToBase64(letter),
-        };
-      } catch (pdfErr) {
-        console.warn('No se pudo generar consentimiento de no factura', pdfErr);
-      }
-    }
-    try {
-      const letter = await buildExclusionesLetterPdf(formForPdf, {
-        saleId: actionSaleId.value,
-        status: 'COMPLETED',
-      });
-      cartaExclusionesPdf = {
-        name: `carta-aceptacion-exclusiones_venta-${actionSaleId.value}.pdf`,
-        mime: 'application/pdf',
-        dataBase64: await blobToBase64(letter),
-      };
-    } catch (pdfErr) {
-      console.warn('No se pudo generar carta de exclusiones', pdfErr);
-    }
-    if (formForPdf.ubicacionPlan.planKind === 'PARQUE') {
-      try {
-        const letter = await buildParkRegulationPdf(formForPdf, {
-          saleId: actionSaleId.value,
-          status: 'COMPLETED',
-        });
-        reglamentoParquePdf = {
-          name: `reglamento-parque_venta-${actionSaleId.value}.pdf`,
-          mime: 'application/pdf',
-          dataBase64: await blobToBase64(letter),
-        };
-      } catch (pdfErr) {
-        console.warn('No se pudo generar reglamento de parque', pdfErr);
-      }
-      try {
-        const booklet = await buildParkRegulationBookletPdf(formForPdf, {
-          saleId: actionSaleId.value,
-          status: 'COMPLETED',
-        });
-        reglamentoParqueFolletoPdf = {
-          name: `reglamento-parque-articulos_venta-${actionSaleId.value}.pdf`,
-          mime: 'application/pdf',
-          dataBase64: await blobToBase64(booklet),
-        };
-      } catch (pdfErr) {
-        console.warn('No se pudo generar folleto del reglamento', pdfErr);
-      }
-    }
-    if (
-      normalizeTipoCobranza(formForPdf.contacto.tipoCobranza) === 'NOMINA' &&
-      formForPdf.pago.empresaNominaId
-    ) {
-      try {
-        const nominaLetter = await buildConvenioLetterPdf(formForPdf, {
-          saleId: actionSaleId.value,
-          status: 'COMPLETED',
-        });
-        cartaNominaPdf = {
-          name: `carta-consentimiento-nomina_venta-${actionSaleId.value}.pdf`,
-          mime: 'application/pdf',
-          dataBase64: await blobToBase64(nominaLetter),
-        };
-      } catch (pdfErr) {
-        console.warn('No se pudo generar carta de nómina para Drive', pdfErr);
-      }
-    }
-
-    if (normalizeTipoCobranza(formForPdf.contacto.tipoCobranza) === 'DOMICILIADO') {
-      try {
-        const authLetter = await buildAuthorizationLetterPdf(formForPdf, {
-          saleId: actionSaleId.value,
-          status: 'COMPLETED',
-        });
-        cartaAutorizacionPdf = {
-          name: `carta-autorizacion_venta-${actionSaleId.value}.pdf`,
-          mime: 'application/pdf',
-          dataBase64: await blobToBase64(authLetter),
-        };
-      } catch (pdfErr) {
-        console.warn('No se pudo generar carta de autorización para Drive', pdfErr);
-      }
-    }
-
-    if (
-      normalizeTipoCobranza(formForPdf.contacto.tipoCobranza) === 'DOMICILIADO' ||
-      isUasConvenio(formForPdf)
-    ) {
-      const frente = formForPdf.documentos.tarjetaFrente;
-      const reverso = formForPdf.documentos.tarjetaReverso;
-      if (frente && reverso) {
-        try {
-          const cardPdf = await buildCardSidesAttachment(
-            frente,
-            reverso,
-            `tarjeta-ambos-lados_venta-${actionSaleId.value}.pdf`,
-          );
-          if (cardPdf.dataBase64) {
-            tarjetaPdf = {
-              name: cardPdf.name,
-              mime: cardPdf.mime,
-              dataBase64: cardPdf.dataBase64,
-            };
-            formForPdf.documentos.tarjetaPdf = cardPdf;
-          }
-        } catch (pdfErr) {
-          console.warn('No se pudo armar el PDF de la tarjeta', pdfErr);
-        }
-      }
-    }
-
-    const ineFrente = formForPdf.documentos.ineFrente;
-    const ineReverso = formForPdf.documentos.ineReverso;
-    if (ineFrente && ineReverso) {
-      try {
-        const combined = await buildIneSidesAttachment(
-          ineFrente,
-          ineReverso,
-          `ine-ambos-lados_venta-${actionSaleId.value}.pdf`,
-        );
-        inePdf = {
-          name: combined.name,
-          mime: combined.mime,
-          dataBase64: combined.dataBase64!,
-        };
-        formForPdf.documentos.inePdf = combined;
-      } catch (pdfErr) {
-        console.warn('No se pudo armar el PDF de la INE', pdfErr);
-      }
-    }
-
-    hasCaratula = Boolean(caratulaPdf);
+    const built = await buildSignSaleRequest(
+      actionForm.value,
+      actionSaleId.value,
+      dataUrl,
+    );
+    hasCaratula = built.hasCaratula;
     await http.post<SaleListItem>(
       `/sales/${actionSaleId.value}/sign`,
-      {
-        firmaCliente,
-        ...(caratulaPdf ? { caratulaPdf } : {}),
-        ...(cartaFacturaPdf ? { cartaFacturaPdf } : {}),
-        ...(cartaNoFacturaPdf ? { cartaNoFacturaPdf } : {}),
-        ...(cartaExclusionesPdf ? { cartaExclusionesPdf } : {}),
-        ...(reglamentoParquePdf ? { reglamentoParquePdf } : {}),
-        ...(reglamentoParqueFolletoPdf ? { reglamentoParqueFolletoPdf } : {}),
-        ...(cartaAutorizacionPdf ? { cartaAutorizacionPdf } : {}),
-        ...(cartaNominaPdf ? { cartaNominaPdf } : {}),
-        ...(tarjetaPdf ? { tarjetaPdf } : {}),
-        ...(inePdf ? { inePdf } : {}),
-      },
+      built.body,
       // Drive + PDFs + expediente suelen pasar de 30s; el API igual termina y guarda.
       { timeout: 180000 },
     );

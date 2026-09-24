@@ -19,9 +19,25 @@ async function ensurePdfWorker() {
   await workerReady;
 }
 
-function computeScale(pageWidth: number, requested?: number) {
+function computeScale(
+  pageWidth: number,
+  requested?: number,
+  purpose: 'preview' | 'compose' = 'compose',
+) {
   const tablet = isTabletLike();
   const dpr = window.devicePixelRatio || 1;
+  if (purpose === 'preview') {
+    const maxPixelWidth = tablet ? 1800 : 2600;
+    let scale =
+      requested ??
+      (tablet
+        ? Math.min(2.6, Math.max(1.8, dpr * 1.5))
+        : Math.min(3.4, Math.max(2.4, dpr * 1.85)));
+    if (pageWidth * scale > maxPixelWidth) {
+      scale = maxPixelWidth / pageWidth;
+    }
+    return Math.max(1.8, scale);
+  }
   const maxPixelWidth = tablet ? 880 : 1280;
   let scale =
     requested ??
@@ -36,22 +52,23 @@ function computeScale(pageWidth: number, requested?: number) {
 
 async function renderPages(
   data: Uint8Array,
-  scale?: number,
+  opts?: { scale?: number; purpose?: 'preview' | 'compose' },
 ): Promise<string[]> {
   await ensurePdfWorker();
   const pdfjs = await import('pdfjs-dist');
   const pdf = await pdfjs.getDocument({ data }).promise;
   const pages: string[] = [];
+  const purpose = opts?.purpose ?? 'compose';
 
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
     const base = page.getViewport({ scale: 1 });
-    const pageScale = computeScale(base.width, scale);
+    const pageScale = computeScale(base.width, opts?.scale, purpose);
     const viewport = page.getViewport({ scale: pageScale });
     const canvas = document.createElement('canvas');
     canvas.width = Math.floor(viewport.width);
     canvas.height = Math.floor(viewport.height);
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { alpha: false });
     if (!ctx) throw new Error('Canvas no disponible');
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -59,8 +76,13 @@ async function renderPages(
       canvasContext: ctx,
       viewport,
       canvas,
+      intent: purpose === 'preview' ? 'print' : 'display',
     } as Parameters<typeof page.render>[0]).promise;
-    pages.push(canvas.toDataURL('image/jpeg', 0.92));
+    pages.push(
+      purpose === 'preview'
+        ? canvas.toDataURL('image/jpeg', 0.97)
+        : canvas.toDataURL('image/jpeg', 0.92),
+    );
   }
 
   return pages;
@@ -68,15 +90,15 @@ async function renderPages(
 
 export async function renderPdfToPageImages(
   input: Blob | Uint8Array,
-  opts?: { scale?: number },
+  opts?: { scale?: number; purpose?: 'preview' | 'compose' },
 ): Promise<string[]> {
   const data =
     input instanceof Blob ? new Uint8Array(await input.arrayBuffer()) : input;
 
   try {
-    return await renderPages(data, opts?.scale);
+    return await renderPages(data, opts);
   } catch {
-    return renderPages(data, 1);
+    return renderPages(data, { scale: 1, purpose: opts?.purpose });
   }
 }
 

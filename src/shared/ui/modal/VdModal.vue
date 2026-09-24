@@ -7,6 +7,8 @@ const props = withDefaults(
     title: string;
     /** Cerrar al hacer clic en el fondo */
     closeOnScrim?: boolean;
+    /** Oculta la X del encabezado. */
+    hideClose?: boolean;
     wide?: boolean;
     /** Modal extra ancho (p. ej. vista previa PDF) */
     xlarge?: boolean;
@@ -15,6 +17,7 @@ const props = withDefaults(
   }>(),
   {
     closeOnScrim: true,
+    hideClose: false,
     wide: false,
     xlarge: false,
     lockBody: false,
@@ -28,6 +31,7 @@ const emit = defineEmits<{
 function onKeydown(e: KeyboardEvent) {
   if (!props.open) return;
   if (e.key === 'Escape') {
+    if (props.hideClose) return;
     e.preventDefault();
     emit('close');
   }
@@ -66,6 +70,7 @@ function onScrim() {
         <header class="vd-modal__head">
           <h2 id="vd-modal-title">{{ title }}</h2>
           <button
+            v-if="!hideClose"
             type="button"
             class="vd-modal__close"
             aria-label="Cerrar"

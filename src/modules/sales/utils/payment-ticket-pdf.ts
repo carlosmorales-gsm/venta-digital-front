@@ -108,7 +108,8 @@ export async function buildPaymentTicketPdf(
   const p = form.pago;
   const c = form.contacto;
   const cliente = fullName(c) || '—';
-  const celular = v(c.celular1) || v(c.celular2) || '—';
+  const celular =
+    v(c.celular1) || v(form.segundoContacto.celular) || v(c.celular2) || '—';
   const folio =
     formatDigitalFolio(form.meta.folioSolicitud || opts.saleId);
   const asesor = v(p.nombreAsesor) || v(opts.sellerName) || '—';

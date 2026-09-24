@@ -12,6 +12,11 @@ import { formatMoneyDisplay } from './sale-finance';
 /** Tamaño exacto de la carátula oficial (pt). */
 const PAGE_W = 612.28;
 const PAGE_H = 1009.13;
+/** Celdas interiores: mismas X/ancho/columnas en todo el formulario. */
+const INNER_X = 25.7;
+const INNER_W = 560.3;
+const COL_B = 230;
+const COL_C = 405;
 
 const INK: [number, number, number] = [26, 34, 42];
 const MUTED: [number, number, number] = [95, 105, 115];
@@ -66,6 +71,12 @@ function vLine(doc: Doc, x: number, y1: number, y2: number) {
   doc.line(x, y1, x, y2);
 }
 
+function hLine(doc: Doc, x1: number, x2: number, y: number) {
+  doc.setDrawColor(...LINE);
+  doc.setLineWidth(0.5);
+  doc.line(x1, y, x2, y);
+}
+
 function label(doc: Doc, text: string, x: number, y: number, size = 6.2) {
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(size);
@@ -109,16 +120,22 @@ function field(
   opts?: { labelSize?: number; valueSize?: number },
 ) {
   const lines = Array.isArray(lbl) ? lbl : [lbl];
-  const labelSize = opts?.labelSize ?? 5.6;
-  const valueSize = opts?.valueSize ?? 7.6;
-  let ly = top + 6.2;
-  for (const line of lines) {
-    label(doc, line, x, ly, labelSize);
-    ly += labelSize + 0.8;
+  const labelSize = opts?.labelSize ?? 5.4;
+  const valueSize = opts?.valueSize ?? 7.4;
+  const labelY = top + 5.6;
+  const lineGap = labelSize + 0.4;
+  for (let i = 0; i < lines.length; i++) {
+    label(doc, lines[i]!, x, labelY + i * lineGap, labelSize);
   }
-  const gap = 3.2;
-  const valueY = Math.min(top + h - 3.8, Math.max(ly + gap, top + h * 0.72));
-  value(doc, val, x, valueY, valueSize, maxW);
+  const labelsBottom = labelY + (lines.length - 1) * lineGap + 1.5;
+  let size = valueSize;
+  let valueY = top + h - 3.4;
+  while (size > 6 && valueY - size * 0.82 < labelsBottom) {
+    size -= 0.4;
+  }
+  valueY = Math.max(valueY, labelsBottom + size * 0.15);
+  if (valueY > top + h - 2.4) valueY = top + h - 2.4;
+  value(doc, val, x, valueY, size, maxW);
 }
 
 /** Valor a la derecha del label (misma línea), para celdas angostas. */
@@ -328,12 +345,33 @@ function drawNameRow(
   y: number,
   h = 24,
 ) {
-  box(doc, 25.7, y, 560.3, h);
-  vLine(doc, 230, y, y + h);
-  vLine(doc, 405, y, y + h);
-  field(doc, 'NOMBRE(S):', p.nombres, 30, y, h, 190);
-  field(doc, ['APELLIDO', 'PATERNO:'], p.apellidoPaterno, 238, y, h, 155);
-  field(doc, ['APELLIDO', 'MATERNO:'], p.apellidoMaterno, 413, y, h, 160);
+  box(doc, INNER_X, y, INNER_W, h);
+  vLine(doc, COL_B, y, y + h);
+  vLine(doc, COL_C, y, y + h);
+  field(doc, 'NOMBRE(S):', p.nombres, INNER_X + 4.3, y, h, COL_B - INNER_X - 10, {
+    labelSize: 5.1,
+    valueSize: 7.6,
+  });
+  field(
+    doc,
+    'APELLIDO PATERNO:',
+    p.apellidoPaterno,
+    COL_B + 8,
+    y,
+    h,
+    COL_C - COL_B - 14,
+    { labelSize: 5.1, valueSize: 7.6 },
+  );
+  field(
+    doc,
+    'APELLIDO MATERNO:',
+    p.apellidoMaterno,
+    COL_C + 8,
+    y,
+    h,
+    INNER_X + INNER_W - COL_C - 14,
+    { labelSize: 5.1, valueSize: 7.6 },
+  );
 }
 
 function drawContacto(doc: Doc, form: SaleFormData) {
@@ -355,43 +393,43 @@ function drawContacto(doc: Doc, form: SaleFormData) {
   vLine(doc, 268, y2, y2 + h2);
   vLine(doc, 338, y2, y2 + h2);
   vLine(doc, 390, y2, y2 + h2);
-  fieldInline(doc, 'CURP:', c.curp, 30, y2 + 14, 28, 200, 7.2);
-  label(doc, 'FACTURA:', 274, y2 + 8);
-  checkLabel(doc, has(c.factura, 'SI'), 310.7, 200.9, 'SI', 4.4, 5);
-  checkLabel(doc, has(c.factura, 'NO'), 310.7, 207.9, 'NO', 4.4, 5);
-  label(doc, 'SEXO:', 343.5, y2 + 8);
-  checkLabel(doc, has(c.sexo, 'F'), 367.9, 200.9, 'F', 4.4, 5);
-  checkLabel(doc, has(c.sexo, 'M'), 367.9, 207.9, 'M', 4.4, 5);
-  label(doc, 'ESTADO CIVIL:', 395, y2 + 8);
-  checkLabel(doc, has(c.estadoCivil, 'SOLTERO'), 450.5, 200.2, 'SOLTERO', 3.9, 4.2);
-  checkLabel(doc, has(c.estadoCivil, 'CASADO'), 450.5, 208.8, 'CASADO', 3.9, 4.2);
-  checkLabel(doc, has(c.estadoCivil, 'VIUDO'), 488.2, 200.2, 'VIUDO', 3.9, 4.2);
+  fieldInline(doc, 'CURP:', c.curp, 30, y2 + 13.5, 26, 168, 7);
+  label(doc, 'FACTURA:', 230, y2 + 7.5, 5);
+  checkLabel(doc, has(c.factura, 'SI'), 262, 200.6, 'SI', 4, 5);
+  checkLabel(doc, has(c.factura, 'NO'), 262, 208.4, 'NO', 4, 5);
+  label(doc, 'SEXO:', 292, y2 + 7.5, 5);
+  checkLabel(doc, has(c.sexo, 'F'), 314, 200.6, 'F', 4, 5);
+  checkLabel(doc, has(c.sexo, 'M'), 314, 208.4, 'M', 4, 5);
+  label(doc, 'ESTADO CIVIL:', 342, y2 + 7.5, 5);
+  checkLabel(doc, has(c.estadoCivil, 'SOLTERO'), 392, 200.2, 'SOLTERO', 3.6, 3.8);
+  checkLabel(doc, has(c.estadoCivil, 'CASADO'), 392, 208.8, 'CASADO', 3.6, 3.8);
+  checkLabel(doc, has(c.estadoCivil, 'VIUDO'), 445, 200.2, 'VIUDO', 3.6, 3.8);
   checkLabel(
     doc,
     has(c.estadoCivil, 'DIVORCIADO'),
-    488.1,
+    445,
     208.8,
     'DIVORCIADO',
-    3.9,
-    4.2,
+    3.6,
+    3.8,
   );
   checkLabel(
     doc,
     has(c.estadoCivil, 'UNION') || has(c.estadoCivil, 'UNIÓN'),
-    532.2,
+    510,
     200.2,
     'UNIÓN LIBRE',
-    3.9,
-    4.2,
+    3.6,
+    3.8,
   );
   checkLabel(
     doc,
     has(c.estadoCivil, 'CONCUBINATO'),
-    532.2,
+    510,
     208.8,
     'CONCUBINATO',
-    3.9,
-    4.2,
+    3.6,
+    3.8,
   );
 
   const y3 = 220.1;
@@ -434,15 +472,24 @@ function drawContacto(doc: Doc, form: SaleFormData) {
   box(doc, 446, y5, 139.5, h5);
   vLine(doc, 95, y5, y5 + h5);
   vLine(doc, 250, y5, y5 + h5);
-  field(
+  label(doc, 'SIND.:', 30, y5 + 6.4, 5);
+  checkLabel(
     doc,
-    'SIND.',
-    String(c.sindicalizado || '').toUpperCase() === 'SI' ? 'Sí' : 'No',
+    String(c.sindicalizado || '').toUpperCase() === 'SI',
     30,
-    y5,
-    h5,
-    55,
-    { labelSize: 5.2 },
+    y5 + 12.6,
+    'SI',
+    3.8,
+    5,
+  );
+  checkLabel(
+    doc,
+    String(c.sindicalizado || '').toUpperCase() === 'NO',
+    54,
+    y5 + 12.6,
+    'NO',
+    3.8,
+    5,
   );
   field(doc, 'MUNICIPIO:', c.municipio, 115.9, y5, h5, 120, { labelSize: 5.2 });
   field(doc, 'ESTADO:', c.estado, 285.9, y5, h5, 110, { labelSize: 5.2 });
@@ -480,8 +527,8 @@ function drawContacto(doc: Doc, form: SaleFormData) {
   const h6 = 22.4;
   box(doc, 25.7, y6, 560.1, h6);
   vLine(doc, 255, y6, y6 + h6);
-  label(doc, 'FECHA DE NACIMIENTO:', 30, y6 + 7, 5.4);
-  dateParts(doc, c.fechaNacimiento, 132, y6 + 16, 8);
+  label(doc, 'FECHA DE NACIMIENTO:', 30, y6 + 6.2, 5.2);
+  dateParts(doc, c.fechaNacimiento, 30, y6 + h6 - 4, 7.6);
   field(doc, 'CORREO ELECTRONICO:', c.correo, 267.3, y6, h6, 290, {
     labelSize: 5.2,
   });
@@ -492,7 +539,9 @@ function drawContacto(doc: Doc, form: SaleFormData) {
   vLine(doc, 175, y7, y7 + h7);
   vLine(doc, 350, y7, y7 + h7);
   field(doc, 'CELULAR 1:', c.celular1, 30, y7, h7, 130, { labelSize: 5.2 });
-  field(doc, 'CELULAR 2:', c.celular2, 183, y7, h7, 150, { labelSize: 5.2 });
+  field(doc, 'CELULAR 2:', c.celular2, 183, y7, h7, 150, {
+    labelSize: 5.2,
+  });
   field(doc, 'OBSERVACIONES:', c.observaciones, 357.6, y7, h7, 215, {
     labelSize: 5.2,
     valueSize: 6.5,
@@ -524,24 +573,24 @@ function drawSegundo(doc: Doc, form: SaleFormData) {
 
   const y2 = top + 47;
   const h2 = 19.4;
-  box(doc, 25.4, y2, 560.9, h2);
-  vLine(doc, 340, y2, y2 + h2);
-  field(doc, 'DIRECCIÓN:', s.direccion, 30, y2, h2, 300, { labelSize: 5.2 });
-  field(doc, 'COLONIA:', s.colonia, 342, y2, h2, 185, { labelSize: 5.2 });
+  box(doc, INNER_X, y2, INNER_W, h2);
+  vLine(doc, COL_C - 65, y2, y2 + h2);
+  field(doc, 'DIRECCIÓN:', s.direccion, INNER_X + 4.3, y2, h2, 300, { labelSize: 5.2 });
+  field(doc, 'COLONIA:', s.colonia, COL_C - 63, y2, h2, 185, { labelSize: 5.2 });
 
   const y3 = top + 69;
   const h3 = 18;
-  box(doc, 25.7, y3, 560.9, h3);
-  field(doc, 'ENTRE CALLES:', s.entreCalles, 30, y3, h3, 520, { labelSize: 5.2 });
+  box(doc, INNER_X, y3, INNER_W, h3);
+  field(doc, 'ENTRE CALLES:', s.entreCalles, INNER_X + 4.3, y3, h3, 520, { labelSize: 5.2 });
 
   const y4 = top + 90;
   const h4 = 20;
-  box(doc, 25.7, y4, 560.9, h4);
-  vLine(doc, 250, y4, y4 + h4);
-  vLine(doc, 370, y4, y4 + h4);
-  field(doc, 'PARENTESCO:', s.parentesco, 30, y4, h4, 200, { labelSize: 5.2 });
-  field(doc, 'C.P:', s.cp, 260.8, y4, h4, 90, { labelSize: 5.2 });
-  field(doc, 'CELULAR:', s.celular, 384, y4, h4, 180, { labelSize: 5.2 });
+  box(doc, INNER_X, y4, INNER_W, h4);
+  vLine(doc, COL_B, y4, y4 + h4);
+  vLine(doc, COL_C, y4, y4 + h4);
+  field(doc, 'PARENTESCO:', s.parentesco, INNER_X + 4.3, y4, h4, COL_B - INNER_X - 10, { labelSize: 5.2 });
+  field(doc, 'C.P:', s.cp, COL_B + 8, y4, h4, COL_C - COL_B - 14, { labelSize: 5.2 });
+  field(doc, 'CELULAR:', s.celular, COL_C + 8, y4, h4, INNER_X + INNER_W - COL_C - 14, { labelSize: 5.2 });
 }
 
 function drawBeneficiario(
@@ -553,28 +602,66 @@ function drawBeneficiario(
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(5.5);
   doc.setTextColor(...MUTED);
-  doc.text(title, 31.8, yName - 4);
+  doc.text(title, INNER_X + 4.3, yName - 4);
 
-  const h = 22;
-  drawNameRow(doc, p, yName, h);
+  const hName = 22;
+  const hMeta = 22;
+  const yMeta = yName + hName;
+  const bottom = yMeta + hMeta;
 
-  const yMeta = yName + h + 2;
-  box(doc, 26, yMeta, 560.3, h);
-  vLine(doc, 225, yMeta, yMeta + h);
-  vLine(doc, 400, yMeta, yMeta + h);
-  label(doc, 'FECHA DE NACIMIENTO:', 30, yMeta + 7, 5.2);
-  dateParts(doc, p.fechaNacimiento, 117, yMeta + 16, 7.5);
-  field(doc, 'CELULAR:', p.celular, 236.7, yMeta, h, 140, { labelSize: 5.2 });
-  field(doc, 'PARENTESCO:', p.parentesco, 415, yMeta, h, 150, {
-    labelSize: 5.2,
+  box(doc, INNER_X, yName, INNER_W, hName + hMeta);
+  hLine(doc, INNER_X, INNER_X + INNER_W, yMeta);
+  vLine(doc, COL_B, yName, bottom);
+  vLine(doc, COL_C, yName, bottom);
+
+  field(doc, 'NOMBRE(S):', p.nombres, INNER_X + 4.3, yName, hName, COL_B - INNER_X - 10, {
+    labelSize: 5.1,
+    valueSize: 7.4,
   });
+  field(
+    doc,
+    'APELLIDO PATERNO:',
+    p.apellidoPaterno,
+    COL_B + 8,
+    yName,
+    hName,
+    COL_C - COL_B - 14,
+    { labelSize: 5.1, valueSize: 7.4 },
+  );
+  field(
+    doc,
+    'APELLIDO MATERNO:',
+    p.apellidoMaterno,
+    COL_C + 8,
+    yName,
+    hName,
+    INNER_X + INNER_W - COL_C - 14,
+    { labelSize: 5.1, valueSize: 7.4 },
+  );
+
+  label(doc, 'FECHA DE NACIMIENTO:', INNER_X + 4.3, yMeta + 6.2, 5.1);
+  dateParts(doc, p.fechaNacimiento, INNER_X + 4.3, yMeta + hMeta - 4, 7.2);
+  field(doc, 'CELULAR:', p.celular, COL_B + 8, yMeta, hMeta, COL_C - COL_B - 14, {
+    labelSize: 5.1,
+    valueSize: 7.4,
+  });
+  field(
+    doc,
+    'PARENTESCO:',
+    p.parentesco,
+    COL_C + 8,
+    yMeta,
+    hMeta,
+    INNER_X + INNER_W - COL_C - 14,
+    { labelSize: 5.1, valueSize: 7.4 },
+  );
 }
 
 function drawDerechohabientes(doc: Doc, form: SaleFormData) {
   const top = 478;
   const h = 188;
   box(doc, 21.5, top, 569.4, h);
-  pill(doc, 'DATOS DE DERECHOHABIENTES', 306, top + 3, 190);
+  pill(doc, 'DATOS DE DERECHOHABIENTES', 306, top + 3, 210);
   const d = form.derechohabientes;
   drawBeneficiario(doc, 'TITULAR SUSTITUTO', d.titularSustituto, top + 28);
   drawBeneficiario(

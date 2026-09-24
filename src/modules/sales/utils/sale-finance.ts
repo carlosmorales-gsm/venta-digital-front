@@ -124,6 +124,25 @@ export function frequencyLabel(code: SaleFrequencyCode): string {
   }
 }
 
+/**
+ * `specific_days` al cambiar la frecuencia, igual que
+ * `_onchange_frequency_set_specific_days` en Odoo: copia
+ * `frequency.default_specific_days` si el modo es días del mes;
+ * si no (mensual, contado), deja el campo vacío.
+ */
+export function defaultSpecificDaysForFrequency(
+  frecuencia: string | null | undefined,
+): string {
+  switch (normalizeFrequency(frecuencia)) {
+    case 'QUINCENAL':
+      return '5,20';
+    case 'SEMANAL':
+      return '7,14,21,28';
+    default:
+      return '';
+  }
+}
+
 /** Precio de contado tras descuento (≈ cash_price en Odoo). */
 export function computeCashPrice(
   precioPlan: unknown,

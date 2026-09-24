@@ -16,6 +16,12 @@ const router = createRouter({
       meta: { public: true, guest: true },
     },
     {
+      path: '/firmar/:token',
+      name: 'firmar-cliente',
+      component: () => import('../modules/sales/views/ClientSignView.vue'),
+      meta: { public: true },
+    },
+    {
       path: '/login/vendedor',
       name: 'login-vendedor',
       component: () => import('../modules/auth/views/SellerLoginView.vue'),

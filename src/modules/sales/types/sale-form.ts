@@ -440,9 +440,12 @@ export function createEmptySaleForm(): SaleFormData {
 
 /** Datos demo para el modal de pago (si la venta aún no tiene precio). */
 export function createPrefillPago(): SaleFormData['pago'] {
-  const nextMonth = new Date();
-  nextMonth.setMonth(nextMonth.getMonth() + 1);
-  const fechaProximo = nextMonth.toISOString().slice(0, 10);
+  const now = new Date();
+  const year = now.getMonth() === 11 ? now.getFullYear() + 1 : now.getFullYear();
+  const month = now.getMonth() === 11 ? 1 : now.getMonth() + 2;
+  const last = new Date(year, month, 0).getDate();
+  const day = Math.min(15, last);
+  const fechaProximo = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 
   return {
     precioPlan: '45000',
@@ -454,7 +457,7 @@ export function createPrefillPago(): SaleFormData['pago'] {
     importeCadaPago: '1666.67',
     saldo: '35500',
     fechaProximoPago: fechaProximo,
-    diasEspecificosPago: '15 de cada mes',
+    diasEspecificosPago: '15',
     formaPago: 'TRANSFERENCIA',
     cuenta: '0123456789',
     banco: 'BBVA',
@@ -516,7 +519,7 @@ export function createPrefillSaleForm(): SaleFormData {
     celular2: '6679876543',
     correo: 'sistemas@sanmartin.com.mx',
     estadoCivil: 'CASADO',
-    domicilioEntregaDocumentacion: 'Mismo domicilio del titular',
+    domicilioEntregaDocumentacion: 'SI',
   };
   base.segundoContacto = {
     ...base.segundoContacto,
@@ -834,4 +837,181 @@ export function primaryIneAttachment(
 export function syncBeneficiariosToDerechos(form: SaleFormData) {
   const ts = form.derechohabientes?.titularSustituto ?? emptyBeneficiary();
   form.derechohabientes = syncDerechos(form.beneficiarios, ts);
+}
+
+function pickAttachment(att: SaleAttachment | null | undefined): SaleAttachment | null {
+  if (!att) return null;
+  return {
+    name: att.name,
+    mime: att.mime,
+    ...(att.dataBase64 ? { dataBase64: att.dataBase64 } : {}),
+    ...(att.driveFileId ? { driveFileId: att.driveFileId } : {}),
+    ...(att.driveFileUrl ? { driveFileUrl: att.driveFileUrl } : {}),
+  };
+}
+
+function pickPerson(p: SaleFormData['contacto'] | SaleFormData['segundoContacto'] | SaleFormData['derechohabientes']['titularSustituto']) {
+  return {
+    apellidoPaterno: p.apellidoPaterno,
+    apellidoMaterno: p.apellidoMaterno,
+    nombres: p.nombres,
+  };
+}
+
+/** Body de alta/finalizar: solo campos que acepta el DTO de Nest. */
+export function toUpsertSaleBody(form: SaleFormData): {
+  payload: SaleFormData;
+  titularName: string;
+  amount: string;
+} {
+  const c = form.contacto;
+  const sc = form.segundoContacto;
+  const docs = form.documentos;
+  const payload: SaleFormData = {
+    meta: {
+      fecha: form.meta.fecha,
+      contrato: form.meta.contrato,
+      origenVenta: form.meta.origenVenta,
+      branchId: form.meta.branchId,
+      branchName: form.meta.branchName,
+      serviceTypeId: form.meta.serviceTypeId,
+      serviceTypeName: form.meta.serviceTypeName,
+      folioSolicitud: form.meta.folioSolicitud,
+      fechaServicio: form.meta.fechaServicio,
+      tipoVenta: form.meta.tipoVenta,
+      estatus: form.meta.estatus,
+      anterior: form.meta.anterior,
+      verificacion: form.meta.verificacion,
+      reconocimientoVentas: form.meta.reconocimientoVentas.map((item) => ({
+        id: item.id,
+        folio: item.folio,
+        partnerId: item.partnerId,
+        partnerName: item.partnerName,
+        dateOrder: item.dateOrder,
+        amountTotal: item.amountTotal,
+        saldo: item.saldo,
+        matchType: item.matchType,
+        matchedBeneficiaryName: item.matchedBeneficiaryName,
+      })),
+    },
+    contacto: {
+      ...pickPerson(c),
+      sexo: c.sexo,
+      curp: c.curp,
+      factura: c.factura,
+      tipoPersona: c.tipoPersona,
+      razonSocial: c.razonSocial,
+      rfc: c.rfc,
+      facturaCp: c.facturaCp,
+      regimenFiscal: c.regimenFiscal,
+      regimenFiscalOtro: c.regimenFiscalOtro,
+      telefonoFactura: c.telefonoFactura,
+      direccion: c.direccion,
+      colonia: c.colonia,
+      cp: c.cp,
+      entreCalles: c.entreCalles,
+      senaParticular: c.senaParticular,
+      municipio: c.municipio,
+      estado: c.estado,
+      tipoCobranza: c.tipoCobranza,
+      fechaNacimiento: c.fechaNacimiento,
+      sindicalizado: c.sindicalizado,
+      observaciones: c.observaciones,
+      celular1: c.celular1,
+      celular2: c.celular2,
+      correo: c.correo,
+      estadoCivil: c.estadoCivil,
+      domicilioEntregaDocumentacion: c.domicilioEntregaDocumentacion,
+    },
+    segundoContacto: {
+      ...pickPerson(sc),
+      celular: sc.celular,
+      relationId: sc.relationId,
+      parentesco: sc.parentesco,
+      direccion: sc.direccion,
+      colonia: sc.colonia,
+      cp: sc.cp,
+      entreCalles: sc.entreCalles,
+      fechaNacimiento: sc.fechaNacimiento,
+      domicilioEntregaDocumentacion: sc.domicilioEntregaDocumentacion,
+    },
+    beneficiarios: form.beneficiarios.map((b) => ({
+      ...pickPerson(b),
+      relationId: b.relationId,
+      parentesco: b.parentesco,
+      celular: b.celular,
+      fechaNacimiento: b.fechaNacimiento,
+    })),
+    derechohabientes: {
+      titularSustituto: {
+        ...pickPerson(form.derechohabientes.titularSustituto),
+        relationId: form.derechohabientes.titularSustituto.relationId,
+        parentesco: form.derechohabientes.titularSustituto.parentesco,
+        celular: form.derechohabientes.titularSustituto.celular,
+        fechaNacimiento: form.derechohabientes.titularSustituto.fechaNacimiento,
+      },
+      primerBeneficiario: {
+        ...pickPerson(form.derechohabientes.primerBeneficiario),
+        relationId: form.derechohabientes.primerBeneficiario.relationId,
+        parentesco: form.derechohabientes.primerBeneficiario.parentesco,
+        celular: form.derechohabientes.primerBeneficiario.celular,
+        fechaNacimiento: form.derechohabientes.primerBeneficiario.fechaNacimiento,
+      },
+      segundoBeneficiario: {
+        ...pickPerson(form.derechohabientes.segundoBeneficiario),
+        relationId: form.derechohabientes.segundoBeneficiario.relationId,
+        parentesco: form.derechohabientes.segundoBeneficiario.parentesco,
+        celular: form.derechohabientes.segundoBeneficiario.celular,
+        fechaNacimiento: form.derechohabientes.segundoBeneficiario.fechaNacimiento,
+      },
+    },
+    ubicacionPlan: {
+      planKind: form.ubicacionPlan.planKind,
+      nombrePlan: form.ubicacionPlan.nombrePlan,
+      productId: form.ubicacionPlan.productId,
+      productDefaultCode: form.ubicacionPlan.productDefaultCode,
+      precioPlan: form.ubicacionPlan.precioPlan,
+      seccion: form.ubicacionPlan.seccion,
+      cuadrante: form.ubicacionPlan.cuadrante,
+      numero: form.ubicacionPlan.numero,
+      servicioFunerario: form.ubicacionPlan.servicioFunerario,
+      parqueFuneral: form.ubicacionPlan.parqueFuneral,
+      parkId: form.ubicacionPlan.parkId,
+      sectionId: form.ubicacionPlan.sectionId,
+      quadrantId: form.ubicacionPlan.quadrantId,
+      spaceId: form.ubicacionPlan.spaceId,
+      preasignacion: form.ubicacionPlan.preasignacion,
+      withoutInterest: form.ubicacionPlan.withoutInterest,
+    },
+    pago: { ...form.pago },
+    declaraciones: { ...form.declaraciones },
+    documentos: {
+      ineFrente: pickAttachment(docs.ineFrente),
+      ineReverso: pickAttachment(docs.ineReverso),
+      inePdf: pickAttachment(docs.inePdf),
+      comprobanteDomicilio: pickAttachment(docs.comprobanteDomicilio),
+      constanciaSituacionFiscal: pickAttachment(docs.constanciaSituacionFiscal),
+      tarjetaFrente: pickAttachment(docs.tarjetaFrente),
+      tarjetaReverso: pickAttachment(docs.tarjetaReverso),
+      tarjetaPdf: pickAttachment(docs.tarjetaPdf),
+      reciboNomina: pickAttachment(docs.reciboNomina),
+      domiciliacionBanorte: pickAttachment(docs.domiciliacionBanorte),
+      firmaCliente: pickAttachment(docs.firmaCliente),
+      ticketPago: pickAttachment(docs.ticketPago),
+      comprobanteTransferencia: pickAttachment(docs.comprobanteTransferencia),
+      caratulaPdf: pickAttachment(docs.caratulaPdf),
+      cartaFacturaPdf: pickAttachment(docs.cartaFacturaPdf),
+      cartaNoFacturaPdf: pickAttachment(docs.cartaNoFacturaPdf),
+      cartaExclusionesPdf: pickAttachment(docs.cartaExclusionesPdf),
+      reglamentoParquePdf: pickAttachment(docs.reglamentoParquePdf),
+      reglamentoParqueFolletoPdf: pickAttachment(docs.reglamentoParqueFolletoPdf),
+      cartaAutorizacionPdf: pickAttachment(docs.cartaAutorizacionPdf),
+      cartaNominaPdf: pickAttachment(docs.cartaNominaPdf),
+    },
+  };
+  return {
+    payload,
+    titularName: titularDisplayName(form),
+    amount: form.pago.precioPlan || '0',
+  };
 }

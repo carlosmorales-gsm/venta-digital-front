@@ -56,6 +56,7 @@ import {
   hasIneDocumentos,
   normalizePagoDefaults,
   syncBeneficiariosToDerechos,
+  toUpsertSaleBody,
   fullName,
   titularDisplayName,
   type ReuseGroup,
@@ -64,7 +65,7 @@ import {
   type SaleStatus,
 } from '../types/sale-form';
 import { isUasConvenio } from '../utils/convenio-letter';
-import { CURP_OFFICIAL_URL, isValidCurp } from '../utils/curp';
+import { CURP_OFFICIAL_URL, isValidCurp, normalizeCurp } from '../utils/curp';
 import {
   sameContactAddress,
   sameContactName,
@@ -100,6 +101,7 @@ import {
   normalizeFrequency,
   parseDiscountPct,
   parseMoney,
+  defaultSpecificDaysForFrequency,
   totalRecognizedPaid,
 } from '../utils/sale-finance';
 import {
@@ -203,10 +205,10 @@ const devPrefillSteps = reactive({
 const references = ref<SaleListItem[]>([]);
 const reuseSource = ref<'vd' | 'catalogo'>('vd');
 const reuseGroups = reactive<Record<ReuseGroup, boolean>>({
-  contacto: true,
-  segundoContacto: true,
-  titularSustituto: true,
-  beneficiarios: true,
+  contacto: false,
+  segundoContacto: false,
+  titularSustituto: false,
+  beneficiarios: false,
 });
 const selectedRefId = ref<number | null>(null);
 const vdQ = ref('');
@@ -217,6 +219,15 @@ const catalogLoading = ref(false);
 const catalogError = ref<string | null>(null);
 const catalogResults = ref<CatalogCliente[]>([]);
 const selectedCatalogId = ref<number | null>(null);
+const curpCapturaLibre = ref(false);
+const curpLookupBusy = ref(false);
+const curpLookupError = ref(false);
+const curpLookupHint = ref(
+  'Captura primero la CURP. Si ya existe en Odoo se puede precargar la información.',
+);
+const curpModalFromLookup = ref(false);
+let lastCheckedCurp = '';
+let curpLookupSeq = 0;
 const canApplyReuse = computed(() =>
   reuseSource.value === 'catalogo'
     ? Boolean(selectedCatalogId.value)
@@ -821,6 +832,9 @@ function onFrecuenciaChange() {
   if (isPagoContado.value) {
     form.pago.plazo = '0';
   }
+  form.pago.diasEspecificosPago = defaultSpecificDaysForFrequency(
+    form.pago.frecuencia,
+  );
   recomputeFinancing();
 }
 
@@ -828,7 +842,7 @@ function clampDescuento() {
   let pct = parseDiscountPct(form.pago.promocionDescuento);
   if (pct < 0) pct = 0;
   if (pct > 100) pct = 100;
-  if (allowedDiscountMax.value > 0 && pct > allowedDiscountMax.value) {
+  if (pct > allowedDiscountMax.value) {
     pct = Math.trunc(allowedDiscountMax.value);
   }
   form.pago.promocionDescuento = String(pct);
@@ -994,6 +1008,48 @@ function anyText(...vals: Array<string | null | undefined>) {
   return vals.some((v) => hasText(v));
 }
 
+/** Solo un domicilio recibe la documentación: el del titular o el del 2.º contacto. */
+function entregaDocumentacionMarcada(value: string) {
+  return hasText(value);
+}
+
+function entregaDocumentacionElegida() {
+  const titular = entregaDocumentacionMarcada(
+    form.contacto.domicilioEntregaDocumentacion,
+  );
+  const segundo = entregaDocumentacionMarcada(
+    form.segundoContacto.domicilioEntregaDocumentacion,
+  );
+  return titular !== segundo;
+}
+
+function normalizeEntregaDocumentacion() {
+  const titular = entregaDocumentacionMarcada(
+    form.contacto.domicilioEntregaDocumentacion,
+  );
+  const segundo = entregaDocumentacionMarcada(
+    form.segundoContacto.domicilioEntregaDocumentacion,
+  );
+  if (titular && segundo) {
+    form.contacto.domicilioEntregaDocumentacion = 'SI';
+    form.segundoContacto.domicilioEntregaDocumentacion = '';
+    return;
+  }
+  form.contacto.domicilioEntregaDocumentacion = titular ? 'SI' : '';
+  form.segundoContacto.domicilioEntregaDocumentacion = segundo ? 'SI' : '';
+}
+
+function onEntregaDocumentacion(who: 'titular' | 'segundo', event: Event) {
+  const on = (event.target as HTMLInputElement).checked;
+  if (who === 'titular') {
+    form.contacto.domicilioEntregaDocumentacion = on ? 'SI' : '';
+    if (on) form.segundoContacto.domicilioEntregaDocumentacion = '';
+    return;
+  }
+  form.segundoContacto.domicilioEntregaDocumentacion = on ? 'SI' : '';
+  if (on) form.contacto.domicilioEntregaDocumentacion = '';
+}
+
 /** Hay captura en la sección (aunque aún no esté completa). */
 const stepHasData = computed<Record<StepKey, boolean>>(() => {
   const c = form.contacto;
@@ -1016,7 +1072,6 @@ const stepHasData = computed<Record<StepKey, boolean>>(() => {
         c.sexo,
         c.fechaNacimiento,
         c.celular1,
-        c.celular2,
         c.correo,
         c.direccion,
         c.colonia,
@@ -1042,7 +1097,6 @@ const stepHasData = computed<Record<StepKey, boolean>>(() => {
         sc.direccion,
         sc.colonia,
         sc.cp,
-        sc.fechaNacimiento,
       ),
     plan:
       Boolean(plan.productId) ||
@@ -1102,7 +1156,6 @@ const stepComplete = computed<Record<StepKey, boolean>>(() => {
       hasText(c.fechaNacimiento) &&
       hasText(c.sexo) &&
       isValidMxPhone(c.celular1) &&
-      isEmptyOrValidMxPhone(c.celular2) &&
       (!isDomiciliado.value || isLikelyEmail(c.correo)) &&
       (c.factura !== 'SI' ||
         ((c.tipoPersona === 'FISICA' || c.tipoPersona === 'MORAL') &&
@@ -1116,7 +1169,8 @@ const stepComplete = computed<Record<StepKey, boolean>>(() => {
       hasText(c.direccion) &&
       hasText(c.colonia) &&
       hasText(c.municipio) &&
-      hasText(c.estado),
+      hasText(c.estado) &&
+      entregaDocumentacionElegida(),
     titularSustituto:
       personHasName(form.derechohabientes.titularSustituto) &&
       isEmptyOrValidMxPhone(form.derechohabientes.titularSustituto.celular),
@@ -1127,6 +1181,10 @@ const stepComplete = computed<Record<StepKey, boolean>>(() => {
       hasText(sc.nombres) &&
       hasText(sc.apellidoPaterno) &&
       isValidMxPhone(sc.celular) &&
+      hasText(sc.direccion) &&
+      hasText(sc.colonia) &&
+      hasText(sc.cp) &&
+      entregaDocumentacionElegida() &&
       !sameContactName(form.contacto, sc) &&
       !sameContactAddress(form.contacto, sc),
     plan:
@@ -1172,9 +1230,8 @@ function missingFieldsFor(key: StepKey): string[] {
     else if (!isValidCurp(c.curp)) missing.push('CURP válida');
     if (!hasText(c.fechaNacimiento)) missing.push('Fecha de nacimiento');
     if (!hasText(c.sexo)) missing.push('Sexo');
-    if (!hasText(c.celular1)) missing.push('Celular 1');
-    else if (!isValidMxPhone(c.celular1)) missing.push('Celular 1 válido');
-    if (!isEmptyOrValidMxPhone(c.celular2)) missing.push('Celular 2 válido');
+    if (!hasText(c.celular1)) missing.push('Celular');
+    else if (!isValidMxPhone(c.celular1)) missing.push('Celular válido');
     if (isDomiciliado.value) {
       if (!hasText(c.correo)) missing.push('Correo (domiciliación)');
       else if (!isLikelyEmail(c.correo)) missing.push('Correo válido');
@@ -1183,6 +1240,11 @@ function missingFieldsFor(key: StepKey): string[] {
     if (!hasText(c.colonia)) missing.push('Colonia');
     if (!hasText(c.municipio)) missing.push('Municipio');
     if (!hasText(c.estado)) missing.push('Estado');
+    if (!entregaDocumentacionElegida()) {
+      missing.push(
+        'Domicilio para entrega de documentación (titular o 2.º contacto)',
+      );
+    }
     if (c.factura === 'SI') {
       if (c.tipoPersona !== 'FISICA' && c.tipoPersona !== 'MORAL') {
         missing.push('Tipo de persona');
@@ -1230,6 +1292,14 @@ function missingFieldsFor(key: StepKey): string[] {
     if (!hasText(sc.apellidoPaterno)) missing.push('Apellido paterno');
     if (!hasText(sc.celular)) missing.push('Celular');
     else if (!isValidMxPhone(sc.celular)) missing.push('Celular válido');
+    if (!hasText(sc.direccion)) missing.push('Dirección');
+    if (!hasText(sc.colonia)) missing.push('Colonia');
+    if (!hasText(sc.cp)) missing.push('C.P.');
+    if (!entregaDocumentacionElegida()) {
+      missing.push(
+        'Domicilio para entrega de documentación (titular o 2.º contacto)',
+      );
+    }
     missing.push(
       ...titularSegundoDuplicateMessages(form.contacto, sc),
     );
@@ -1315,7 +1385,6 @@ function allFilledPhonesValid(): boolean {
   const c = form.contacto;
   const phones = [
     c.celular1,
-    c.celular2,
     form.segundoContacto.celular,
     form.derechohabientes.titularSustituto.celular,
     ...form.beneficiarios.map((b) => b.celular),
@@ -1335,10 +1404,9 @@ function firstPhoneError(
     {
       value: form.contacto.celular1,
       required: requireMain,
-      label: 'Celular 1 del titular',
+      label: 'Celular del titular',
       step: 1,
     },
-    { value: form.contacto.celular2, required: false, label: 'Celular 2 del titular', step: 1 },
     {
       value: form.derechohabientes.titularSustituto.celular,
       required: false,
@@ -1374,15 +1442,6 @@ function onPhoneInput(
   assign(normalizeMxPhone((event.target as HTMLInputElement).value));
 }
 
-/** Mínimo para poder guardar borrador. */
-const canSaveDraft = computed(() => {
-  const c = form.contacto;
-  if (!hasText(c.nombres) || !hasText(c.apellidoPaterno)) return false;
-  if (hasText(c.curp) && !isValidCurp(c.curp)) return false;
-  if (!allFilledPhonesValid()) return false;
-  return true;
-});
-
 /** Todos los pasos listos → se puede guardar como venta (flujo de pago/firma). */
 const allStepsComplete = computed(() =>
   STEPS.every((s) => stepComplete.value[s.key]),
@@ -1397,7 +1456,19 @@ function openStep(index: number) {
   step.value = index;
   if (index === 1) titularInnerTab.value = 'personales';
   if (index === 3) segundoInnerTab.value = 'personales';
-  if (index === 4) planInnerTab.value = 'plan';
+  if (index === 4) {
+    planInnerTab.value = 'plan';
+    const addressMissing =
+      !hasText(form.segundoContacto.direccion) ||
+      !hasText(form.segundoContacto.colonia) ||
+      !hasText(form.segundoContacto.cp);
+    const personalReady =
+      hasText(form.segundoContacto.nombres) &&
+      hasText(form.segundoContacto.apellidoPaterno) &&
+      isValidMxPhone(form.segundoContacto.celular);
+    segundoInnerTab.value =
+      personalReady && addressMissing ? 'domicilio' : 'personales';
+  }
   if (index === 6) docsInnerTab.value = 'subir';
   formOpen.value = true;
 }
@@ -1431,36 +1502,13 @@ function payloadMeta() {
   normalizeFinancingDefaults();
   syncBeneficiariosToDerechos(form);
   uppercaseSaleFormText(form);
-  return {
-    payload: {
-      meta: form.meta,
-      contacto: form.contacto,
-      segundoContacto: form.segundoContacto,
-      beneficiarios: form.beneficiarios,
-      derechohabientes: form.derechohabientes,
-      ubicacionPlan: form.ubicacionPlan,
-      pago: form.pago,
-      declaraciones: form.declaraciones,
-      documentos: form.documentos,
-    },
-    titularName: titularDisplayName(form),
-    amount: form.pago.precioPlan || '0',
-  };
+  return toUpsertSaleBody(form);
 }
 
 function ensureBeneficiarios() {
   if (!form.beneficiarios.length) {
     form.beneficiarios.push(emptyBeneficiary());
   }
-}
-
-function validateCurpIfPresent(): string | null {
-  const curp = form.contacto.curp?.trim() ?? '';
-  if (!curp) return null;
-  if (!isValidCurp(curp)) {
-    return 'La CURP no es válida. Verifica el formato de 18 caracteres.';
-  }
-  return null;
 }
 
 const minDateToday = computed(() => todayIsoDate());
@@ -1522,7 +1570,7 @@ async function loadDraftPolicy() {
       Math.max(maxDiscountAmount.value, descuentoEspecial.value);
     applyDescuentoEspecialDefault();
   } catch {
-    if (isDev) allowedDiscountMax.value = 100;
+    /* se conserva el tope del vendedor; no abrir 100% en dev */
   }
 }
 
@@ -1543,6 +1591,7 @@ async function loadSale(id: number) {
     status.value = data.status;
     Object.assign(form, mergeSaleForm(data.payload));
     uppercaseSaleFormText(form);
+    normalizeEntregaDocumentacion();
     syncFolioFromSaleId();
     ensureBeneficiarios();
     clampDescuento();
@@ -1554,6 +1603,7 @@ async function loadSale(id: number) {
     await syncWithoutInterestFromPlan();
     await refreshIneSidesPdf();
     await refreshCardSidesPdf();
+    resumeCurpGate();
   } catch (e: unknown) {
     await alert({
       title: 'Venta',
@@ -1617,72 +1667,7 @@ function removeBeneficiario(index: number) {
 async function saveDraft() {
   if (!canEdit.value) return;
 
-  if (!canSaveDraft.value) {
-    await alert({
-      title: 'Datos básicos',
-      message:
-        'Para guardar el borrador captura al menos nombre y apellido paterno del titular. Si capturas CURP o celular, deben ser válidos.',
-      variant: 'warning',
-    });
-    openStep(1);
-    titularInnerTab.value = 'personales';
-    return;
-  }
-
-  const curpError = validateCurpIfPresent();
-  if (curpError) {
-    await alert({
-      title: 'CURP',
-      message: curpError,
-      variant: 'warning',
-    });
-    openStep(1);
-    titularInnerTab.value = 'personales';
-    return;
-  }
-
-  if (!allFilledPhonesValid()) {
-    const filledErr = firstPhoneError(false);
-    await alert({
-      title: 'Celular',
-      message: filledErr?.message ?? 'Hay un celular inválido.',
-      variant: 'warning',
-    });
-    openStep(filledErr?.step ?? 1);
-    return;
-  }
-
   recomputeSaldo();
-  const scheduleErr = validateScheduleDates();
-  if (scheduleErr) {
-    await alert({
-      title: 'Fecha inválida',
-      message: scheduleErr,
-      variant: 'warning',
-    });
-    if (scheduleErr.includes('contrato')) openStep(0);
-    else if (
-      scheduleErr.includes('próximo') ||
-      scheduleErr.includes('específicos')
-    ) {
-      openStep(4);
-      planInnerTab.value = planSelected.value ? 'financiamiento' : 'plan';
-    } else openStep(0);
-    clampScheduleDates();
-    return;
-  }
-  const descErr = discountError();
-  if (descErr) {
-    await alert({
-      title: 'Descuento',
-      message: descErr,
-      variant: 'warning',
-    });
-    openStep(4);
-    planInnerTab.value = planSelected.value ? 'financiamiento' : 'plan';
-    return;
-  }
-
   saving.value = true;
   try {
     await refreshIneSidesPdf();
@@ -1866,11 +1851,157 @@ function resetVdSearch() {
   selectedRefId.value = null;
 }
 
+function clearReuseGroups() {
+  reuseGroups.contacto = false;
+  reuseGroups.segundoContacto = false;
+  reuseGroups.titularSustituto = false;
+  reuseGroups.beneficiarios = false;
+}
+
 function openReuse() {
+  curpModalFromLookup.value = false;
   reuseSource.value = 'vd';
   resetVdSearch();
   resetCatalogSearch();
+  clearReuseGroups();
   reuseOpen.value = true;
+}
+
+function titularAlreadyCaptured() {
+  return (
+    hasText(form.contacto.nombres) ||
+    hasText(form.contacto.apellidoPaterno) ||
+    hasText(form.contacto.direccion)
+  );
+}
+
+function resumeCurpGate() {
+  const curp = normalizeCurp(form.contacto.curp);
+  if (form.contacto.curp !== curp) form.contacto.curp = curp;
+  if (titularAlreadyCaptured()) {
+    lastCheckedCurp = curp;
+    curpCapturaLibre.value = true;
+    curpLookupBusy.value = false;
+    curpLookupError.value = false;
+    curpLookupHint.value = '';
+    return;
+  }
+  curpCapturaLibre.value = false;
+  lastCheckedCurp = '';
+  if (titularInnerTab.value !== 'personales') {
+    titularInnerTab.value = 'personales';
+  }
+  if (isValidCurp(curp)) void lookupTitularCurp(curp);
+}
+
+function onTitularCurpInput(event: Event) {
+  const raw = normalizeCurp((event.target as HTMLInputElement).value);
+  form.contacto.curp = raw;
+  void lookupTitularCurp(raw);
+}
+
+async function lookupTitularCurp(raw: string) {
+  const curp = normalizeCurp(raw);
+  if (!isValidCurp(curp)) {
+    curpLookupSeq += 1;
+    curpLookupBusy.value = false;
+    curpLookupError.value = false;
+    curpCapturaLibre.value = false;
+    lastCheckedCurp = '';
+    if (titularInnerTab.value !== 'personales') {
+      titularInnerTab.value = 'personales';
+    }
+    curpLookupHint.value = curp
+      ? 'La CURP no es válida. Revísala para continuar.'
+      : 'Captura primero la CURP. Si ya existe en Odoo se puede precargar la información.';
+    return;
+  }
+  if (
+    curp === lastCheckedCurp &&
+    curpCapturaLibre.value &&
+    !curpModalFromLookup.value
+  ) {
+    return;
+  }
+  const seq = ++curpLookupSeq;
+  curpLookupBusy.value = true;
+  curpLookupError.value = false;
+  curpCapturaLibre.value = false;
+  if (titularInnerTab.value !== 'personales') {
+    titularInnerTab.value = 'personales';
+  }
+  curpLookupHint.value = 'Consultando la CURP en Odoo…';
+  try {
+    const results = await searchCatalogClientes(curp, 20);
+    if (seq !== curpLookupSeq) return;
+    const matches = results.filter(
+      (c) => normalizeCurp(c.contacto?.curp) === curp,
+    );
+    lastCheckedCurp = curp;
+    if (!matches.length) {
+      curpCapturaLibre.value = true;
+      curpLookupHint.value =
+        'La CURP no está en Odoo. Continúa con la captura.';
+      return;
+    }
+    openPrecargaFromCurp(curp, matches);
+    curpLookupHint.value =
+      'Esta CURP ya existe en Odoo. Revisa la información para precargarla.';
+  } catch (e: unknown) {
+    if (seq !== curpLookupSeq) return;
+    curpCapturaLibre.value = false;
+    lastCheckedCurp = '';
+    curpLookupError.value = true;
+    curpLookupHint.value = extractApiError(
+      e,
+      'No se pudo consultar Odoo. Revisa la CURP e inténtalo de nuevo.',
+    );
+  } finally {
+    if (seq === curpLookupSeq) curpLookupBusy.value = false;
+  }
+}
+
+function openPrecargaFromCurp(curp: string, matches: CatalogCliente[]) {
+  if (vdTimer) clearTimeout(vdTimer);
+  if (catalogTimer) clearTimeout(catalogTimer);
+  reuseSource.value = 'catalogo';
+  catalogQ.value = curp;
+  catalogResults.value = matches;
+  catalogError.value = null;
+  catalogLoading.value = false;
+  selectedCatalogId.value = matches[0]?.id ?? null;
+  vdQ.value = '';
+  references.value = [];
+  vdError.value = null;
+  vdLoading.value = false;
+  clearReuseGroups();
+  curpModalFromLookup.value = true;
+  reuseOpen.value = true;
+}
+
+function closeReuse() {
+  reuseOpen.value = false;
+  if (!curpModalFromLookup.value) return;
+  curpModalFromLookup.value = false;
+  curpCapturaLibre.value = true;
+  curpLookupError.value = false;
+  curpLookupHint.value =
+    'La CURP existe en Odoo. Continúa con la captura.';
+}
+
+function releaseCurpAfterReuse() {
+  const fromLookup = curpModalFromLookup.value;
+  curpModalFromLookup.value = false;
+  const curp = normalizeCurp(form.contacto.curp);
+  if (form.contacto.curp !== curp) form.contacto.curp = curp;
+  if (isValidCurp(curp) || titularAlreadyCaptured()) {
+    lastCheckedCurp = curp;
+    curpCapturaLibre.value = true;
+  }
+  if (fromLookup) {
+    curpLookupError.value = false;
+    curpLookupHint.value = '';
+  }
 }
 
 async function searchVdSales() {
@@ -1946,6 +2077,8 @@ function applyReuse() {
     applyCatalogClienteToForm(form, cliente, reuseGroups);
     ensureBeneficiarios();
     uppercaseSaleFormText(form);
+    normalizeEntregaDocumentacion();
+    releaseCurpAfterReuse();
     reuseOpen.value = false;
     return;
   }
@@ -1975,6 +2108,8 @@ function applyReuse() {
     syncBeneficiariosToDerechos(form);
   }
   uppercaseSaleFormText(form);
+  normalizeEntregaDocumentacion();
+  releaseCurpAfterReuse();
   reuseOpen.value = false;
 }
 
@@ -1992,6 +2127,8 @@ function applyRecognition(payload: {
     .slice(0, 80);
   ensureBeneficiarios();
   uppercaseSaleFormText(form);
+  normalizeEntregaDocumentacion();
+  resumeCurpGate();
 }
 
 function openDevPrefill() {
@@ -2054,6 +2191,14 @@ async function applyDevPrefill() {
   if (devPrefillSteps.segundo) {
     Object.assign(form.segundoContacto, mock.segundoContacto);
   }
+  if (devPrefillSteps.titular || devPrefillSteps.segundo) {
+    if (
+      !form.contacto.domicilioEntregaDocumentacion.trim() &&
+      !form.segundoContacto.domicilioEntregaDocumentacion.trim()
+    ) {
+      form.contacto.domicilioEntregaDocumentacion = 'SI';
+    }
+  }
   if (devPrefillSteps.plan) {
     Object.assign(form.ubicacionPlan, mock.ubicacionPlan);
     Object.assign(form.pago, mock.pago);
@@ -2090,6 +2235,8 @@ async function applyDevPrefill() {
   }
 
   uppercaseSaleFormText(form);
+  normalizeEntregaDocumentacion();
+  resumeCurpGate();
   devPrefillOpen.value = false;
   await alert({
     title: 'Prellenar (dev)',
@@ -2475,7 +2622,11 @@ async function goBack() {
           <button
             type="button"
             class="tab"
-            :class="{ active: titularInnerTab === 'domicilio' }"
+            :class="{
+              active: titularInnerTab === 'domicilio',
+              'tab--disabled': !curpCapturaLibre,
+            }"
+            :disabled="!curpCapturaLibre"
             @click="titularInnerTab = 'domicilio'"
           >
             Domicilio
@@ -2484,7 +2635,11 @@ async function goBack() {
             v-if="pideFactura"
             type="button"
             class="tab"
-            :class="{ active: titularInnerTab === 'factura' }"
+            :class="{
+              active: titularInnerTab === 'factura',
+              'tab--disabled': !curpCapturaLibre,
+            }"
+            :disabled="!curpCapturaLibre"
             @click="titularInnerTab = 'factura'"
           >
             Factura
@@ -2493,6 +2648,37 @@ async function goBack() {
 
         <div v-show="titularInnerTab === 'personales'" class="fields">
           <p class="hint span-2">Identidad</p>
+          <label class="span-2 curp-field">
+            CURP
+            <div class="curp-field__row">
+              <input
+                :value="form.contacto.curp"
+                maxlength="18"
+                autocomplete="off"
+                :disabled="!canEdit"
+                @input="onTitularCurpInput"
+              />
+              <a
+                :href="CURP_OFFICIAL_URL"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="btn btn-ghost btn-compact curp-field__link"
+              >
+                Obtener CURP
+              </a>
+            </div>
+            <small
+              v-if="curpLookupHint"
+              :class="curpLookupError ? 'field-error' : 'hint'"
+            >
+              {{ curpLookupHint }}
+            </small>
+          </label>
+          <div
+            class="titular-rest"
+            :class="{ 'titular-rest--locked': canEdit && !curpCapturaLibre }"
+            :inert="canEdit && !curpCapturaLibre"
+          >
           <label class="span-2">
             Nombre(s)
             <input v-model="form.contacto.nombres" :disabled="!canEdit" />
@@ -2513,25 +2699,6 @@ async function goBack() {
               />
             </label>
           </div>
-          <label class="span-2 curp-field">
-            CURP
-            <div class="curp-field__row">
-              <input
-                v-model="form.contacto.curp"
-                maxlength="18"
-                autocomplete="off"
-                :disabled="!canEdit"
-              />
-              <a
-                :href="CURP_OFFICIAL_URL"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="btn btn-ghost btn-compact curp-field__link"
-              >
-                Obtener CURP
-              </a>
-            </div>
-          </label>
           <div class="field-row">
             <label>
               Fecha de nacimiento
@@ -2564,42 +2731,23 @@ async function goBack() {
           </label>
 
           <p class="hint span-2 section-gap">Contacto</p>
-          <div class="field-row">
-            <label>
-              Celular 1
-              <input
-                :value="form.contacto.celular1"
-                inputmode="numeric"
-                maxlength="10"
-                autocomplete="tel"
-                :disabled="!canEdit"
-                @input="onPhoneInput($event, (v) => (form.contacto.celular1 = v))"
-              />
-              <small
-                v-if="mxPhoneError(form.contacto.celular1)"
-                class="field-error"
-              >
-                {{ mxPhoneError(form.contacto.celular1) }}
-              </small>
-            </label>
-            <label>
-              Celular 2
-              <input
-                :value="form.contacto.celular2"
-                inputmode="numeric"
-                maxlength="10"
-                autocomplete="tel"
-                :disabled="!canEdit"
-                @input="onPhoneInput($event, (v) => (form.contacto.celular2 = v))"
-              />
-              <small
-                v-if="mxPhoneError(form.contacto.celular2)"
-                class="field-error"
-              >
-                {{ mxPhoneError(form.contacto.celular2) }}
-              </small>
-            </label>
-          </div>
+          <label class="span-2">
+            Celular
+            <input
+              :value="form.contacto.celular1"
+              inputmode="numeric"
+              maxlength="10"
+              autocomplete="tel"
+              :disabled="!canEdit"
+              @input="onPhoneInput($event, (v) => (form.contacto.celular1 = v))"
+            />
+            <small
+              v-if="mxPhoneError(form.contacto.celular1)"
+              class="field-error"
+            >
+              {{ mxPhoneError(form.contacto.celular1) }}
+            </small>
+          </label>
           <label class="span-2">
             Correo electrónico
             <span v-if="isDomiciliado" class="field-req">Obligatorio en domiciliación</span>
@@ -2632,7 +2780,7 @@ async function goBack() {
                 class="toggle"
                 :class="{
                   'toggle--on': form.contacto.sindicalizado === 'SI',
-                  'toggle--disabled': !canEdit,
+                  'toggle--disabled': !canEdit || !curpCapturaLibre,
                 }"
               >
                 <input
@@ -2659,9 +2807,15 @@ async function goBack() {
               :disabled="!canEdit"
             />
           </label>
+          </div>
         </div>
 
-        <div v-show="titularInnerTab === 'domicilio'" class="fields">
+        <div
+          v-show="titularInnerTab === 'domicilio'"
+          class="fields"
+          :class="{ 'titular-rest--locked': canEdit && !curpCapturaLibre }"
+          :inert="canEdit && !curpCapturaLibre"
+        >
           <p class="hint span-2">Domicilio</p>
           <label class="span-2">
             Dirección
@@ -2703,17 +2857,28 @@ async function goBack() {
             />
           </label>
 
-          <p class="hint span-2 section-gap">Datos adicionales</p>
-          <label class="span-2">
-            Domicilio entrega documentación
+          <p class="hint span-2 section-gap">Entrega de documentación</p>
+          <label class="check span-2">
             <input
-              v-model="form.contacto.domicilioEntregaDocumentacion"
+              type="checkbox"
+              :checked="
+                entregaDocumentacionMarcada(
+                  form.contacto.domicilioEntregaDocumentacion,
+                )
+              "
               :disabled="!canEdit"
+              @change="onEntregaDocumentacion('titular', $event)"
             />
+            Entregar en el domicilio del titular
           </label>
         </div>
 
-        <div v-show="titularInnerTab === 'factura'" class="fields">
+        <div
+          v-show="titularInnerTab === 'factura'"
+          class="fields"
+          :class="{ 'titular-rest--locked': canEdit && !curpCapturaLibre }"
+          :inert="canEdit && !curpCapturaLibre"
+        >
           <p class="hint span-2">
             Carta de requerimiento de factura. Escríbela tal cual estás
             registrado en el SAT.
@@ -3028,31 +3193,21 @@ async function goBack() {
               />
             </label>
           </div>
-          <div class="field-row">
-            <label>
-              Parentesco
-              <VdSelect
-                :model-value="relationSelectValue(form.segundoContacto)"
-                :options="parentescoOptions"
-                :default-options="parentescoDefaultOptions"
-                placeholder="Selecciona"
-                searchable
-                search-placeholder="Buscar relación…"
-                :disabled="!canEdit"
-                @update:model-value="
-                  onRelationChange(form.segundoContacto, $event)
-                "
-              />
-            </label>
-            <label>
-              Fecha de nacimiento
-              <input
-                v-model="form.segundoContacto.fechaNacimiento"
-                type="date"
-                :disabled="!canEdit"
-              />
-            </label>
-          </div>
+          <label>
+            Parentesco
+            <VdSelect
+              :model-value="relationSelectValue(form.segundoContacto)"
+              :options="parentescoOptions"
+              :default-options="parentescoDefaultOptions"
+              placeholder="Selecciona"
+              searchable
+              search-placeholder="Buscar relación…"
+              :disabled="!canEdit"
+              @update:model-value="
+                onRelationChange(form.segundoContacto, $event)
+              "
+            />
+          </label>
           <label class="span-2">
             Celular
             <input
@@ -3107,12 +3262,18 @@ async function goBack() {
               :disabled="!canEdit"
             />
           </label>
-          <label class="span-2">
-            Domicilio entrega documentación
+          <label class="check span-2">
             <input
-              v-model="form.segundoContacto.domicilioEntregaDocumentacion"
+              type="checkbox"
+              :checked="
+                entregaDocumentacionMarcada(
+                  form.segundoContacto.domicilioEntregaDocumentacion,
+                )
+              "
               :disabled="!canEdit"
+              @change="onEntregaDocumentacion('segundo', $event)"
             />
+            Entregar en el domicilio del 2.º contacto
           </label>
         </div>
       </div>
@@ -3434,8 +3595,11 @@ async function goBack() {
               v-model="form.pago.diasEspecificosPago"
               :disabled="!canEdit"
               required
-              placeholder="Ej. 15 de cada mes"
+              placeholder="Ej. 5,20"
             />
+            <small class="field-hint">
+              Quincenal: 5,20 · Semanal: 7,14,21,28 · Mensual: se captura a mano
+            </small>
           </label>
         </div>
 
@@ -4763,12 +4927,9 @@ async function goBack() {
         <template v-else-if="allStepsComplete">
           Todos los pasos listos · se guardará como venta
         </template>
-        <template v-else-if="canSaveDraft">
+        <template v-else>
           {{ completedCount }}/{{ STEPS.length }} completos · puedes guardar
           borrador
-        </template>
-        <template v-else>
-          Captura nombre y apellido paterno del titular para guardar borrador
         </template>
       </p>
       <div v-if="canEdit" class="dock-actions">
@@ -4776,7 +4937,7 @@ async function goBack() {
           v-if="!allStepsComplete"
           type="button"
           class="btn btn-primary dock-draft"
-          :disabled="saving || !canSaveDraft"
+          :disabled="saving"
           @click="saveDraft"
         >
           {{ saving ? 'Guardando…' : 'Guardar borrador' }}
@@ -4962,7 +5123,7 @@ async function goBack() {
       :open="reuseOpen"
       title="Precargar cotización"
       wide
-      @close="reuseOpen = false"
+      @close="closeReuse"
     >
       <div class="reuse">
         <div class="tabs" role="tablist" aria-label="Origen de la cotización">
@@ -5023,6 +5184,10 @@ async function goBack() {
         </template>
 
         <template v-else>
+          <p v-if="curpModalFromLookup" class="hint">
+            La CURP ya está en Odoo. Marca qué datos quieres precargar.
+            Aplicar los carga en la captura; Cancelar deja seguir capturando.
+          </p>
           <p class="hint">
             Busca al cliente por nombre, CURP o celular. Se cargan titular,
             domicilio, segundo contacto y, si el último contrato los tiene,
@@ -5078,7 +5243,7 @@ async function goBack() {
         </label>
       </div>
       <template #footer>
-        <button type="button" class="btn btn-ghost" @click="reuseOpen = false">
+        <button type="button" class="btn btn-ghost" @click="closeReuse">
           Cancelar
         </button>
         <button
@@ -5461,6 +5626,18 @@ async function goBack() {
   gap: 0.7rem;
 }
 
+.titular-rest {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: 1fr;
+  gap: 0.7rem;
+  min-inline-size: 0;
+}
+
+.titular-rest--locked {
+  opacity: 0.72;
+}
+
 .fields label {
   display: flex;
   flex-direction: column;
@@ -5639,6 +5816,16 @@ async function goBack() {
   align-items: center;
   text-decoration: none;
   white-space: nowrap;
+}
+
+.curp-field small.hint {
+  color: var(--vd-muted);
+  font-weight: 500;
+}
+
+.curp-field small.field-error {
+  color: #b42318;
+  font-weight: 600;
 }
 
 @media (max-width: 600px) {
@@ -6153,7 +6340,8 @@ async function goBack() {
     gap: 0.9rem;
   }
 
-  .fields {
+  .fields,
+  .titular-rest {
     grid-template-columns: 1fr 1fr;
     gap: 0.75rem 0.9rem;
   }

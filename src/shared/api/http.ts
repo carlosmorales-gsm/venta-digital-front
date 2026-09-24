@@ -28,6 +28,7 @@ const PUBLIC_AUTH_PATHS = [
   '/auth/vendedor/verificar-pin',
   '/auth/vendedor/login-dev',
   '/auth/refresh',
+  '/public/sign/',
 ];
 
 function isPublicAuthRequest(url?: string): boolean {
@@ -36,7 +37,9 @@ function isPublicAuthRequest(url?: string): boolean {
 }
 
 function isLoginRoute(path: string): boolean {
-  return path === '/' || path.startsWith('/login');
+  return (
+    path === '/' || path.startsWith('/login') || path.startsWith('/firmar/')
+  );
 }
 
 export function extractApiError(

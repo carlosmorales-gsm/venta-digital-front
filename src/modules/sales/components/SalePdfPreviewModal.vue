@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue';
 import VdModal from '../../../shared/ui/modal/VdModal.vue';
-import { pdfBlobViewUrl } from '../utils/pdf-page-renderer';
+import { pdfBlobViewUrl, renderPdfToPageImages } from '../utils/pdf-page-renderer';
 import {
   buildAuthorizationLetterBundle,
   isDraftAuthorizationLetter,
@@ -236,9 +236,12 @@ async function render() {
                 ? await buildInvoiceLetterBundle(props.form, opts)
                 : await buildSalePreviewBundle(props.form, opts);
     downloadUrl.value = URL.createObjectURL(blob);
-    if (pages.length) {
+    try {
+      pageImages.value = await renderPdfToPageImages(blob, { purpose: 'preview' });
+    } catch {
       pageImages.value = pages;
-    } else {
+    }
+    if (!pageImages.value.length) {
       embedUrl.value = pdfBlobViewUrl(downloadUrl.value);
     }
   } catch {
@@ -372,6 +375,7 @@ onUnmounted(() => {
   background: #fff;
   border-radius: 2px;
   box-shadow: 0 2px 12px rgba(28, 42, 51, 0.14);
+  image-rendering: auto;
 }
 
 .preview__pages--booklet {
