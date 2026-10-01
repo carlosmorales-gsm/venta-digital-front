@@ -58,7 +58,6 @@ import {
   syncBeneficiariosToDerechos,
   toUpsertSaleBody,
   fullName,
-  titularDisplayName,
   type ReuseGroup,
   type SaleFormData,
   type SaleListItem,
@@ -1380,17 +1379,6 @@ const completedCount = computed(
 const progress = computed(
   () => (completedCount.value / STEPS.length) * 100,
 );
-
-function allFilledPhonesValid(): boolean {
-  const c = form.contacto;
-  const phones = [
-    c.celular1,
-    form.segundoContacto.celular,
-    form.derechohabientes.titularSustituto.celular,
-    ...form.beneficiarios.map((b) => b.celular),
-  ];
-  return phones.every((p) => isEmptyOrValidMxPhone(p));
-}
 
 function firstPhoneError(
   requireMain = true,
