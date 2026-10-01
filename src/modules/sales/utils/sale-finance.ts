@@ -154,11 +154,15 @@ export function computeCashPrice(
   return Math.max(0, Number((precio - descuentoMonto).toFixed(2)));
 }
 
-/** Lo ya pagado en una venta origen (precio − saldo pendiente). */
+/** Lo ya pagado en una venta origen (suma de `sales.payments.paid_amount`). */
 export function paidOnRecognizedSale(v: {
   amountTotal?: number;
   saldo?: number;
+  paidAmount?: number | string | null;
 }): number {
+  if (v.paidAmount != null && v.paidAmount !== '') {
+    return Math.max(0, Number(parseMoney(v.paidAmount).toFixed(2)));
+  }
   const total = parseMoney(v.amountTotal);
   const remaining = parseMoney(v.saldo);
   return Math.max(0, Number((total - remaining).toFixed(2)));
@@ -166,7 +170,11 @@ export function paidOnRecognizedSale(v: {
 
 /** Suma de saldos a reconocer (pagado en las ventas origen). */
 export function totalRecognizedPaid(
-  ventas: Array<{ amountTotal?: number; saldo?: number }> | null | undefined,
+  ventas: Array<{
+    amountTotal?: number;
+    saldo?: number;
+    paidAmount?: number | string | null;
+  }> | null | undefined,
 ): number {
   if (!Array.isArray(ventas) || !ventas.length) return 0;
   return Number(

@@ -33,6 +33,8 @@ export type ReconocimientoVenta = {
   dateOrder: string;
   amountTotal: number;
   saldo: number;
+  /** Suma de `sales.payments.paid_amount` de esa cotización. */
+  paidAmount?: number;
   matchType: 'titular' | 'beneficiario';
   matchedBeneficiaryName?: string;
 };
@@ -704,6 +706,10 @@ export function mergeSaleForm(raw: unknown): SaleFormData {
               dateOrder: String(item.dateOrder ?? ''),
               amountTotal: Number(item.amountTotal) || 0,
               saldo: Number(item.saldo) || 0,
+              paidAmount:
+                item.paidAmount != null
+                  ? Number(item.paidAmount) || 0
+                  : undefined,
               matchType:
                 item.matchType === 'beneficiario' ? 'beneficiario' : 'titular',
               matchedBeneficiaryName: String(item.matchedBeneficiaryName ?? ''),
@@ -890,6 +896,7 @@ export function toUpsertSaleBody(form: SaleFormData): {
         dateOrder: item.dateOrder,
         amountTotal: item.amountTotal,
         saldo: item.saldo,
+        paidAmount: item.paidAmount,
         matchType: item.matchType,
         matchedBeneficiaryName: item.matchedBeneficiaryName,
       })),
