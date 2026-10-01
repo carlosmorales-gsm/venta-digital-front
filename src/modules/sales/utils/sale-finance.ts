@@ -148,7 +148,7 @@ export function computeCashPrice(
   precioPlan: unknown,
   descuentoPct: unknown,
 ): number {
-  const precio = parseMoney(precioPlan);//test
+  const precio = parseMoney(precioPlan);
   const pct = Math.min(100, Math.max(0, parseDiscountPct(descuentoPct)));
   const descuentoMonto = (precio * pct) / 100;
   return Math.max(0, Number((precio - descuentoMonto).toFixed(2)));
