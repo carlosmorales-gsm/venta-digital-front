@@ -95,11 +95,17 @@ const navItems = computed(() => {
 const showNav = computed(() => !isSeller.value && navItems.value.length > 0);
 
 const roleLabel = computed(() => {
+  if (auth.isImpersonating) return 'Admin como vendedor';
   if (auth.userType === 'VENDEDOR') return 'Vendedor';
   if (auth.userType === 'MONITOR') return 'Monitor';
   if (auth.userType === 'ADMIN') return 'Admin';
   return '';
 });
+
+async function returnToAdmin() {
+  if (!auth.restoreAdminSession()) return;
+  await router.replace({ name: 'admin-usuarios' });
+}
 
 const userInitial = computed(
   () => auth.user?.fullName?.charAt(0)?.toUpperCase() || 'U',
@@ -153,6 +159,14 @@ function toggleSidebar() {
       </div>
       <div class="seller-bar__actions">
         <span class="user-name">{{ auth.user?.fullName }}</span>
+        <button
+          v-if="auth.isImpersonating"
+          class="btn btn-sm btn-ghost logout-light"
+          type="button"
+          @click="returnToAdmin"
+        >
+          Volver a admin
+        </button>
         <button class="btn btn-sm btn-ghost logout-light" type="button" @click="logout">
           Salir
         </button>
@@ -376,6 +390,8 @@ function toggleSidebar() {
 .seller-bar__actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 0.65rem;
 }
 

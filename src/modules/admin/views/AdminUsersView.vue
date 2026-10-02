@@ -30,6 +30,7 @@ const users = ref<PublicUser[]>([]);
 const loading = ref(true);
 const saving = ref(false);
 const togglingId = ref<number | null>(null);
+const enteringId = ref<number | null>(null);
 const formError = ref<string | null>(null);
 const listError = ref<string | null>(null);
 const modalOpen = ref(false);
@@ -227,6 +228,37 @@ function isSelf(user: PublicUser) {
   return auth.user?.id === user.id;
 }
 
+function canEnterAsSeller(user: PublicUser) {
+  return user.type === 'VENDEDOR' && user.active;
+}
+
+async function enterAsSeller(user: PublicUser) {
+  if (!canEnterAsSeller(user) || enteringId.value != null) return;
+
+  const ok = await confirm({
+    title: 'Entrar como vendedor',
+    message: `Vas a trabajar como ${user.fullName}. Las ventas y la captura serán las de ese vendedor.`,
+    confirmText: 'Entrar',
+    cancelText: 'Cancelar',
+    variant: 'info',
+  });
+  if (!ok) return;
+
+  enteringId.value = user.id;
+  try {
+    await auth.enterAsSeller(user.id);
+    await router.replace({ name: 'vendedor-ventas' });
+  } catch (e: any) {
+    await alert({
+      title: 'No se pudo entrar como vendedor',
+      message: apiMessage(e, 'Intenta de nuevo'),
+      variant: 'danger',
+    });
+  } finally {
+    enteringId.value = null;
+  }
+}
+
 onMounted(loadUsers);
 </script>
 
@@ -235,7 +267,7 @@ onMounted(loadUsers);
     <header class="page-head head-row">
       <div class="head-copy">
         <h1>Usuarios</h1>
-        <p>Alta, edición y habilitación de vendedores y monitores.</p>
+        <p>Alta, edición y habilitación. El administrador puede entrar como un vendedor activo.</p>
       </div>
       <div class="head-actions">
         <button type="button" class="btn btn-accent" @click="openCreate">
@@ -310,6 +342,37 @@ onMounted(loadUsers);
                         />
                       </svg>
                     </button>
+                    <button
+                      v-if="canEnterAsSeller(u)"
+                      type="button"
+                      class="icon-btn"
+                      title="Entrar como vendedor"
+                      aria-label="Entrar como vendedor"
+                      :disabled="enteringId === u.id"
+                      @click="enterAsSeller(u)"
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <path
+                          d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"
+                          stroke="currentColor"
+                          stroke-width="1.8"
+                          stroke-linecap="round"
+                        />
+                        <path
+                          d="M10 17 15 12 10 7"
+                          stroke="currentColor"
+                          stroke-width="1.8"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        />
+                        <path
+                          d="M15 12H3"
+                          stroke="currentColor"
+                          stroke-width="1.8"
+                          stroke-linecap="round"
+                        />
+                      </svg>
+                    </button>
                     <VdSwitch
                       :model-value="u.active"
                       :disabled="togglingId === u.id || isSelf(u)"
@@ -367,6 +430,37 @@ onMounted(loadUsers);
                   />
                   <path
                     d="M13 6.5 17.5 11"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                  />
+                </svg>
+              </button>
+              <button
+                v-if="canEnterAsSeller(u)"
+                type="button"
+                class="icon-btn"
+                title="Entrar como vendedor"
+                aria-label="Entrar como vendedor"
+                :disabled="enteringId === u.id"
+                @click="enterAsSeller(u)"
+              >
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path
+                    d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                  />
+                  <path
+                    d="M10 17 15 12 10 7"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                  <path
+                    d="M15 12H3"
                     stroke="currentColor"
                     stroke-width="1.8"
                     stroke-linecap="round"
@@ -618,10 +712,15 @@ onMounted(loadUsers);
   height: 18px;
 }
 
-.icon-btn:hover {
+.icon-btn:hover:not(:disabled) {
   border-color: var(--gsm-cafe);
   background: rgba(204, 160, 121, 0.12);
   color: var(--gsm-blue);
+}
+
+.icon-btn:disabled {
+  opacity: 0.55;
+  cursor: wait;
 }
 
 .mobile-list {

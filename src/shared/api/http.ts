@@ -80,6 +80,7 @@ export const tokenStorage = {
     localStorage.removeItem(STORAGE_REFRESH);
     localStorage.removeItem('vd_user');
     localStorage.removeItem('vd_expires_at');
+    localStorage.removeItem('vd_admin_session_backup');
   },
 };
 
@@ -127,15 +128,24 @@ export async function redirectToLoginOnSessionExpired() {
     /* ignore */
   }
 
+  let restoredAdmin = false;
   try {
     const { useAuthStore } = await import('../../modules/auth/stores/auth.store');
-    useAuthStore().clearSession();
+    const auth = useAuthStore();
+    restoredAdmin = auth.restoreAdminSession();
+    if (!restoredAdmin) {
+      auth.clearSession();
+    }
   } catch {
     tokenStorage.clear();
   }
 
   try {
     const { default: router } = await import('../../router');
+    if (restoredAdmin) {
+      await router.replace({ name: 'admin-usuarios' });
+      return;
+    }
     const name =
       userType === 'VENDEDOR' || path.startsWith('/vendedor')
         ? 'login-vendedor'

@@ -31,12 +31,81 @@ export const useAuthStore = defineStore('auth', () => {
   const userType = computed<UserType | null>(() => user.value?.type ?? null);
   const permissions = computed(() => user.value?.permissions ?? []);
 
+  const STORAGE_ADMIN_BACKUP = 'vd_admin_session_backup';
+
   function persistSession(data: AuthTokensResponse) {
     tokenStorage.setTokens(data.accessToken, data.refreshToken ?? null);
     localStorage.setItem('vd_user', JSON.stringify(data.user));
     localStorage.setItem('vd_expires_at', data.expiresAt);
     user.value = data.user;
     expiresAt.value = data.expiresAt;
+  }
+
+  function readAdminBackup(): AuthTokensResponse | null {
+    const raw = localStorage.getItem(STORAGE_ADMIN_BACKUP);
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as AuthTokensResponse;
+    } catch {
+      return null;
+    }
+  }
+
+  const isImpersonating = computed(
+    () => Boolean(readAdminBackup()) && user.value?.type === 'VENDEDOR',
+  );
+
+  function snapshotCurrentSession(): AuthTokensResponse | null {
+    const accessToken = tokenStorage.getAccess();
+    const currentUser = user.value;
+    const currentExpires = expiresAt.value;
+    if (!accessToken || !currentUser || !currentExpires) return null;
+    return {
+      accessToken,
+      refreshToken: tokenStorage.getRefresh() ?? undefined,
+      expiresAt: currentExpires,
+      user: currentUser,
+    };
+  }
+
+  async function enterAsSeller(sellerId: number) {
+    if (isImpersonating.value) {
+      throw new Error('Ya estás trabajando como un vendedor');
+    }
+    const backup = snapshotCurrentSession();
+    if (!backup || backup.user.type !== 'ADMIN') {
+      throw new Error('Solo un administrador puede entrar como vendedor');
+    }
+
+    loading.value = true;
+    error.value = null;
+    try {
+      const { data } = await http.post<AuthTokensResponse>(
+        '/auth/admin/entrar-vendedor',
+        { sellerId },
+      );
+      localStorage.setItem(STORAGE_ADMIN_BACKUP, JSON.stringify(backup));
+      persistSession(data);
+      if (data.user.type === 'VENDEDOR') {
+        void prefetchSellerSession(data.user.id).catch(() => undefined);
+      }
+      return data;
+    } catch (e: unknown) {
+      error.value = extractApiError(e, 'No se pudo entrar como vendedor');
+      throw e;
+    } finally {
+      loading.value = false;
+    }
+  }
+
+  /** Restaura la sesión de admin guardada. No llama al API. */
+  function restoreAdminSession(): boolean {
+    const backup = readAdminBackup();
+    if (!backup?.accessToken || !backup.user) return false;
+    localStorage.removeItem(STORAGE_ADMIN_BACKUP);
+    clearSellerPrefetch();
+    persistSession(backup);
+    return true;
   }
 
   async function loginSellerDev(cellphone: string) {
@@ -47,6 +116,7 @@ export const useAuthStore = defineStore('auth', () => {
         '/auth/vendedor/login-dev',
         { cellphone },
       );
+      localStorage.removeItem(STORAGE_ADMIN_BACKUP);
       persistSession(data);
       if (data.user.type === 'VENDEDOR') {
         void prefetchSellerSession(data.user.id).catch(() => undefined);
@@ -88,6 +158,7 @@ export const useAuthStore = defineStore('auth', () => {
         '/auth/vendedor/verificar-pin',
         payload,
       );
+      localStorage.removeItem(STORAGE_ADMIN_BACKUP);
       persistSession(data);
       if (data.user.type === 'VENDEDOR') {
         void prefetchSellerSession(data.user.id).catch(() => undefined);
@@ -109,6 +180,7 @@ export const useAuthStore = defineStore('auth', () => {
         '/auth/monitor/login',
         { username, password },
       );
+      localStorage.removeItem(STORAGE_ADMIN_BACKUP);
       persistSession(data);
       return data;
     } catch (e: unknown) {
@@ -122,6 +194,7 @@ export const useAuthStore = defineStore('auth', () => {
   /** Limpia sesión local sin llamar al API (token vencido / refresh fallido). */
   function clearSession() {
     tokenStorage.clear();
+    localStorage.removeItem(STORAGE_ADMIN_BACKUP);
     clearSellerPrefetch();
     user.value = null;
     expiresAt.value = null;
@@ -129,7 +202,8 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function logout() {
-    const refreshToken = tokenStorage.getRefresh();
+    const refreshToken =
+      tokenStorage.getRefresh() ?? readAdminBackup()?.refreshToken ?? null;
     try {
       await http.post('/auth/logout', { refreshToken });
     } catch {
@@ -186,6 +260,9 @@ export const useAuthStore = defineStore('auth', () => {
     isAuthenticated,
     userType,
     permissions,
+    isImpersonating,
+    enterAsSeller,
+    restoreAdminSession,
     requestSellerPin,
     loginSellerDev,
     verifySellerPin,

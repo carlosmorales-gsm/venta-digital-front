@@ -12,8 +12,16 @@ async function ensurePdfWorker() {
   if (!workerReady) {
     workerReady = (async () => {
       const pdfjs = await import('pdfjs-dist');
-      const worker = await import('pdfjs-dist/build/pdf.worker.min.mjs?url');
-      pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
+      if (import.meta.env.DEV) {
+        const worker = await import('pdfjs-dist/build/pdf.worker.min.mjs?url');
+        pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
+        return;
+      }
+      const src = `${import.meta.env.BASE_URL}pdf.worker.min.js`;
+      const res = await fetch(src);
+      const buf = await res.arrayBuffer();
+      const blob = new Blob([buf], { type: 'application/javascript' });
+      pdfjs.GlobalWorkerOptions.workerSrc = URL.createObjectURL(blob);
     })();
   }
   await workerReady;

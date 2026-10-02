@@ -154,7 +154,11 @@ router.beforeEach(async (to) => {
     if (auth.user.type === 'VENDEDOR') {
       ensureSellerPrefetch(auth.user.id);
     }
-    if (auth.user.mustChangePassword && to.name !== 'cambiar-password') {
+    if (
+      auth.user.mustChangePassword &&
+      to.name !== 'cambiar-password' &&
+      !auth.isImpersonating
+    ) {
       return { name: 'cambiar-password' };
     }
   }
