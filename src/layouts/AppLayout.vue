@@ -103,7 +103,12 @@ const roleLabel = computed(() => {
 });
 
 async function returnToAdmin() {
-  if (!auth.restoreAdminSession()) return;
+  const ok = await auth.restoreAdminSession();
+  if (!ok) {
+    await auth.logout();
+    await router.replace({ name: 'login-monitor', query: { sesion: 'expirada' } });
+    return;
+  }
   await router.replace({ name: 'admin-usuarios' });
 }
 
@@ -161,17 +166,28 @@ function toggleSidebar() {
         <span class="user-name">{{ auth.user?.fullName }}</span>
         <button
           v-if="auth.isImpersonating"
-          class="btn btn-sm btn-ghost logout-light"
+          class="btn btn-sm btn-accent"
           type="button"
           @click="returnToAdmin"
         >
           Volver a admin
         </button>
-        <button class="btn btn-sm btn-ghost logout-light" type="button" @click="logout">
+        <button
+          v-if="!auth.isImpersonating"
+          class="btn btn-sm btn-ghost logout-light"
+          type="button"
+          @click="logout"
+        >
           Salir
         </button>
       </div>
     </header>
+    <div v-if="auth.isImpersonating" class="impersonation-banner">
+      <span>Estás en la sesión de {{ auth.user?.fullName }}.</span>
+      <button type="button" class="link-back-admin" @click="returnToAdmin">
+        Regresar a administrador
+      </button>
+    </div>
     <main class="seller-main">
       <div class="content-inner">
         <slot />
@@ -393,6 +409,30 @@ function toggleSidebar() {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 0.65rem;
+}
+
+.impersonation-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  padding: 0.45rem 1.25rem;
+  background: var(--gsm-cafe);
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.link-back-admin {
+  border: 0;
+  background: transparent;
+  color: #fff;
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  padding: 0;
 }
 
 .seller-main {

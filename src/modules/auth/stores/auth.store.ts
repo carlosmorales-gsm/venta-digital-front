@@ -32,6 +32,15 @@ export const useAuthStore = defineStore('auth', () => {
   const permissions = computed(() => user.value?.permissions ?? []);
 
   const STORAGE_ADMIN_BACKUP = 'vd_admin_session_backup';
+  const impersonating = ref(
+    Boolean(
+      typeof localStorage !== 'undefined' &&
+        localStorage.getItem(STORAGE_ADMIN_BACKUP),
+    ) && readStoredUser()?.type === 'VENDEDOR',
+  );
+  const isImpersonating = computed(
+    () => impersonating.value && user.value?.type === 'VENDEDOR',
+  );
 
   function persistSession(data: AuthTokensResponse) {
     tokenStorage.setTokens(data.accessToken, data.refreshToken ?? null);
@@ -51,19 +60,24 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  const isImpersonating = computed(
-    () => Boolean(readAdminBackup()) && user.value?.type === 'VENDEDOR',
-  );
+  function writeAdminBackup(data: AuthTokensResponse) {
+    localStorage.setItem(STORAGE_ADMIN_BACKUP, JSON.stringify(data));
+    impersonating.value = true;
+  }
+
+  function dropAdminBackup() {
+    localStorage.removeItem(STORAGE_ADMIN_BACKUP);
+    impersonating.value = false;
+  }
 
   function snapshotCurrentSession(): AuthTokensResponse | null {
     const accessToken = tokenStorage.getAccess();
     const currentUser = user.value;
-    const currentExpires = expiresAt.value;
-    if (!accessToken || !currentUser || !currentExpires) return null;
+    if (!accessToken || !currentUser) return null;
     return {
       accessToken,
       refreshToken: tokenStorage.getRefresh() ?? undefined,
-      expiresAt: currentExpires,
+      expiresAt: expiresAt.value ?? new Date().toISOString(),
       user: currentUser,
     };
   }
@@ -84,7 +98,7 @@ export const useAuthStore = defineStore('auth', () => {
         '/auth/admin/entrar-vendedor',
         { sellerId },
       );
-      localStorage.setItem(STORAGE_ADMIN_BACKUP, JSON.stringify(backup));
+      writeAdminBackup(backup);
       persistSession(data);
       if (data.user.type === 'VENDEDOR') {
         void prefetchSellerSession(data.user.id).catch(() => undefined);
@@ -98,12 +112,36 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  /** Restaura la sesión de admin guardada. No llama al API. */
-  function restoreAdminSession(): boolean {
+  /** Restaura la sesión de admin (renueva el access con el refresh guardado). */
+  async function restoreAdminSession(): Promise<boolean> {
     const backup = readAdminBackup();
-    if (!backup?.accessToken || !backup.user) return false;
-    localStorage.removeItem(STORAGE_ADMIN_BACKUP);
+    if (!backup?.user || (!backup.accessToken && !backup.refreshToken)) {
+      return false;
+    }
+
     clearSellerPrefetch();
+
+    if (backup.refreshToken) {
+      try {
+        const { data } = await http.post<AuthTokensResponse>(
+          '/auth/refresh',
+          { refreshToken: backup.refreshToken },
+          { skipGlobalLoading: true },
+        );
+        dropAdminBackup();
+        persistSession(data);
+        return true;
+      } catch {
+        /* el access del backup puede seguir vigente */
+      }
+    }
+
+    if (!backup.accessToken) {
+      dropAdminBackup();
+      return false;
+    }
+
+    dropAdminBackup();
     persistSession(backup);
     return true;
   }
@@ -116,7 +154,7 @@ export const useAuthStore = defineStore('auth', () => {
         '/auth/vendedor/login-dev',
         { cellphone },
       );
-      localStorage.removeItem(STORAGE_ADMIN_BACKUP);
+      dropAdminBackup();
       persistSession(data);
       if (data.user.type === 'VENDEDOR') {
         void prefetchSellerSession(data.user.id).catch(() => undefined);
@@ -158,7 +196,7 @@ export const useAuthStore = defineStore('auth', () => {
         '/auth/vendedor/verificar-pin',
         payload,
       );
-      localStorage.removeItem(STORAGE_ADMIN_BACKUP);
+      dropAdminBackup();
       persistSession(data);
       if (data.user.type === 'VENDEDOR') {
         void prefetchSellerSession(data.user.id).catch(() => undefined);
@@ -180,7 +218,7 @@ export const useAuthStore = defineStore('auth', () => {
         '/auth/monitor/login',
         { username, password },
       );
-      localStorage.removeItem(STORAGE_ADMIN_BACKUP);
+      dropAdminBackup();
       persistSession(data);
       return data;
     } catch (e: unknown) {
@@ -193,8 +231,8 @@ export const useAuthStore = defineStore('auth', () => {
 
   /** Limpia sesión local sin llamar al API (token vencido / refresh fallido). */
   function clearSession() {
+    dropAdminBackup();
     tokenStorage.clear();
-    localStorage.removeItem(STORAGE_ADMIN_BACKUP);
     clearSellerPrefetch();
     user.value = null;
     expiresAt.value = null;
