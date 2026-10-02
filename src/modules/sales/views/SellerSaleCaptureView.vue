@@ -43,6 +43,7 @@ import {
   parseSaleKind,
   saleKindLabel,
   saleKindToEstatus,
+  saleNeedsOriginSales,
   type SaleKind,
 } from '../constants/sale-kinds';
 import type { SaleBranch, SellerDefaults } from '../types/seller-defaults';
@@ -1618,7 +1619,7 @@ onMounted(async () => {
       kind === 'MINORIA'
     ) {
       const pending = takePendingRecognition();
-      if (!pending) {
+      if (!pending || !pending.ventas.length) {
         void router.replace({
           name: 'vendedor-ventas',
           query: { pick: kind },
@@ -1723,6 +1724,23 @@ async function finalizeSale() {
       variant: 'warning',
     });
     openStep(idx);
+    return;
+  }
+
+  if (
+    saleNeedsOriginSales(form.meta.tipoVenta) &&
+    form.meta.reconocimientoVentas.length === 0
+  ) {
+    await alert({
+      title: saleKindLabel(form.meta.tipoVenta),
+      message:
+        form.meta.tipoVenta === 'MEJORA'
+          ? 'Selecciona al menos una venta a mejorar para continuar.'
+          : form.meta.tipoVenta === 'MINORIA'
+            ? 'Selecciona al menos una venta de minoría para continuar.'
+            : 'Selecciona al menos una venta a reconocer para continuar.',
+      variant: 'warning',
+    });
     return;
   }
 

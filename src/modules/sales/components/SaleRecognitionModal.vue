@@ -71,8 +71,6 @@ const canApply = computed(() => {
   if (!cliente.value || step.value !== 'ventas' || salesLoading.value) {
     return false;
   }
-  if (isPlanChange.value) return selectedVentas.value.length > 0;
-  if (listsEmpty.value) return true;
   return selectedVentas.value.length > 0;
 });
 
@@ -225,11 +223,11 @@ function origenLabel(v: ReconocimientoVenta) {
         <p v-else-if="listsEmpty" class="hint">
           <template v-if="isPlanChange">
             No hay ventas activas de este cliente ni donde aparezca como
-            beneficiario.
+            beneficiario. Elige otro cliente para continuar.
           </template>
           <template v-else>
             No hay ventas suspendidas de este cliente ni donde aparezca como
-            beneficiario. Puedes aplicar solo sus datos.
+            beneficiario. Elige otro cliente para continuar.
           </template>
         </p>
         <ul v-else class="list list--sales">

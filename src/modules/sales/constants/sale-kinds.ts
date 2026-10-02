@@ -51,6 +51,17 @@ export function saleKindFromEstatus(estatus: string | null | undefined): SaleKin
   return ESTATUS_TO_KIND[key] ?? 'NUEVA';
 }
 
+export function saleNeedsOriginSales(
+  kind: SaleKind | string | null | undefined,
+): boolean {
+  const parsed = parseSaleKind(kind);
+  return (
+    parsed === 'RECONOCIMIENTO' ||
+    parsed === 'MEJORA' ||
+    parsed === 'MINORIA'
+  );
+}
+
 export function saleKindLabel(kind: SaleKind | string | null | undefined): string {
   const parsed = parseSaleKind(kind);
   if (!parsed) return 'Nueva';
