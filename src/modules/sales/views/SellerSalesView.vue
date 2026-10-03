@@ -593,7 +593,9 @@ async function sendSignLink(item: SaleListItem) {
   if (!ok) return;
   signLinkSaleId.value = item.id;
   try {
-    await http.post(`/sales/${item.id}/sign-link`);
+    await http.post(`/sales/${item.id}/sign-link`, {
+      frontUrl: window.location.origin,
+    });
     await alert({
       title: 'Enlace de firma',
       message: 'Se envió el enlace de firma al correo del titular.',
