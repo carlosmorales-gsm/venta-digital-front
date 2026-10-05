@@ -11,6 +11,7 @@ import SalePaymentModal from '../components/SalePaymentModal.vue';
 import SaleManualSignModal from '../components/SaleManualSignModal.vue';
 import SellerDefaultsModal from '../components/SellerDefaultsModal.vue';
 import SaleKindModal from '../components/SaleKindModal.vue';
+import SaleCorrectionModal from '../components/SaleCorrectionModal.vue';
 import SaleRecognitionModal from '../components/SaleRecognitionModal.vue';
 import type { SaleKind } from '../constants/sale-kinds';
 import { setPendingRecognition } from '../utils/pending-recognition';
@@ -20,6 +21,7 @@ import {
   isSignedSaleStatus,
   mergeSaleForm,
   realContrato,
+  formatDigitalFolio,
   type SaleAttachment,
   type SaleFormData,
   type SaleListItem,
@@ -77,7 +79,7 @@ const clientQuery = ref('');
 const clientMenuOpen = ref(false);
 
 const allItems = computed(() => [
-  ...(data.value?.drafts ?? []),
+  ...activeDrafts.value,
   ...(data.value?.submitted ?? []),
 ]);
 
@@ -98,29 +100,64 @@ const filteredClientOptions = computed(() => {
     .slice(0, 12);
 });
 
-function matchesClient(titularName: string | null | undefined): boolean {
-  if (filters.client) {
-    return textEqualsNormalized(titularName, filters.client);
+function matchesClient(item: SaleListItem): boolean {
+  const selected = filters.client.trim();
+  const typed = clientQuery.value.trim();
+  if (!selected && !typed) return true;
+  if (selected) {
+    return textEqualsNormalized(item.titularName, selected);
   }
-  return textIncludesNormalized(titularName, clientQuery.value);
+  const folio = formatDigitalFolio(item.id);
+  return (
+    textIncludesNormalized(item.titularName, typed) ||
+    textIncludesNormalized(folio, typed) ||
+    textIncludesNormalized(realContrato(item.contrato), typed) ||
+    textIncludesNormalized(String(item.id), typed)
+  );
 }
 
 function matchesSaleFilters(item: SaleListItem): boolean {
-  if (!matchesDateRange(item.createdAt, filters.dateFrom, filters.dateTo)) {
-    return false;
+  if (filters.dateFrom || filters.dateTo) {
+    const inRange =
+      matchesDateRange(item.createdAt, filters.dateFrom, filters.dateTo) ||
+      matchesDateRange(item.updatedAt, filters.dateFrom, filters.dateTo);
+    if (!inRange) return false;
   }
-  return matchesClient(item.titularName);
+  return matchesClient(item);
 }
 
+function isExpiredDraft(item: SaleListItem): boolean {
+  const ttlHours = data.value?.draftTtlHours ?? 24;
+  const created = Date.parse(item.createdAt || '');
+  if (Number.isFinite(created) && created + ttlHours * 60 * 60 * 1000 <= Date.now()) {
+    return true;
+  }
+  if (item.draftExpiresAt) {
+    const expires = Date.parse(item.draftExpiresAt);
+    if (Number.isFinite(expires) && expires <= Date.now()) return true;
+  }
+  return false;
+}
+
+const activeDrafts = computed(() =>
+  (data.value?.drafts ?? []).filter((item) => !isExpiredDraft(item)),
+);
+
 const filteredDrafts = computed(() =>
-  (data.value?.drafts ?? []).filter(matchesSaleFilters),
+  activeDrafts.value.filter(matchesSaleFilters),
 );
 
 const filteredSubmitted = computed(() =>
   (data.value?.submitted ?? []).filter(matchesSaleFilters),
 );
 
-type ProcessStageKey = 'payment' | 'sign' | 'validation' | 'done' | 'rejected';
+type ProcessStageKey =
+  | 'correction'
+  | 'payment'
+  | 'sign'
+  | 'validation'
+  | 'done'
+  | 'rejected';
 
 type ProcessStage = {
   key: ProcessStageKey;
@@ -148,6 +185,17 @@ const processStages = computed<ProcessStage[]>(() => {
   const all = data.value?.submitted ?? [];
   const filtered = filteredSubmitted.value;
   const stages: ProcessStage[] = [
+    {
+      key: 'correction',
+      title: 'Por corregir',
+      empty: 'No hay ventas por corregir con los filtros actuales.',
+      tone: 'correction',
+      items: filtered
+        .filter((s) => s.status === 'PENDING_CORRECTION')
+        .slice()
+        .sort(byCreatedDesc),
+      total: all.filter((s) => s.status === 'PENDING_CORRECTION').length,
+    },
     {
       key: 'payment',
       title: 'Pendiente de pago',
@@ -213,13 +261,16 @@ const processStages = computed<ProcessStage[]>(() => {
 });
 
 const visibleStages = computed(() =>
-  processStages.value.filter((stage) => stage.total > 0 || stage.items.length > 0),
+  processStages.value.filter((stage) =>
+    hasActiveFilters.value ? stage.items.length > 0 : stage.total > 0,
+  ),
 );
 
 type StageId = 'draft' | ProcessStageKey;
 
 const expandedStages = reactive<Record<StageId, boolean>>({
   draft: true,
+  correction: true,
   payment: true,
   sign: true,
   validation: true,
@@ -241,7 +292,7 @@ function stageToggleLabel(key: StageId, title: string): string {
 
 const hasAnySales = computed(
   () =>
-    (data.value?.drafts?.length ?? 0) + (data.value?.submitted?.length ?? 0) > 0,
+    activeDrafts.value.length + (data.value?.submitted?.length ?? 0) > 0,
 );
 
 const hasAnyFilteredSales = computed(
@@ -292,6 +343,15 @@ const actionStatus = ref<string | undefined>();
 
 const paymentOpen = ref(false);
 const paymentSaving = ref(false);
+const correctionOpen = ref(false);
+const correctionSaleId = ref<number | null>(null);
+const correctionFields = ref<string[]>([]);
+
+function openCorrection(item: SaleListItem) {
+  correctionSaleId.value = item.id;
+  correctionFields.value = item.correctionFields ?? [];
+  correctionOpen.value = true;
+}
 
 const signOpen = ref(false);
 const signSubmitting = ref(false);
@@ -408,6 +468,8 @@ function statusLabel(status: SaleStatus | string): string {
       return 'Pendiente de firma';
     case 'PENDING_VALIDATION':
       return 'Pendiente de validación';
+    case 'PENDING_CORRECTION':
+      return 'Por corregir';
     case 'COMPLETED':
     case 'SUBMITTED':
       return 'Completada';
@@ -428,6 +490,8 @@ function statusBadgeClass(status: SaleStatus | string): string {
       return 'status-badge status-badge--sign';
     case 'PENDING_VALIDATION':
       return 'status-badge status-badge--validation';
+    case 'PENDING_CORRECTION':
+      return 'status-badge status-badge--correction';
     case 'COMPLETED':
     case 'SUBMITTED':
       return 'status-badge status-badge--done';
@@ -855,8 +919,8 @@ async function removeDraft(id: number) {
             </span>
             <span class="muted">
               {{ filteredDrafts.length }}
-              <template v-if="(data?.drafts?.length ?? 0) !== filteredDrafts.length">
-                de {{ data?.drafts?.length }}
+              <template v-if="activeDrafts.length !== filteredDrafts.length">
+                de {{ activeDrafts.length }}
               </template>
               · {{ data?.draftCount }} / {{ data?.draftLimit }}
             </span>
@@ -1012,6 +1076,21 @@ async function removeDraft(id: number) {
                   </svg>
                 </button>
                 <button
+                  v-if="item.status === 'PENDING_CORRECTION'"
+                  type="button"
+                  class="icon-btn"
+                  title="Corregir"
+                  aria-label="Corregir"
+                  @click="openCorrection(item)"
+                >
+                  <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+                    <path
+                      fill="currentColor"
+                      d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
+                    />
+                  </svg>
+                </button>
+                <button
                   v-if="item.status === 'PENDING_PAYMENT'"
                   type="button"
                   class="icon-btn icon-btn--payment"
@@ -1107,6 +1186,14 @@ async function removeDraft(id: number) {
       :saving="paymentSaving"
       @close="paymentOpen = false"
       @save="savePayment"
+    />
+
+    <SaleCorrectionModal
+      :open="correctionOpen"
+      :sale-id="correctionSaleId"
+      :fields="correctionFields"
+      @close="correctionOpen = false"
+      @saved="load"
     />
 
     <SaleManualSignModal
@@ -1353,6 +1440,10 @@ async function removeDraft(id: number) {
   border-left-color: #c48a22;
 }
 
+.stage-panel--correction {
+  border-left-color: #8b9198;
+}
+
 .stage-panel--done {
   border-left-color: var(--vd-ok);
 }
@@ -1442,6 +1533,11 @@ async function removeDraft(id: number) {
 .status-badge--validation {
   background: rgba(180, 120, 20, 0.14);
   color: #8a5a0a;
+}
+
+.status-badge--correction {
+  background: #eceff1;
+  color: #5f6770;
 }
 
 .status-badge--done {

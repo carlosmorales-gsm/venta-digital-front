@@ -10,6 +10,7 @@ export type SaleStatus =
   | 'PENDING_PAYMENT'
   | 'PENDING_SIGNATURE'
   | 'PENDING_VALIDATION'
+  | 'PENDING_CORRECTION'
   | 'COMPLETED'
   | 'REJECTED'
   | 'SUBMITTED'; // compat
@@ -245,6 +246,7 @@ export interface SaleListItem {
   driveFolderPath?: string | null;
   odooReceptionSynced?: boolean;
   odooSyncError?: string | null;
+  correctionFields?: string[];
   precioPlan?: string;
   promocionDescuento?: string;
   anticipo?: string;

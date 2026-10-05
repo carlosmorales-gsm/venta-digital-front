@@ -16,6 +16,7 @@ const STATUS_LABELS: Record<string, string> = {
   PENDING_PAYMENT: 'Pendiente de pago',
   PENDING_SIGNATURE: 'Pendiente de firma',
   PENDING_VALIDATION: 'Pendiente de validación',
+  PENDING_CORRECTION: 'Por corregir',
   COMPLETED: 'Completada',
   REJECTED: 'Rechazada',
   SUBMITTED: 'Completada',
