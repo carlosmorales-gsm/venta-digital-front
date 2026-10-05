@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf';
 import { formatUtcToLocal } from '../../../shared/utils/datetime';
+import { ACTION_LABELS, presentAudit } from './audit-present';
 
 export type AuditLogPdfItem = {
   actorName: string | null;
@@ -10,98 +11,6 @@ export type AuditLogPdfItem = {
   summary: string;
   details: Record<string, unknown> | null;
   createdAt: string;
-};
-
-/** Títulos cortos y claros para quien no es de sistemas. */
-const ACTION_LABELS: Record<string, string> = {
-  CREATE: 'Nuevo registro',
-  UPDATE: 'Cambio de datos',
-  ACTIVATE: 'Habilitación',
-  DEACTIVATE: 'Deshabilitación',
-  DELETE: 'Eliminación',
-  CANCEL: 'Cancelación',
-  APPLY: 'Aplicación',
-};
-
-/** Campos internos que no aportan al lector de negocio. */
-const HIDDEN_FIELDS = new Set(['id', 'sellerId']);
-
-const FIELD_LABELS: Record<string, string> = {
-  type: 'Tipo de cuenta',
-  fullName: 'Nombre',
-  username: 'Usuario de acceso',
-  cellphone: 'Celular / WhatsApp',
-  active: 'Estado',
-  password: 'Contraseña',
-  amount: 'Monto',
-  sellerName: 'Vendedor',
-  titularName: 'Titular',
-  status: 'Estatus',
-  fecha: 'Fecha',
-  contrato: 'Contrato',
-  origenVenta: 'Origen de venta',
-  folioSolicitud: 'Folio solicitud',
-  curp: 'CURP',
-  celular: 'Celular',
-  correo: 'Correo',
-  municipio: 'Municipio',
-  estado: 'Estado (domicilio)',
-  planKind: 'Tipo de plan',
-  nombrePlan: 'Nombre del plan',
-  servicioFunerario: 'Servicio funerario',
-  parqueFuneral: 'Parque funeral',
-  seccion: 'Sección',
-  cuadrante: 'Cuadrante',
-  numero: 'Número',
-  preasignacion: 'Preasignación',
-  beneficiario1: 'Beneficiario 1',
-  beneficiario1Parentesco: 'Parentesco beneficiario 1',
-  beneficiario2: 'Beneficiario 2',
-  segundoContacto: 'Segundo contacto',
-  documentos: 'Documentos',
-  precioPlan: 'Precio del plan',
-  anticipo: 'Anticipo',
-  pagoInicial: 'Pago inicial',
-  frecuencia: 'Frecuencia',
-  plazo: 'Plazo',
-  importeCadaPago: 'Importe cada pago',
-  saldo: 'Saldo',
-  formaPago: 'Forma de pago',
-  banco: 'Banco',
-  cuenta: 'Cuenta',
-  nombreAsesor: 'Asesor',
-  nombreJefeVentas: 'Jefe de ventas',
-  driveFolderUrl: 'Carpeta Drive',
-  percent: 'Porcentaje',
-  createdByName: 'Generó',
-  cancelledByName: 'Canceló',
-  appliedSaleId: 'Venta aplicada',
-  draftLimit: 'Límite de borradores',
-  draftTtlHours: 'Vigencia borrador (h)',
-  maxDiscountAmount: 'Descuento máximo (%)',
-};
-
-const TYPE_LABELS: Record<string, string> = {
-  VENDEDOR: 'Vendedor',
-  MONITOR: 'Monitor',
-  ADMIN: 'Administrador',
-  USER: 'Usuario',
-  SALE: 'Venta',
-  DISCOUNT: 'Descuento especial',
-  SETTINGS: 'Configuración',
-  ACTIVE: 'Activo',
-  CANCELLED: 'Cancelado',
-  APPLIED: 'Aplicado',
-  DRAFT: 'Borrador',
-  PENDING_PAYMENT: 'Pendiente de pago',
-  PENDING_SIGNATURE: 'Pendiente de firma',
-  PENDING_VALIDATION: 'Pendiente de validación',
-  PENDING_CORRECTION: 'Por corregir',
-  COMPLETED: 'Completada',
-  REJECTED: 'Rechazada',
-  SUBMITTED: 'Enviada',
-  PARQUE: 'Parque',
-  PLAN_FUTURO: 'Plan a futuro',
 };
 
 const COLORS = {
@@ -134,156 +43,6 @@ function formatCalendarDate(isoDate: string): string {
     month: 'long',
     year: 'numeric',
   }).format(date);
-}
-
-function formatValue(key: string, value: unknown): string {
-  if (value === null || value === undefined || value === '') return 'Sin dato';
-  if (typeof value === 'boolean') {
-    if (key === 'active') return value ? 'Activo' : 'Inactivo';
-    return value ? 'Sí' : 'No';
-  }
-  if (typeof value === 'string' && TYPE_LABELS[value]) return TYPE_LABELS[value];
-  if (key === 'password') {
-    const s = String(value).toLowerCase();
-    if (s.includes('actualiz') || s.includes('updated')) return 'actualizada';
-    return 'no visible';
-  }
-  return String(value);
-}
-
-function fieldLabel(key: string): string {
-  return FIELD_LABELS[key] ?? key;
-}
-
-function detailLines(details: Record<string, unknown> | null): string[] {
-  if (!details) return [];
-  const lines: string[] = [];
-
-  if (details.after && typeof details.after === 'object') {
-    for (const [key, value] of Object.entries(
-      details.after as Record<string, unknown>,
-    )) {
-      if (HIDDEN_FIELDS.has(key)) continue;
-      lines.push(`${fieldLabel(key)}: ${formatValue(key, value)}`);
-    }
-    return lines;
-  }
-
-  if (details.changes && typeof details.changes === 'object') {
-    const changes = details.changes as Record<
-      string,
-      { from?: unknown; to?: unknown }
-    >;
-    for (const [key, change] of Object.entries(changes)) {
-      if (HIDDEN_FIELDS.has(key)) continue;
-      const from = formatValue(key, change?.from);
-      const to = formatValue(key, change?.to);
-      if (key === 'password') {
-        lines.push(`${fieldLabel(key)}: se actualizó`);
-        continue;
-      }
-      if (key === 'active') {
-        lines.push(`Estado: pasó de ${from} a ${to}`);
-        continue;
-      }
-      lines.push(`${fieldLabel(key)}: pasó de "${from}" a "${to}"`);
-    }
-    return lines;
-  }
-
-  for (const [key, value] of Object.entries(details)) {
-    if (HIDDEN_FIELDS.has(key)) continue;
-    if (typeof value === 'object' && value !== null) continue;
-    lines.push(`${fieldLabel(key)}: ${formatValue(key, value)}`);
-  }
-
-  return lines;
-}
-
-const ACTION_VERBS: Record<string, string> = {
-  CREATE: 'Dio de alta',
-  UPDATE: 'Modificó',
-  ACTIVATE: 'Habilitó',
-  DEACTIVATE: 'Deshabilitó',
-  DELETE: 'Eliminó',
-  CANCEL: 'Canceló',
-  APPLY: 'Aplicó',
-};
-
-const ENTITY_WORDS: Record<string, string> = {
-  USER: 'usuario',
-  SALE: 'venta',
-  DISCOUNT: 'descuento especial',
-  SETTINGS: 'configuración',
-  VENDEDOR: 'vendedor',
-  MONITOR: 'monitor',
-  ADMIN: 'administrador',
-};
-
-/** Nombre del afectado desde details (sin el actor). */
-function targetNameFromDetails(
-  details: Record<string, unknown> | null,
-): string | null {
-  if (!details) return null;
-
-  const after = details.after;
-  if (after && typeof after === 'object') {
-    const a = after as Record<string, unknown>;
-    const titular = a.titularName;
-    if (typeof titular === 'string' && titular.trim()) return titular.trim();
-    const name = a.fullName;
-    if (typeof name === 'string' && name.trim()) return name.trim();
-    const seller = a.sellerName;
-    if (typeof seller === 'string' && seller.trim()) return seller.trim();
-  }
-
-  const changes = details.changes;
-  if (changes && typeof changes === 'object') {
-    const fullName = (changes as Record<string, { to?: unknown }>).fullName;
-    if (typeof fullName?.to === 'string' && fullName.to.trim()) {
-      return fullName.to.trim();
-    }
-  }
-
-  return null;
-}
-
-/** Respaldo: saca el nombre del resumen guardado en BD. */
-function targetNameFromSummary(summary: string): string | null {
-  const m = summary.match(
-    /(?:al usuario|al vendedor|al monitor|al administrador|usuario|vendedor)\s+(.+?)(?:\s*\(|$)/i,
-  );
-  const name = m?.[1]?.trim();
-  return name || null;
-}
-
-/**
- * Título corto: acción + objetivo.
- * Ej. "Deshabilitó usuario Carlos morales", "Modificó venta #12"
- */
-function entryTitle(item: AuditLogPdfItem): string {
-  const verb =
-    ACTION_VERBS[item.action] ?? ACTION_LABELS[item.action] ?? item.action;
-  const entityWord =
-    ENTITY_WORDS[item.entityType] ??
-    (TYPE_LABELS[item.entityType] ?? 'registro').toLowerCase();
-  const name =
-    targetNameFromDetails(item.details) ?? targetNameFromSummary(item.summary);
-
-  if (item.entityType === 'SALE') {
-    const titular =
-      targetNameFromDetails(item.details) ??
-      targetNameFromSummary(item.summary);
-    if (item.entityId != null && titular) {
-      return `${verb} venta #${item.entityId} (${titular})`;
-    }
-    if (item.entityId != null) return `${verb} venta #${item.entityId}`;
-    return `${verb} venta`;
-  }
-
-  if (name) return `${verb} ${entityWord} ${name}`;
-  if (item.entityId != null) return `${verb} ${entityWord} #${item.entityId}`;
-  return verb;
 }
 
 function setRgb(
@@ -431,10 +190,10 @@ export async function downloadAuditLogsPdf(
     items.forEach((item, index) => {
       const when = formatUtcToLocal(item.createdAt);
       const who = item.actorName?.trim() || 'Sistema';
-      const details = detailLines(item.details);
-      const detailTitle =
-        item.action === 'CREATE' ? 'Datos registrados' : 'Qué cambió';
-      const title = `${index + 1}.  ${entryTitle(item)}`;
+      const presented = presentAudit(item);
+      const details = presented.rows.map((row) => row.text);
+      const detailTitle = presented.boxTitle;
+      const title = `${index + 1}.  ${presented.title}`;
 
       const padX = 16;
       const padY = 14;
