@@ -132,7 +132,7 @@ export async function redirectToLoginOnSessionExpired() {
   try {
     const { useAuthStore } = await import('../../modules/auth/stores/auth.store');
     const auth = useAuthStore();
-    restoredAdmin = auth.restoreAdminSession();
+    restoredAdmin = await auth.restoreAdminSession();
     if (!restoredAdmin) {
       auth.clearSession();
     }
