@@ -1,8 +1,9 @@
 import { GState, jsPDF } from 'jspdf';
 import {
+  documentContractFolio,
+  formatDigitalFolio,
   fullName,
   isSignedSaleStatus,
-  realContrato,
   type SaleFormData,
 } from '../types/sale-form';
 import { saleOriginLabel } from '../constants/sale-origins';
@@ -274,7 +275,7 @@ function drawHeader(doc: Doc, logo: LogoAsset | null) {
   });
 }
 
-function drawMeta(doc: Doc, form: SaleFormData) {
+function drawMeta(doc: Doc, form: SaleFormData, opts?: SalePdfOpts) {
   const { meta } = form;
   const metaX = 20.9;
   const metaY = 62.6;
@@ -283,12 +284,13 @@ function drawMeta(doc: Doc, form: SaleFormData) {
 
   const rowTop = 64;
   const rowH = 22;
+  const folio = formatDigitalFolio(meta.folioSolicitud || opts?.saleId);
 
   field(doc, 'ORIGEN DE VENTA:', saleOriginLabel(meta.origenVenta), 25.2, rowTop, rowH, 158, {
     labelSize: 5.2,
     valueSize: 7.2,
   });
-  field(doc, 'FOLIO DE SOLICITUD:', meta.folioSolicitud, 195.4, rowTop, rowH, 68, {
+  field(doc, 'FOLIO DE SOLICITUD:', folio, 195.4, rowTop, rowH, 68, {
     labelSize: 5.2,
     valueSize: 7.2,
   });
@@ -307,7 +309,16 @@ function drawMeta(doc: Doc, form: SaleFormData) {
   box(doc, 270.4, 87.4, 315.6, 20.8, [250, 252, 253]);
   label(doc, 'FECHA:', 275.4, 99, 5.2);
   dateParts(doc, meta.fecha, 322, 100, 8);
-  fieldInline(doc, 'CONTRATO:', realContrato(meta.contrato), 421, 100, 44, 108, 8);
+  fieldInline(
+    doc,
+    'CONTRATO:',
+    documentContractFolio(meta.contrato, meta.folioSolicitud, opts?.saleId),
+    421,
+    100,
+    44,
+    108,
+    8,
+  );
 
   box(doc, 25.2, 113.1, 560.8, 19.4);
   label(doc, 'FECHA DE SERVICIO:', 29.7, 125, 5.2);
@@ -979,7 +990,7 @@ async function buildDoc(form: SaleFormData, opts?: SalePdfOpts): Promise<jsPDF> 
 
   // Hoja 1: formulario propio (basado en la carátula)
   drawHeader(doc, logo);
-  drawMeta(doc, form);
+  drawMeta(doc, form, opts);
   drawContacto(doc, form);
   drawSegundo(doc, form);
   drawDerechohabientes(doc, form);

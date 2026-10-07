@@ -31,6 +31,7 @@ import {
 } from '../constants/mexican-banks';
 import {
   cardExpiryError,
+  cardNumberError,
   cobranzaMissing,
   digitsOnly,
   formatCardNumber,
@@ -434,6 +435,34 @@ function onCvvInput(event: Event) {
 const vencimientoError = computed(() => {
   if (form.pago.vencimientoTarjeta.replace(/\D/g, '').length < 4) return '';
   return cardExpiryError(form.pago.vencimientoTarjeta) ?? '';
+});
+
+const curpInlineError = computed(() => {
+  if (curpLookupError.value) return true;
+  const curp = form.contacto.curp.trim();
+  return Boolean(curp) && !isValidCurp(curp);
+});
+
+const facturaCpError = computed(() => {
+  const digits = digitsOnly(form.contacto.facturaCp, 5);
+  if (!digits || digits.length === 5) return '';
+  return 'El código postal debe tener 5 dígitos.';
+});
+
+const tarjetaNumeroError = computed(() => {
+  if (!isDomiciliado.value) return '';
+  const digits = digitsOnly(form.pago.cuenta);
+  if (!digits) return '';
+  const err = cardNumberError(form.pago.cuenta, form.contacto.tipoCobranza);
+  if (!err || err === 'Número de tarjeta') return '';
+  return err;
+});
+
+const cvvError = computed(() => {
+  if (!isDomiciliado.value) return '';
+  const digits = digitsOnly(form.pago.cvv, 3);
+  if (!digits || digits.length === 3) return '';
+  return 'Los dígitos de seguridad deben ser 3.';
 });
 
 function metodoPagoMissing(): string[] {
@@ -1197,7 +1226,7 @@ const stepComplete = computed<Record<StepKey, boolean>>(() => {
       metodoOk,
     docs:
       hasIneDocumentos(form.documentos) &&
-      Boolean(form.documentos.comprobanteDomicilio) &&
+      (isPagoContado.value || Boolean(form.documentos.comprobanteDomicilio)) &&
       (!isNomina.value || Boolean(form.documentos.reciboNomina)) &&
       (!needsCardSides.value ||
         (Boolean(form.documentos.tarjetaFrente) &&
@@ -1335,7 +1364,7 @@ function missingFieldsFor(key: StepKey): string[] {
       if (!form.documentos.ineFrente) missing.push('INE (frente)');
       if (!form.documentos.ineReverso) missing.push('INE (reverso)');
     }
-    if (!form.documentos.comprobanteDomicilio) {
+    if (!isPagoContado.value && !form.documentos.comprobanteDomicilio) {
       missing.push('Comprobante de domicilio');
     }
     if (isNomina.value && !form.documentos.reciboNomina) {
@@ -2675,7 +2704,7 @@ async function goBack() {
             </div>
             <small
               v-if="curpLookupHint"
-              :class="curpLookupError ? 'field-error' : 'hint'"
+              :class="curpInlineError ? 'field-error' : 'hint'"
             >
               {{ curpLookupHint }}
             </small>
@@ -2933,6 +2962,9 @@ async function goBack() {
                 maxlength="5"
                 :disabled="!canEdit"
               />
+              <small v-if="facturaCpError" class="field-error">
+                {{ facturaCpError }}
+              </small>
             </label>
             <label>
               Teléfono de contacto
@@ -3527,6 +3559,9 @@ async function goBack() {
               placeholder="0"
               @blur="clampDescuento"
             />
+            <small v-if="discountError()" class="field-error">
+              {{ discountError() }}
+            </small>
           </label>
           <label>
             Anticipo
@@ -3635,6 +3670,9 @@ async function goBack() {
                 placeholder="ACCT-000003"
                 @input="onCuentaTarjetaInput"
               />
+              <small v-if="tarjetaNumeroError" class="field-error">
+                {{ tarjetaNumeroError }}
+              </small>
             </label>
             <label>
               Vencimiento *
@@ -3664,6 +3702,9 @@ async function goBack() {
                 placeholder="***"
                 @input="onCvvInput"
               />
+              <small v-if="cvvError" class="field-error">
+                {{ cvvError }}
+              </small>
             </label>
             <label class="span-2">
               Titular de la tarjeta *
@@ -3676,11 +3717,18 @@ async function goBack() {
             <label>
               Celular *
               <input
-                v-model="form.contacto.celular1"
+                :value="form.contacto.celular1"
                 inputmode="numeric"
                 maxlength="10"
                 :disabled="!canEdit"
+                @input="onPhoneInput($event, (v) => (form.contacto.celular1 = v))"
               />
+              <small
+                v-if="mxPhoneError(form.contacto.celular1)"
+                class="field-error"
+              >
+                {{ mxPhoneError(form.contacto.celular1) }}
+              </small>
             </label>
             <label>
               Correo *
@@ -3689,6 +3737,12 @@ async function goBack() {
                 type="email"
                 :disabled="!canEdit"
               />
+              <small
+                v-if="form.contacto.correo && !isLikelyEmail(form.contacto.correo)"
+                class="field-error"
+              >
+                Escribe un correo válido
+              </small>
             </label>
             <label class="span-2">
               Dirección de domiciliación *
@@ -3969,6 +4023,7 @@ async function goBack() {
           </p>
 
           <div
+            v-if="!isPagoContado"
             class="upload-card"
             :class="{
               'upload-card--filled': form.documentos.comprobanteDomicilio,
@@ -5762,6 +5817,14 @@ async function goBack() {
   font-size: 0.78rem;
   font-weight: 600;
   color: #b42318;
+}
+
+.fields label:has(.field-error) input:not([type='checkbox']):not([type='file']),
+.fields label:has(.field-error) select,
+.fields label:has(.field-error) textarea,
+.fields label:has(.field-error) :deep(.vd-select__trigger) {
+  border-color: #b42318;
+  background: #fff6f6;
 }
 
 .field-req {

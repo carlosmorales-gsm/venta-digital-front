@@ -4,6 +4,7 @@ import { extractApiError, http } from '../../../shared/api/http';
 import { formatUtcToLocal } from '../../../shared/utils/datetime';
 import { useDialog } from '../../../shared/ui/dialog';
 import SaleAttachmentsModal from '../components/SaleAttachmentsModal.vue';
+import SaleDetailModal from '../components/SaleDetailModal.vue';
 import SaleFilePreviewModal from '../components/SaleFilePreviewModal.vue';
 import SalePdfPreviewModal from '../components/SalePdfPreviewModal.vue';
 import {
@@ -57,6 +58,10 @@ const previewOpen = ref(false);
 const previewForm = ref<SaleFormData>(mergeSaleForm({}));
 const previewId = ref<number | null>(null);
 const previewStatus = ref<string | undefined>();
+
+const detailOpen = ref(false);
+const detailForm = ref<SaleFormData>(mergeSaleForm({}));
+const detailItem = ref<SaleListItem | null>(null);
 
 const attachmentsOpen = ref(false);
 const attachmentsLoading = ref(false);
@@ -248,6 +253,8 @@ function statusLabel(status: SaleStatus | string): string {
       return 'Pendiente de validación';
     case 'PENDING_CORRECTION':
       return 'Por corregir';
+    case 'PENDING_CORRECTION_REVIEW':
+      return 'Corrección por validar';
     case 'COMPLETED':
     case 'SUBMITTED':
       return 'Completada';
@@ -270,6 +277,8 @@ function statusBadgeClass(status: SaleStatus | string): string {
       return 'status-badge status-badge--validation';
     case 'PENDING_CORRECTION':
       return 'status-badge status-badge--correction';
+    case 'PENDING_CORRECTION_REVIEW':
+      return 'status-badge status-badge--review';
     case 'COMPLETED':
     case 'SUBMITTED':
       return 'status-badge status-badge--done';
@@ -313,6 +322,21 @@ function formatDiscount(raw: string | null | undefined) {
 async function fetchSaleForm(item: SaleListItem): Promise<SaleListItem> {
   const { data: sale } = await http.get<SaleListItem>(`/sales/${item.id}`);
   return sale;
+}
+
+async function openDetail(item: SaleListItem) {
+  try {
+    const sale = await fetchSaleForm(item);
+    detailForm.value = mergeSaleForm(sale.payload);
+    detailItem.value = sale;
+    detailOpen.value = true;
+  } catch (e: unknown) {
+    await alert({
+      title: 'Datos de la venta',
+      message: extractApiError(e, 'No se pudo abrir la venta'),
+      variant: 'danger',
+    });
+  }
 }
 
 async function openPreview(item: SaleListItem) {
@@ -388,6 +412,7 @@ function onSelectAttachment(item: AttachmentListItem) {
           <option value="PENDING_SIGNATURE">Pendiente de firma</option>
           <option value="PENDING_VALIDATION">Pendiente de validación</option>
           <option value="PENDING_CORRECTION">Por corregir</option>
+          <option value="PENDING_CORRECTION_REVIEW">Corrección por validar</option>
           <option value="COMPLETED">Completada</option>
           <option value="REJECTED">Rechazada</option>
         </select>
@@ -547,6 +572,20 @@ function onSelectAttachment(item: AttachmentListItem) {
                   <button
                     type="button"
                     class="icon-btn"
+                    title="Ver datos de la venta"
+                    aria-label="Ver datos de la venta"
+                    @click="openDetail(item)"
+                  >
+                    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                      <path
+                        fill="currentColor"
+                        d="M7 3h7l5 5v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zm6.5 1.5V9H18L13.5 4.5zM8 12h8v1.5H8V12zm0 3h8v1.5H8V15zm0 3h5.5V19.5H8V18z"
+                      />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    class="icon-btn"
                     title="Archivos anexados"
                     aria-label="Archivos anexados"
                     @click="openAttachments(item)"
@@ -617,6 +656,20 @@ function onSelectAttachment(item: AttachmentListItem) {
               <button
                 type="button"
                 class="icon-btn"
+                title="Ver datos de la venta"
+                aria-label="Ver datos de la venta"
+                @click="openDetail(item)"
+              >
+                <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                  <path
+                    fill="currentColor"
+                    d="M7 3h7l5 5v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zm6.5 1.5V9H18L13.5 4.5zM8 12h8v1.5H8V12zm0 3h8v1.5H8V15zm0 3h5.5V19.5H8V18z"
+                  />
+                </svg>
+              </button>
+              <button
+                type="button"
+                class="icon-btn"
                 title="Archivos anexados"
                 aria-label="Archivos anexados"
                 @click="openAttachments(item)"
@@ -661,6 +714,18 @@ function onSelectAttachment(item: AttachmentListItem) {
       :title="filePreviewTitle"
       :attachment="filePreviewAttachment"
       @close="filePreviewOpen = false"
+    />
+
+    <SaleDetailModal
+      :open="detailOpen"
+      :form="detailForm"
+      :sale-id="detailItem?.id ?? null"
+      :seller-name="detailItem?.sellerName ?? ''"
+      :status="detailItem?.status ?? ''"
+      :status-label="detailItem ? statusLabel(detailItem.status) : ''"
+      :created-at="detailItem ? formatUtcToLocal(detailItem.createdAt) : ''"
+      :contrato="detailItem?.contrato ?? ''"
+      @close="detailOpen = false"
     />
 
     <SalePdfPreviewModal
@@ -797,7 +862,7 @@ function onSelectAttachment(item: AttachmentListItem) {
 .sales-table {
   table-layout: fixed;
   width: 100%;
-  min-width: 960px;
+  min-width: 1040px;
 }
 
 .sales-table .col-fecha {
@@ -829,7 +894,7 @@ function onSelectAttachment(item: AttachmentListItem) {
 }
 
 .sales-table .col-actions {
-  width: 96px;
+  width: 148px;
 }
 
 .sales-table th,
@@ -855,6 +920,7 @@ function onSelectAttachment(item: AttachmentListItem) {
   display: flex;
   gap: 0.35rem;
   justify-content: flex-end;
+  overflow: visible;
   white-space: nowrap;
 }
 
@@ -957,6 +1023,11 @@ function onSelectAttachment(item: AttachmentListItem) {
 .status-badge--correction {
   background: #eceff1;
   color: #5f6770;
+}
+
+.status-badge--review {
+  background: rgba(107, 91, 149, 0.14);
+  color: #5c4d82;
 }
 
 .icon-btn {

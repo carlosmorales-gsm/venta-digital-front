@@ -12,6 +12,7 @@ import {
   normalizeFrequency,
 } from './sale-finance';
 import { sameContactAddress } from './contact-duplicate';
+import { cardNumberError } from './payment-method';
 
 /** PNG 1×1 mínimo para marcar documentos en modo dev. */
 const TINY_PNG_B64 =
@@ -251,8 +252,10 @@ function applyMockPagoRules(
   pago.fechaProximoPago = schedule.fechaProximoPago;
   pago.diasEspecificosPago = schedule.diasEspecificosPago;
   if (contacto.tipoCobranza === 'DOMICILIADO') {
-    pago.formaPago = 'TARJETA DEBITO';
-    if (pago.cuenta.replace(/\D/g, '').length < 16) {
+    if (!pago.formaPago.startsWith('TARJETA')) {
+      pago.formaPago = 'TARJETA DEBITO';
+    }
+    if (cardNumberError(pago.cuenta, 'DOMICILIADO')) {
       pago.cuenta = '4111111111111111';
     }
     if (!pago.banco.trim()) pago.banco = 'BBVA';
@@ -508,7 +511,11 @@ const SEEDS: DevSaleSeed[] = [
       importeCadaPago: '694.44',
       saldo: '25000',
       frecuencia: 'QUINCENAL',
+      formaPago: 'TARJETA DEBITO',
+      cuenta: '4111111111111111',
+      banco: 'BBVA',
       vencimientoTarjeta: '11/29',
+      cvv: '847',
       titularTarjeta: 'Juan Carlos Pérez Gómez',
       nombreAsesor: 'Ana Ríos',
       nombreJefeVentas: 'Ana Ríos',
@@ -765,7 +772,11 @@ const SEEDS: DevSaleSeed[] = [
       importeCadaPago: '875',
       saldo: '52560',
       frecuencia: 'QUINCENAL',
+      formaPago: 'TARJETA CREDITO',
+      cuenta: '5555555555554444',
+      banco: 'Banorte',
       vencimientoTarjeta: '08/28',
+      cvv: '321',
       titularTarjeta: 'Claudia Herrera Vega',
       nombreAsesor: 'Ana Ríos',
       nombreJefeVentas: 'Ana Ríos',
@@ -1003,8 +1014,11 @@ const SEEDS: DevSaleSeed[] = [
       importeCadaPago: '1350',
       saldo: '26880',
       frecuencia: 'QUINCENAL',
-      cuenta: '4152313488990011',
+      formaPago: 'TARJETA DEBITO',
+      cuenta: '4242424242424242',
+      banco: 'Santander',
       vencimientoTarjeta: '03/30',
+      cvv: '159',
       titularTarjeta: 'Pedro Castro Ulloa',
       nombreAsesor: 'Ana Ríos',
       nombreJefeVentas: 'Ana Ríos',

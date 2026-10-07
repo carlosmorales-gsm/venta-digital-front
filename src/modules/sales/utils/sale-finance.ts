@@ -397,6 +397,83 @@ export function formatMoneyField(amount: number): string {
   return String(Number(amount.toFixed(2)));
 }
 
+/** Campos que, si se corrigen, obligan a recalcular saldo, cuota y pagos. */
+export const FINANCE_DRIVER_KEYS = [
+  'pago.anticipo',
+  'pago.frecuencia',
+  'pago.plazo',
+] as const;
+
+export type CorrectionFinancePreview = {
+  saldo: string;
+  importeCadaPago: string;
+  diasEspecificosPago: string;
+  plazo: string;
+  /** null si el pago inicial no estaba activo y no debe moverse. */
+  pagoInicial: string | null;
+  numberFrequencies: number;
+  frequencyCode: SaleFrequencyCode;
+  saldoLabel: string;
+  cuotaLabel: string;
+  pagoInicialLabel: string;
+  hint: string;
+};
+
+/** Recalcula lo que depende de anticipo, frecuencia o plazo. */
+export function previewCorrectionFinance(input: {
+  precioPlan: unknown;
+  descuentoPct: unknown;
+  anticipo: unknown;
+  frecuencia: unknown;
+  plazo: unknown;
+  withoutInterest: boolean;
+  recognizedBalance?: unknown;
+  previousPagoInicial: unknown;
+  previousDias: unknown;
+  frequencyChanged: boolean;
+}): CorrectionFinancePreview {
+  const frequencyCode = normalizeFrequency(String(input.frecuencia ?? ''));
+  const plazo =
+    frequencyCode === 'CONTADO' ? '0' : String(input.plazo ?? '').trim();
+  const breakdown = computeFinancingBreakdown({
+    precioPlan: input.precioPlan,
+    descuentoPct: input.descuentoPct,
+    anticipo: input.anticipo,
+    frecuencia: frequencyCode,
+    plazo,
+    config: { withoutInterest: input.withoutInterest },
+    recognizedBalance: input.recognizedBalance,
+  });
+  const saldo = String(Number(breakdown.saldo.toFixed(2)));
+  const importeCadaPago = formatMoneyField(breakdown.importeCadaPago);
+  const dias = input.frequencyChanged
+    ? defaultSpecificDaysForFrequency(frequencyCode)
+    : String(input.previousDias ?? '').trim();
+  const pagoInicialActivo = parseMoney(input.previousPagoInicial) > 0;
+  const pagoInicial = pagoInicialActivo ? importeCadaPago : null;
+  let hint = '';
+  if (frequencyCode === 'CONTADO') {
+    hint = 'Un solo pago por el precio de contado.';
+  } else if (!breakdown.numberFrequencies) {
+    hint = 'Indica el plazo en meses para calcular la cuota.';
+  } else {
+    hint = `${breakdown.numberFrequencies} pagos programados`;
+  }
+  return {
+    saldo,
+    importeCadaPago,
+    diasEspecificosPago: dias,
+    plazo,
+    pagoInicial,
+    numberFrequencies: breakdown.numberFrequencies,
+    frequencyCode,
+    saldoLabel: formatMoneyDisplay(saldo) || '—',
+    cuotaLabel: formatMoneyDisplay(importeCadaPago) || '—',
+    pagoInicialLabel: pagoInicial ? formatMoneyDisplay(pagoInicial) || '—' : '',
+    hint,
+  };
+}
+
 /** Monto con formato MXN para UI y PDF ($1,234.56). Vacío → cadena vacía. */
 export function formatMoneyDisplay(
   raw: string | number | null | undefined,

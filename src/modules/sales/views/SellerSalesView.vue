@@ -34,7 +34,9 @@ import {
 import { buildPaymentTicketPdf } from '../utils/payment-ticket-pdf';
 import { buildSignSaleRequest } from '../utils/submit-sign';
 import {
+  lastDaysRange,
   matchesDateRange,
+  normalizeSearchText,
   textEqualsNormalized,
   textIncludesNormalized,
 } from '../utils/sales-list-filters';
@@ -70,39 +72,65 @@ const loading = ref(true);
 const data = ref<SalesResponse | null>(null);
 const error = ref<string | null>(null);
 
-const filters = reactive({
-  dateFrom: '',
-  dateTo: '',
+const SELLER_DEFAULT_DAYS = 15;
+const defaultRange = lastDaysRange(SELLER_DEFAULT_DAYS);
+
+const formFilters = reactive({
+  dateFrom: defaultRange.dateFrom,
+  dateTo: defaultRange.dateTo,
   client: '',
 });
 const clientQuery = ref('');
 const clientMenuOpen = ref(false);
+
+/** Lo que ya se aplicó a la lista. No cambia hasta Buscar. */
+const applied = reactive({
+  dateFrom: defaultRange.dateFrom,
+  dateTo: defaultRange.dateTo,
+  client: '',
+  query: '',
+});
 
 const allItems = computed(() => [
   ...activeDrafts.value,
   ...(data.value?.submitted ?? []),
 ]);
 
-const clientOptions = computed(() => {
-  const names = new Set<string>();
-  for (const item of allItems.value) {
-    const name = (item.titularName || '').trim();
-    if (name) names.add(name);
-  }
-  return [...names].sort((a, b) => a.localeCompare(b, 'es'));
-});
-
-const filteredClientOptions = computed(() => {
+const clientMatches = computed(() => {
   const q = clientQuery.value.trim();
-  if (!q) return clientOptions.value.slice(0, 12);
-  return clientOptions.value
-    .filter((name) => textIncludesNormalized(name, q))
-    .slice(0, 12);
+  if (!q) return [];
+  const groups = new Map<string, Map<string, number>>();
+  for (const item of allItems.value) {
+    const name = (item.titularName || '').trim().replace(/\s+/g, ' ');
+    if (!name || !textIncludesNormalized(name, q)) continue;
+    const key = normalizeSearchText(name);
+    const spellings = groups.get(key) ?? new Map<string, number>();
+    spellings.set(name, (spellings.get(name) ?? 0) + 1);
+    groups.set(key, spellings);
+  }
+  return [...groups.values()]
+    .map((spellings) => {
+      let name = '';
+      let best = -1;
+      let sales = 0;
+      for (const [spell, count] of spellings) {
+        sales += count;
+        const upper = spell === spell.toLocaleUpperCase('es');
+        const currentUpper = name === name.toLocaleUpperCase('es');
+        if (count > best || (count === best && upper && !currentUpper)) {
+          best = count;
+          name = spell;
+        }
+      }
+      return { name, sales };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name, 'es'))
+    .slice(0, 20);
 });
 
 function matchesClient(item: SaleListItem): boolean {
-  const selected = filters.client.trim();
-  const typed = clientQuery.value.trim();
+  const selected = applied.client.trim();
+  const typed = applied.query.trim();
   if (!selected && !typed) return true;
   if (selected) {
     return textEqualsNormalized(item.titularName, selected);
@@ -117,11 +145,10 @@ function matchesClient(item: SaleListItem): boolean {
 }
 
 function matchesSaleFilters(item: SaleListItem): boolean {
-  if (filters.dateFrom || filters.dateTo) {
-    const inRange =
-      matchesDateRange(item.createdAt, filters.dateFrom, filters.dateTo) ||
-      matchesDateRange(item.updatedAt, filters.dateFrom, filters.dateTo);
-    if (!inRange) return false;
+  if (applied.dateFrom || applied.dateTo) {
+    if (!matchesDateRange(item.createdAt, applied.dateFrom, applied.dateTo)) {
+      return false;
+    }
   }
   return matchesClient(item);
 }
@@ -153,6 +180,7 @@ const filteredSubmitted = computed(() =>
 
 type ProcessStageKey =
   | 'correction'
+  | 'review'
   | 'payment'
   | 'sign'
   | 'validation'
@@ -181,6 +209,14 @@ function byCreatedDesc(a: SaleListItem, b: SaleListItem): number {
   return String(b.createdAt).localeCompare(String(a.createdAt));
 }
 
+/** Por corregir se muestra siempre, aunque la fecha o el cliente no coincidan. */
+const pendingCorrections = computed(() =>
+  (data.value?.submitted ?? [])
+    .filter((item) => item.status === 'PENDING_CORRECTION')
+    .slice()
+    .sort(byCreatedDesc),
+);
+
 const processStages = computed<ProcessStage[]>(() => {
   const all = data.value?.submitted ?? [];
   const filtered = filteredSubmitted.value;
@@ -188,13 +224,21 @@ const processStages = computed<ProcessStage[]>(() => {
     {
       key: 'correction',
       title: 'Por corregir',
-      empty: 'No hay ventas por corregir con los filtros actuales.',
+      empty: 'No hay ventas por corregir.',
       tone: 'correction',
+      items: pendingCorrections.value,
+      total: pendingCorrections.value.length,
+    },
+    {
+      key: 'review',
+      title: 'Corrección por validar',
+      empty: 'No hay correcciones esperando validación con los filtros actuales.',
+      tone: 'review',
       items: filtered
-        .filter((s) => s.status === 'PENDING_CORRECTION')
+        .filter((s) => s.status === 'PENDING_CORRECTION_REVIEW')
         .slice()
         .sort(byCreatedDesc),
-      total: all.filter((s) => s.status === 'PENDING_CORRECTION').length,
+      total: all.filter((s) => s.status === 'PENDING_CORRECTION_REVIEW').length,
     },
     {
       key: 'payment',
@@ -271,6 +315,7 @@ type StageId = 'draft' | ProcessStageKey;
 const expandedStages = reactive<Record<StageId, boolean>>({
   draft: true,
   correction: true,
+  review: true,
   payment: true,
   sign: true,
   validation: true,
@@ -296,40 +341,87 @@ const hasAnySales = computed(
 );
 
 const hasAnyFilteredSales = computed(
-  () => filteredDrafts.value.length + filteredSubmitted.value.length > 0,
+  () =>
+    filteredDrafts.value.length +
+      filteredSubmitted.value.length +
+      pendingCorrections.value.length >
+    0,
 );
 
 const hasActiveFilters = computed(
   () =>
-    !!filters.client.trim() ||
-    !!clientQuery.value.trim() ||
-    !!filters.dateFrom ||
-    !!filters.dateTo,
+    !!applied.client.trim() ||
+    !!applied.query.trim() ||
+    !!applied.dateFrom ||
+    !!applied.dateTo,
+);
+
+const filtersAtDefault = computed(() => {
+  const range = lastDaysRange(SELLER_DEFAULT_DAYS);
+  return (
+    formFilters.dateFrom === range.dateFrom &&
+    formFilters.dateTo === range.dateTo &&
+    !formFilters.client.trim() &&
+    !clientQuery.value.trim() &&
+    applied.dateFrom === range.dateFrom &&
+    applied.dateTo === range.dateTo &&
+    !applied.client.trim() &&
+    !applied.query.trim()
+  );
+});
+
+const showClientMatches = computed(
+  () => clientMenuOpen.value && clientQuery.value.trim().length > 0,
 );
 
 function onClientInput() {
-  filters.client = '';
+  formFilters.client = '';
   clientMenuOpen.value = true;
 }
 
 function selectClient(name: string) {
-  filters.client = name;
+  formFilters.client = name;
   clientQuery.value = name;
   clientMenuOpen.value = false;
 }
 
 function clearClient() {
-  filters.client = '';
+  formFilters.client = '';
   clientQuery.value = '';
   clientMenuOpen.value = true;
 }
 
+async function applyFilters() {
+  if (
+    formFilters.dateFrom &&
+    formFilters.dateTo &&
+    formFilters.dateFrom > formFilters.dateTo
+  ) {
+    await alert({
+      title: 'Fechas inválidas',
+      message: 'La fecha inicial no puede ser mayor que la fecha final.',
+      variant: 'warning',
+    });
+    return;
+  }
+  applied.dateFrom = formFilters.dateFrom;
+  applied.dateTo = formFilters.dateTo;
+  applied.client = formFilters.client.trim();
+  applied.query = formFilters.client.trim() ? '' : clientQuery.value.trim();
+  clientMenuOpen.value = false;
+}
+
 function clearFilters() {
-  filters.dateFrom = '';
-  filters.dateTo = '';
-  filters.client = '';
+  const range = lastDaysRange(SELLER_DEFAULT_DAYS);
+  formFilters.dateFrom = range.dateFrom;
+  formFilters.dateTo = range.dateTo;
+  formFilters.client = '';
   clientQuery.value = '';
   clientMenuOpen.value = false;
+  applied.dateFrom = range.dateFrom;
+  applied.dateTo = range.dateTo;
+  applied.client = '';
+  applied.query = '';
 }
 
 const previewOpen = ref(false);
@@ -470,6 +562,8 @@ function statusLabel(status: SaleStatus | string): string {
       return 'Pendiente de validación';
     case 'PENDING_CORRECTION':
       return 'Por corregir';
+    case 'PENDING_CORRECTION_REVIEW':
+      return 'Corrección por validar';
     case 'COMPLETED':
     case 'SUBMITTED':
       return 'Completada';
@@ -492,6 +586,8 @@ function statusBadgeClass(status: SaleStatus | string): string {
       return 'status-badge status-badge--validation';
     case 'PENDING_CORRECTION':
       return 'status-badge status-badge--correction';
+    case 'PENDING_CORRECTION_REVIEW':
+      return 'status-badge status-badge--review';
     case 'COMPLETED':
     case 'SUBMITTED':
       return 'status-badge status-badge--done';
@@ -627,7 +723,9 @@ async function savePayment(
     await alert({
       title: 'Pago registrado',
       message: comprobanteTransferencia?.dataBase64
-        ? 'El pago, el ticket y el comprobante de transferencia se guardaron.'
+        ? String(pago.formaPago || '').trim().toUpperCase() === 'EFECTIVO'
+          ? 'El pago, el ticket y el comprobante se guardaron.'
+          : 'El pago, el ticket y el comprobante de transferencia se guardaron.'
         : ticketPdf
           ? 'El pago y el ticket se guardaron.'
           : 'El pago se guardó.',
@@ -793,19 +891,14 @@ async function removeDraft(id: number) {
       </div>
     </header>
 
-    <div class="panel filters">
+    <form class="panel filters" @submit.prevent="applyFilters">
       <div class="field">
         <label for="seller-filter-from">Desde</label>
-        <input
-          id="seller-filter-from"
-          v-model="filters.dateFrom"
-          type="date"
-          title="Vacío: todas las ventas"
-        />
+        <input id="seller-filter-from" v-model="formFilters.dateFrom" type="date" />
       </div>
       <div class="field">
         <label for="seller-filter-to">Hasta</label>
-        <input id="seller-filter-to" v-model="filters.dateTo" type="date" />
+        <input id="seller-filter-to" v-model="formFilters.dateTo" type="date" />
       </div>
       <div class="field field--wide client-ac">
         <label for="seller-filter-client">Cliente</label>
@@ -815,13 +908,13 @@ async function removeDraft(id: number) {
             v-model="clientQuery"
             type="search"
             autocomplete="off"
-            placeholder="Buscar o seleccionar cliente…"
+            placeholder="Escribe el nombre del cliente"
             @input="onClientInput"
             @focus="clientMenuOpen = true"
             @blur="clientMenuOpen = false"
           />
           <button
-            v-if="filters.client || clientQuery"
+            v-if="formFilters.client || clientQuery"
             type="button"
             class="btn btn-sm btn-ghost"
             @mousedown.prevent="clearClient"
@@ -830,39 +923,45 @@ async function removeDraft(id: number) {
           </button>
         </div>
         <ul
-          v-if="clientMenuOpen && filteredClientOptions.length"
-          class="client-ac__list"
+          v-if="showClientMatches && clientMatches.length"
+          class="client-results"
           role="listbox"
         >
-          <li v-for="name in filteredClientOptions" :key="name">
+          <li v-for="client in clientMatches" :key="client.name">
             <button
               type="button"
-              class="client-ac__item"
-              :class="{ active: name === filters.client }"
-              @mousedown.prevent="selectClient(name)"
+              class="client-result"
+              :class="{ 'client-result--on': client.name === formFilters.client }"
+              @mousedown.prevent="selectClient(client.name)"
             >
-              {{ name }}
+              <strong>{{ client.name }}</strong>
+              <small>
+                {{ client.sales }}
+                {{ client.sales === 1 ? 'venta' : 'ventas' }}
+              </small>
             </button>
           </li>
         </ul>
-        <p
-          v-else-if="clientMenuOpen && clientQuery.trim()"
-          class="client-ac__empty"
-        >
-          Sin coincidencias
+        <p v-else-if="showClientMatches" class="client-ac__empty">
+          Sin coincidencias en tus ventas.
         </p>
       </div>
+      <p class="filter-hint">
+        Por defecto se muestran las ventas de los últimos {{ SELLER_DEFAULT_DAYS }} días,
+        según la fecha de alta.
+      </p>
       <div class="filter-actions">
+        <button type="submit" class="btn btn-primary">Buscar</button>
         <button
           type="button"
           class="btn btn-ghost"
-          :disabled="!hasActiveFilters"
+          :disabled="filtersAtDefault"
           @click="clearFilters"
         >
-          Restablecer filtros
+          Restablecer
         </button>
       </div>
-    </div>
+    </form>
 
     <div v-if="loading" class="panel loading">
       <span class="spinner" />
@@ -1298,41 +1397,55 @@ async function removeDraft(id: number) {
   min-width: 0;
 }
 
-.client-ac__list {
+.client-results {
   list-style: none;
-  margin: 0.3rem 0 0;
-  padding: 0.25rem;
-  border: 1px solid var(--vd-line);
-  border-radius: 8px;
-  max-height: 220px;
+  margin: 0.45rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  max-height: 260px;
   overflow: auto;
-  background: #fff;
-  position: absolute;
-  z-index: 20;
-  left: 0;
-  right: 0;
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
 }
 
-.client-ac__item {
+.client-result {
   width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
   text-align: left;
-  border: 0;
-  background: transparent;
-  padding: 0.55rem 0.65rem;
-  border-radius: 6px;
-  font: inherit;
+  border: 1px solid var(--vd-line);
+  background: #fff;
+  border-radius: 10px;
+  padding: 0.65rem 0.75rem;
   cursor: pointer;
+  color: inherit;
 }
 
-.client-ac__item:hover,
-.client-ac__item.active {
-  background: #f0f5f8;
-  color: var(--gsm-blue);
+.client-result:hover,
+.client-result--on {
+  border-color: var(--gsm-blue);
+  background: #eef5f8;
+}
+
+.client-result strong {
+  font-size: 0.9rem;
+}
+
+.client-result small {
+  color: var(--vd-muted);
+  font-size: 0.75rem;
 }
 
 .client-ac__empty {
   margin: 0.3rem 0 0;
+  font-size: 0.82rem;
+  color: var(--vd-muted);
+}
+
+.filter-hint {
+  grid-column: 1 / -1;
+  margin: 0;
   font-size: 0.82rem;
   color: var(--vd-muted);
 }
@@ -1444,6 +1557,10 @@ async function removeDraft(id: number) {
   border-left-color: #8b9198;
 }
 
+.stage-panel--review {
+  border-left-color: #6b5b95;
+}
+
 .stage-panel--done {
   border-left-color: var(--vd-ok);
 }
@@ -1538,6 +1655,11 @@ async function removeDraft(id: number) {
 .status-badge--correction {
   background: #eceff1;
   color: #5f6770;
+}
+
+.status-badge--review {
+  background: rgba(107, 91, 149, 0.14);
+  color: #5c4d82;
 }
 
 .status-badge--done {

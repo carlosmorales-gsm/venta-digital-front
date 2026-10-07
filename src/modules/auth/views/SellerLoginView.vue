@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { extractApiError, http } from '../../../shared/api/http';
 import { useAuthStore } from '../stores/auth.store';
 
 const auth = useAuthStore();
@@ -9,11 +10,55 @@ const route = useRoute();
 
 const isDev = import.meta.env.DEV;
 const step = ref<'phone' | 'pin'>('phone');
+const accessMode = ref<'whatsapp' | 'password' | null>(null);
+const sellerPasswordExpired = ref(false);
+const modeError = ref<string | null>(null);
 const cellphone = ref('');
+const password = ref('');
 const nipId = ref<number | null>(null);
 const nip = ref('');
 const localError = ref<string | null>(null);
 const sessionExpired = computed(() => route.query.sesion === 'expirada');
+const passwordLogin = computed(() => accessMode.value === 'password');
+
+async function loadAccessMode() {
+  modeError.value = null;
+  try {
+    const { data } = await http.get<{
+      passwordLogin: boolean;
+      expired?: boolean;
+    }>('/auth/vendedor/modo-acceso', { skipGlobalLoading: true });
+    accessMode.value = data.passwordLogin ? 'password' : 'whatsapp';
+    sellerPasswordExpired.value = Boolean(data.expired) && !data.passwordLogin;
+  } catch (e: unknown) {
+    accessMode.value = null;
+    sellerPasswordExpired.value = false;
+    modeError.value = extractApiError(
+      e,
+      'No se pudo saber cómo entran los vendedores',
+    );
+  }
+}
+
+onMounted(loadAccessMode);
+
+async function loginWithPassword() {
+  localError.value = null;
+  if (!/^\d{10}$/.test(cellphone.value)) {
+    localError.value = 'Ingresa un celular de 10 dígitos';
+    return;
+  }
+  if (!password.value.trim()) {
+    localError.value = 'Ingresa la contraseña';
+    return;
+  }
+  try {
+    await auth.loginSellerPassword(cellphone.value, password.value);
+    router.replace({ name: 'vendedor-ventas' });
+  } catch {
+    localError.value = auth.error;
+  }
+}
 
 async function requestPin() {
   localError.value = null;
@@ -74,9 +119,11 @@ async function verifyPin() {
         <h1>Venta Digital</h1>
         <p>
           {{
-            isDev
-              ? 'Acceso de vendedor (desarrollo: solo celular)'
-              : 'Acceso de vendedor con PIN de WhatsApp'
+            passwordLogin
+              ? 'Acceso de vendedor con contraseña'
+              : isDev
+                ? 'Acceso de vendedor (desarrollo: solo celular)'
+                : 'Acceso de vendedor con PIN de WhatsApp'
           }}
         </p>
       </div>
@@ -86,24 +133,73 @@ async function verifyPin() {
     <section class="form-panel">
       <form
         class="login-card"
-        @submit.prevent="step === 'phone' ? requestPin() : verifyPin()"
+        @submit.prevent="passwordLogin ? loginWithPassword() : step === 'phone' ? requestPin() : verifyPin()"
       >
         <img src="/logo-gsm-azul.svg" alt="GSM" class="logo-blue" />
-        <h2>{{ step === 'phone' ? 'Tu celular' : 'Código PIN' }}</h2>
+        <h2>
+          {{
+            passwordLogin
+              ? 'Iniciar sesión'
+              : step === 'phone'
+                ? 'Tu celular'
+                : 'Código PIN'
+          }}
+        </h2>
         <p class="subtitle">
           {{
-            step === 'phone'
-              ? isDev
-                ? 'En desarrollo entra solo con el celular registrado'
-                : 'Te enviaremos un PIN por WhatsApp'
-              : `PIN enviado a ${cellphone}`
+            passwordLogin
+              ? 'Usa tu celular y la contraseña que definió el administrador'
+              : step === 'phone'
+                ? isDev
+                  ? 'En desarrollo entra solo con el celular registrado'
+                  : 'Te enviaremos un PIN por WhatsApp'
+                : `PIN enviado a ${cellphone}`
           }}
         </p>
         <p v-if="sessionExpired" class="session-note" role="status">
           Tu sesión expiró. Inicia sesión de nuevo.
         </p>
+        <p v-if="sellerPasswordExpired" class="session-note" role="status">
+          La contraseña de vendedores ya venció. El acceso volvió al flujo normal.
+        </p>
 
-        <div v-if="step === 'phone'" class="field">
+        <p v-if="modeError" class="error-text" role="alert">{{ modeError }}</p>
+        <button
+          v-if="modeError"
+          class="btn btn-ghost back"
+          type="button"
+          @click="loadAccessMode"
+        >
+          Reintentar
+        </button>
+
+        <template v-if="passwordLogin">
+          <div class="field">
+            <label for="cellphone">Celular (10 dígitos)</label>
+            <input
+              id="cellphone"
+              v-model="cellphone"
+              type="tel"
+              inputmode="numeric"
+              maxlength="10"
+              placeholder="6671234567"
+              autocomplete="tel"
+              required
+            />
+          </div>
+          <div class="field">
+            <label for="seller-password">Contraseña</label>
+            <input
+              id="seller-password"
+              v-model="password"
+              type="password"
+              autocomplete="current-password"
+              required
+            />
+          </div>
+        </template>
+
+        <div v-else-if="accessMode === 'whatsapp' && step === 'phone'" class="field">
           <label for="cellphone">Celular (10 dígitos)</label>
           <input
             id="cellphone"
@@ -117,7 +213,7 @@ async function verifyPin() {
           />
         </div>
 
-        <div v-else class="field">
+        <div v-else-if="accessMode === 'whatsapp'" class="field">
           <label for="nip">PIN recibido</label>
           <input
             id="nip"
@@ -133,9 +229,17 @@ async function verifyPin() {
 
         <p v-if="localError" class="error-text" role="alert">{{ localError }}</p>
 
-        <button class="btn btn-primary submit" type="submit" :disabled="auth.loading">
+        <button
+          v-if="accessMode"
+          class="btn btn-primary submit"
+          type="submit"
+          :disabled="auth.loading"
+        >
           <span v-if="auth.loading" class="spinner" />
-          <template v-if="step === 'phone'">
+          <template v-if="passwordLogin">
+            {{ auth.loading ? 'Entrando…' : 'Entrar' }}
+          </template>
+          <template v-else-if="step === 'phone'">
             {{
               auth.loading
                 ? isDev
@@ -152,7 +256,7 @@ async function verifyPin() {
         </button>
 
         <button
-          v-if="step === 'pin'"
+          v-if="!passwordLogin && step === 'pin'"
           class="btn btn-ghost back"
           type="button"
           @click="step = 'phone'"
@@ -160,7 +264,7 @@ async function verifyPin() {
           Cambiar celular
         </button>
         <button
-          v-else
+          v-else-if="accessMode"
           class="btn btn-ghost back"
           type="button"
           @click="router.push({ name: 'home' })"

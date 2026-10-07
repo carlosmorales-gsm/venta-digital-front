@@ -1,5 +1,5 @@
 import { GState, jsPDF } from 'jspdf';
-import { fullName, isSignedSaleStatus, realContrato, type SaleFormData } from '../types/sale-form';
+import { documentContractFolio, fullName, isSignedSaleStatus, type SaleFormData } from '../types/sale-form';
 import {
   formatMoneyDisplay,
   normalizeFrequency,
@@ -152,10 +152,10 @@ function frequencyPhrase(form: SaleFormData, hint?: string) {
 }
 
 function contractNumber(form: SaleFormData, opts?: ConvenioLetterOpts) {
-  return (
-    realContrato(form.meta.contrato) ||
-    v(form.meta.folioSolicitud) ||
-    (opts?.saleId ? String(opts.saleId) : '')
+  return documentContractFolio(
+    form.meta.contrato,
+    form.meta.folioSolicitud,
+    opts?.saleId,
   );
 }
 

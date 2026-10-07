@@ -14,15 +14,21 @@ export function toLocalDateInputValue(date: Date = new Date()): string {
   return `${y}-${m}-${day}`;
 }
 
-/** Últimos 7 días (hoy inclusive). */
-export function lastWeekRange(): { dateFrom: string; dateTo: string } {
+/** Últimos `days` días, hoy inclusive. */
+export function lastDaysRange(days: number): { dateFrom: string; dateTo: string } {
+  const span = Math.max(1, Math.trunc(days));
   const to = new Date();
   const from = new Date();
-  from.setDate(from.getDate() - 6);
+  from.setDate(from.getDate() - (span - 1));
   return {
     dateFrom: toLocalDateInputValue(from),
     dateTo: toLocalDateInputValue(to),
   };
+}
+
+/** Últimos 7 días (hoy inclusive). */
+export function lastWeekRange(): { dateFrom: string; dateTo: string } {
+  return lastDaysRange(7);
 }
 
 export function localDateKey(utcIso: string | null | undefined): string {

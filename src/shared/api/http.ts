@@ -27,6 +27,8 @@ const PUBLIC_AUTH_PATHS = [
   '/auth/vendedor/solicitar-pin',
   '/auth/vendedor/verificar-pin',
   '/auth/vendedor/login-dev',
+  '/auth/vendedor/login-password',
+  '/auth/vendedor/modo-acceso',
   '/auth/refresh',
   '/public/sign/',
 ];

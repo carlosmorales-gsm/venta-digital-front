@@ -4,7 +4,7 @@ import {
   FISCAL_REGIMEN_OTRO,
   FISCAL_REGIMEN_OTROS,
 } from '../constants/fiscal-regimes';
-import { fullName, isSignedSaleStatus, type SaleFormData } from '../types/sale-form';
+import { documentContractFolio, fullName, isSignedSaleStatus, type SaleFormData } from '../types/sale-form';
 
 const PAGE_W = 612.28;
 const PAGE_H = 792;
@@ -253,13 +253,30 @@ function drawDateLine(doc: Doc, date: { day: string; month: string; year: string
   doc.text(city, x, y);
 }
 
-function drawLetter(doc: Doc, form: SaleFormData, logo: LogoAsset | null) {
+function drawFolio(doc: Doc, folio: string) {
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  setInk(doc);
+  doc.text('FOLIO:', ML, 74);
+  if (folio) doc.text(folio, 100, 74);
+}
+
+function drawLetter(
+  doc: Doc,
+  form: SaleFormData,
+  logo: LogoAsset | null,
+  opts?: InvoiceLetterOpts,
+) {
   const c = form.contacto;
   const date = parseDate(form.meta.fecha);
   const tipo = v(c.tipoPersona).toUpperCase();
   const code = regimenCode(form);
 
   drawOfficialHeader(doc, logo);
+  drawFolio(
+    doc,
+    documentContractFolio(form.meta.contrato, form.meta.folioSolicitud, opts?.saleId),
+  );
   drawDateLine(doc, date);
 
   let y = 128;
@@ -381,7 +398,7 @@ export async function buildInvoiceLetterPdf(
     compress: true,
   });
   const logo = await loadHeaderLogo();
-  drawLetter(doc, form, logo);
+  drawLetter(doc, form, logo, opts);
   if (isDraftInvoiceLetter(form, opts)) {
     drawDraftWatermark(doc);
   }

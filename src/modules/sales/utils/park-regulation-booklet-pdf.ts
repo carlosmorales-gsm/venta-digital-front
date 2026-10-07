@@ -1,5 +1,5 @@
 import { GState, jsPDF } from 'jspdf';
-import { fullName, realContrato, type SaleFormData } from '../types/sale-form';
+import { documentContractFolio, fullName, type SaleFormData } from '../types/sale-form';
 import {
   isDraftParkRegulation,
   type ParkRegulationOpts,
@@ -74,10 +74,6 @@ const ARTICLES_P4_SANC = [
   'Artículo 32.- La violación a cualquiera de las reglas contenidas en el presente reglamento por el titular de los derechos de uso mortuorio perpetuo o temporal será motivo de la conclusión del contrato.',
 ];
 
-function v(text?: string | null) {
-  return (text ?? '').trim();
-}
-
 function parsePrintDate(iso: string) {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || '');
   if (!m) {
@@ -90,10 +86,10 @@ function parsePrintDate(iso: string) {
 }
 
 function contractNumber(form: SaleFormData, opts?: ParkRegulationOpts) {
-  return (
-    realContrato(form.meta.contrato) ||
-    v(form.meta.folioSolicitud) ||
-    (opts?.saleId ? String(opts.saleId) : '')
+  return documentContractFolio(
+    form.meta.contrato,
+    form.meta.folioSolicitud,
+    opts?.saleId,
   );
 }
 

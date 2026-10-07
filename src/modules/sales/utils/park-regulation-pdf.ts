@@ -1,8 +1,8 @@
 import { GState, jsPDF } from 'jspdf';
 import {
+  documentContractFolio,
   fullName,
   isSignedSaleStatus,
-  realContrato,
   type SaleFormData,
 } from '../types/sale-form';
 
@@ -109,10 +109,10 @@ function drawDraftWatermark(doc: Doc) {
 }
 
 function contractNumber(form: SaleFormData, opts?: ParkRegulationOpts) {
-  return (
-    realContrato(form.meta.contrato) ||
-    v(form.meta.folioSolicitud) ||
-    (opts?.saleId ? String(opts.saleId) : '')
+  return documentContractFolio(
+    form.meta.contrato,
+    form.meta.folioSolicitud,
+    opts?.saleId,
   );
 }
 

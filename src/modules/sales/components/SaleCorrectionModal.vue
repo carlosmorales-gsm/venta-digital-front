@@ -14,10 +14,16 @@ import type { SaleFormData } from '../types/sale-form';
 import { fileToAttachment } from '../utils/file-to-attachment';
 import {
   CORRECTION_FIELDS,
+  correctionFileTargets,
   displayCorrectionValue,
   readPath,
   type CorrectionFieldDef,
 } from '../utils/correction-fields';
+import {
+  FINANCE_DRIVER_KEYS,
+  previewCorrectionFinance,
+  totalRecognizedPaid,
+} from '../utils/sale-finance';
 import { mxPhoneError, normalizeMxPhone } from '../utils/phone';
 import { readSellerPrefetch } from '../utils/seller-session-cache';
 import { toSaleUppercase } from '../utils/sale-text';
@@ -46,8 +52,12 @@ const catalog = computed(() => readSellerPrefetch());
 
 const selected = computed(() => {
   const wanted = new Set(props.fields);
-  return CORRECTION_FIELDS.filter((item) => wanted.has(item.key));
+  return CORRECTION_FIELDS.filter(
+    (item) => wanted.has(item.key) && item.kind === 'field',
+  );
 });
+
+const fileTargets = computed(() => correctionFileTargets(props.fields));
 
 const sections = computed(() => {
   const groups = new Map<string, { label: string; items: CorrectionFieldDef[] }>();
@@ -60,6 +70,55 @@ const sections = computed(() => {
     groups.set(item.section, current);
   }
   return [...groups.values()];
+});
+
+const financeDrivers = computed(() =>
+  selected.value.some((item) =>
+    (FINANCE_DRIVER_KEYS as readonly string[]).includes(item.key),
+  ),
+);
+
+const financeView = computed(() => {
+  const form = payload.value;
+  if (!form || !financeDrivers.value) return null;
+  const edited = (key: string, fallback: unknown) =>
+    selected.value.some((item) => item.key === key) ? values[key] : fallback;
+  return previewCorrectionFinance({
+    precioPlan: form.ubicacionPlan.precioPlan || form.pago.precioPlan,
+    descuentoPct: form.pago.promocionDescuento,
+    anticipo: edited('pago.anticipo', form.pago.anticipo),
+    frecuencia: edited('pago.frecuencia', form.pago.frecuencia),
+    plazo: edited('pago.plazo', form.pago.plazo),
+    withoutInterest: Boolean(form.ubicacionPlan.withoutInterest),
+    recognizedBalance: totalRecognizedPaid(form.meta.reconocimientoVentas),
+    previousPagoInicial: form.pago.pagoInicial,
+    previousDias: form.pago.diasEspecificosPago,
+    frequencyChanged: selected.value.some((item) => item.key === 'pago.frecuencia') &&
+      String(values['pago.frecuencia'] || '')
+        .trim()
+        .toUpperCase() !==
+        String(form.pago.frecuencia || '')
+          .trim()
+          .toUpperCase(),
+  });
+});
+
+watch(financeView, (preview) => {
+  if (!preview) return;
+  if (
+    preview.frequencyCode === 'CONTADO' &&
+    Object.prototype.hasOwnProperty.call(values, 'pago.plazo') &&
+    values['pago.plazo'] !== preview.plazo
+  ) {
+    values['pago.plazo'] = preview.plazo;
+  }
+  if (
+    preview.pagoInicial != null &&
+    Object.prototype.hasOwnProperty.call(values, 'pago.pagoInicial') &&
+    values['pago.pagoInicial'] !== preview.pagoInicial
+  ) {
+    values['pago.pagoInicial'] = preview.pagoInicial;
+  }
 });
 
 watch(
@@ -237,6 +296,14 @@ function isDecimal(item: CorrectionFieldDef) {
   return item.key.endsWith('.anticipo') || item.key.endsWith('.pagoInicial');
 }
 
+function isPlazoLocked(item: CorrectionFieldDef) {
+  return item.key === 'pago.plazo' && financeView.value?.frequencyCode === 'CONTADO';
+}
+
+function isPagoInicialLocked(item: CorrectionFieldDef) {
+  return item.key === 'pago.pagoInicial' && financeView.value?.pagoInicial != null;
+}
+
 function isMoney(item: CorrectionFieldDef) {
   return (
     item.key.endsWith('.plazo') ||
@@ -272,6 +339,13 @@ function catalogRows(item: CorrectionFieldDef) {
 function onSelect(item: CorrectionFieldDef, event: Event) {
   const next = (event.target as HTMLSelectElement).value;
   values[item.key] = next;
+  if (
+    item.key === 'pago.frecuencia' &&
+    next.trim().toUpperCase() === 'CONTADO' &&
+    Object.prototype.hasOwnProperty.call(values, 'pago.plazo')
+  ) {
+    values['pago.plazo'] = '0';
+  }
   const idKey = companionKey(item);
   if (!idKey) return;
   const row = catalogRows(item).find(
@@ -293,15 +367,15 @@ function onUpper(item: CorrectionFieldDef, event: Event) {
   values[item.key] = toSaleUppercase((event.target as HTMLInputElement).value);
 }
 
-function currentFileName(item: CorrectionFieldDef) {
+function currentFileName(saveKey: string) {
   return (
-    files[item.key]?.name ||
-    displayCorrectionValue(readPath(payload.value, item.key)) ||
+    files[saveKey]?.name ||
+    displayCorrectionValue(readPath(payload.value, saveKey)) ||
     'Sin archivo'
   );
 }
 
-async function onFile(item: CorrectionFieldDef, event: Event) {
+async function onFile(saveKey: string, event: Event) {
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
   input.value = '';
@@ -313,7 +387,7 @@ async function onFile(item: CorrectionFieldDef, event: Event) {
       error.value = 'No se pudo leer el archivo';
       return;
     }
-    files[item.key] = {
+    files[saveKey] = {
       name: attachment.name,
       mime: attachment.mime,
       dataBase64: attachment.dataBase64,
@@ -325,9 +399,7 @@ async function onFile(item: CorrectionFieldDef, event: Event) {
 
 async function submit() {
   if (!props.saleId || saving.value) return;
-  const missingDoc = selected.value.find(
-    (item) => item.kind === 'document' && !files[item.key],
-  );
+  const missingDoc = fileTargets.value.find((item) => !files[item.saveKey]);
   if (missingDoc) {
     error.value = `Adjunta el archivo de ${missingDoc.label}`;
     return;
@@ -369,6 +441,46 @@ async function submit() {
     <p v-if="error" class="error-text">{{ error }}</p>
     <p v-if="loading" class="muted">Cargando…</p>
     <div v-else class="sections">
+      <section v-if="financeView" class="block finance">
+        <h3>Cálculo actualizado</h3>
+        <p class="finance-note">
+          Anticipo, frecuencia y plazo recalculan estos importes. Así quedan con los datos de esta corrección.
+        </p>
+        <div class="calc-row">
+          <span>Saldo</span>
+          <strong>{{ financeView.saldoLabel }}</strong>
+        </div>
+        <div class="calc-row">
+          <span>Importe de cada pago</span>
+          <strong>{{ financeView.cuotaLabel }}</strong>
+        </div>
+        <p class="finance-note">{{ financeView.hint }}</p>
+        <div class="calc-row">
+          <span>Días específicos</span>
+          <strong>{{ financeView.diasEspecificosPago || '—' }}</strong>
+        </div>
+        <div v-if="financeView.pagoInicial != null" class="calc-row">
+          <span>Pago inicial</span>
+          <strong>{{ financeView.pagoInicialLabel }}</strong>
+        </div>
+      </section>
+      <section v-if="fileTargets.length" class="block">
+        <h3>Archivos</h3>
+        <label v-for="item in fileTargets" :key="item.saveKey" class="row">
+          <span>{{ item.label }}</span>
+          <span class="file-row">
+            <small>{{ currentFileName(item.saveKey) }}</small>
+            <label class="file-btn">
+              {{ files[item.saveKey] ? 'Cambiar archivo' : 'Seleccionar archivo' }}
+              <input
+                type="file"
+                accept="image/*,.pdf,application/pdf"
+                @change="onFile(item.saveKey, $event)"
+              />
+            </label>
+          </span>
+        </label>
+      </section>
       <section v-for="section in sections" :key="section.label" class="block">
         <h3>{{ section.label }}</h3>
         <label v-for="item in section.items" :key="item.key" class="row">
@@ -430,32 +542,23 @@ async function submit() {
             v-else-if="item.kind === 'field' && isDecimal(item)"
             :value="values[item.key]"
             inputmode="decimal"
+            :disabled="isPagoInicialLocked(item)"
             @input="onDecimal(item, $event)"
           />
           <input
             v-else-if="item.kind === 'field' && isMoney(item)"
             :value="values[item.key]"
             inputmode="numeric"
+            :disabled="isPlazoLocked(item)"
             @input="onDigits(item, $event, 19)"
           />
           <input
-            v-else-if="item.kind === 'field'"
+            v-else
             :value="values[item.key]"
             type="text"
             @input="onUpper(item, $event)"
           />
-          <span v-else class="file-row">
-            <small>{{ currentFileName(item) }}</small>
-            <label class="file-btn">
-              {{ files[item.key] ? 'Cambiar archivo' : 'Seleccionar archivo' }}
-              <input
-                type="file"
-                accept="image/*,.pdf,application/pdf"
-                @change="onFile(item, $event)"
-              />
-            </label>
-          </span>
-          <small v-if="item.kind === 'field' && isPhone(item) && mxPhoneError(values[item.key])" class="field-error">
+          <small v-if="isPhone(item) && mxPhoneError(values[item.key])" class="field-error">
             {{ mxPhoneError(values[item.key]) }}
           </small>
         </label>
@@ -523,6 +626,34 @@ async function submit() {
 .row select:focus {
   outline: 2px solid var(--accent);
   border-color: var(--accent);
+}
+
+.row input:disabled,
+.row select:disabled {
+  background: #f3f5f7;
+  color: var(--vd-ink);
+}
+
+.finance {
+  background: #f7f9fb;
+}
+
+.finance-note {
+  margin: 0 0 0.55rem;
+  color: var(--vd-muted);
+  font-size: 0.84rem;
+}
+
+.calc-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.4rem;
+  font-size: 0.92rem;
+}
+
+.calc-row strong {
+  font-variant-numeric: tabular-nums;
 }
 
 .file-row {

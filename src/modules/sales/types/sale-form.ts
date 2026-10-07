@@ -11,6 +11,7 @@ export type SaleStatus =
   | 'PENDING_SIGNATURE'
   | 'PENDING_VALIDATION'
   | 'PENDING_CORRECTION'
+  | 'PENDING_CORRECTION_REVIEW'
   | 'COMPLETED'
   | 'REJECTED'
   | 'SUBMITTED'; // compat
@@ -269,6 +270,18 @@ export function realContrato(v: string | null | undefined): string {
   const t = String(v ?? '').trim();
   if (!t || /^VD-(MOCK|DEMO)-/i.test(t)) return '';
   return t;
+}
+
+/**
+ * Número que va en los PDFs: cotización Odoo si ya existe;
+ * si no, el folio de la venta (D-n).
+ */
+export function documentContractFolio(
+  contrato: string | null | undefined,
+  folioSolicitud: string | null | undefined,
+  saleId?: number | null,
+): string {
+  return realContrato(contrato) || formatDigitalFolio(folioSolicitud || saleId);
 }
 
 export function emptyPerson(): SalePersonName {

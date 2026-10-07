@@ -1,6 +1,7 @@
 import { GState, jsPDF } from 'jspdf';
 import { saleCompanyName } from '../constants/sale-companies';
 import {
+  documentContractFolio,
   fullName,
   hasIneDocumentos,
   isSignedSaleStatus,
@@ -227,13 +228,30 @@ function drawJustified(
   return y + lines.length * lineH;
 }
 
-function drawLetter(doc: Doc, form: SaleFormData, logo: LogoAsset | null) {
+function drawFolio(doc: Doc, folio: string) {
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  setInk(doc);
+  doc.text('FOLIO:', ML, 74);
+  if (folio) doc.text(folio, 100, 74);
+}
+
+function drawLetter(
+  doc: Doc,
+  form: SaleFormData,
+  logo: LogoAsset | null,
+  opts?: NoInvoiceConsentOpts,
+) {
   const cliente = fullName(form.contacto);
   const company = saleCompanyName(form.ubicacionPlan.planKind);
   const hasIne = hasIneDocumentos(form.documentos);
   const date = parseDate(form.meta.fecha);
 
   drawOfficialHeader(doc, logo);
+  drawFolio(
+    doc,
+    documentContractFolio(form.meta.contrato, form.meta.folioSolicitud, opts?.saleId),
+  );
   drawDateLine(doc, date);
 
   let y = 128;
@@ -336,7 +354,7 @@ export async function buildNoInvoiceConsentPdf(
     compress: true,
   });
   const logo = await loadHeaderLogo();
-  drawLetter(doc, form, logo);
+  drawLetter(doc, form, logo, opts);
   if (isDraftNoInvoiceConsent(form, opts)) {
     drawDraftWatermark(doc);
   }

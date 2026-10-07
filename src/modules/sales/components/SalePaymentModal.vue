@@ -58,6 +58,12 @@ const showBankFields = computed(
     isTarjeta.value,
 );
 const isTransferencia = computed(() => formaPagoNorm.value === 'TRANSFERENCIA');
+const needsPaymentProof = computed(
+  () => isTransferencia.value || isEfectivo.value,
+);
+const paymentProofTitle = computed(() =>
+  isEfectivo.value ? 'Comprobante de pago' : 'Comprobante de transferencia',
+);
 const showCashFields = computed(() => isEfectivo.value);
 const requiresCuenta = computed(
   () => formaPagoNorm.value === 'TRANSFERENCIA' || isTarjeta.value,
@@ -172,7 +178,7 @@ watch(
     if (forma === 'CHEQUE') {
       pago.cuenta = '';
     }
-    if (forma !== 'TRANSFERENCIA') {
+    if (forma !== 'TRANSFERENCIA' && forma !== 'EFECTIVO') {
       comprobanteTransferencia.value = null;
       transferFileError.value = null;
     }
@@ -259,7 +265,7 @@ function onSave() {
     infoNomina: fromPlan.infoNomina,
     montoRecibido: isEfectivo.value ? montoRecibido : '',
     cambio: isEfectivo.value ? resolveCambio() : '',
-  }, isTransferencia.value ? comprobanteTransferencia.value : null);
+  }, needsPaymentProof.value ? comprobanteTransferencia.value : null);
 }
 
 const canSave = computed(() => saveBlockReason.value === null);
@@ -287,6 +293,10 @@ const saveBlockReason = computed((): string | null => {
     if (!received) return 'Indica el efectivo recibido.';
     if (received + 0.001 < amountDue.value) {
       return `El efectivo debe cubrir al menos ${amountDueLabel.value}.`;
+    }
+    const cashProof = comprobanteTransferencia.value;
+    if (!cashProof?.dataBase64?.trim() && !cashProof?.driveFileUrl?.trim()) {
+      return 'Adjunta el comprobante de pago.';
     }
     return null;
   }
@@ -408,8 +418,8 @@ const saveBlockReason = computed((): string | null => {
           />
         </label>
 
-        <div v-if="isTransferencia" class="span-2 transfer-doc">
-          <strong>Comprobante de transferencia</strong>
+        <div v-if="needsPaymentProof" class="span-2 transfer-doc">
+          <strong>{{ paymentProofTitle }}</strong>
           <p>
             Foto o PDF del pago. Se anexa al expediente.
           </p>

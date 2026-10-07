@@ -1,5 +1,5 @@
 import { GState, jsPDF } from 'jspdf';
-import { fullName, isSignedSaleStatus, realContrato, type SaleFormData } from '../types/sale-form';
+import { documentContractFolio, fullName, isSignedSaleStatus, type SaleFormData } from '../types/sale-form';
 
 const PAGE_W = 612.28;
 const PAGE_H = 792;
@@ -131,10 +131,10 @@ function drawDraftWatermark(doc: Doc) {
 }
 
 function contractNumber(form: SaleFormData, opts?: ExclusionesLetterOpts) {
-  return (
-    realContrato(form.meta.contrato) ||
-    v(form.meta.folioSolicitud) ||
-    (opts?.saleId ? String(opts.saleId) : '')
+  return documentContractFolio(
+    form.meta.contrato,
+    form.meta.folioSolicitud,
+    opts?.saleId,
   );
 }
 

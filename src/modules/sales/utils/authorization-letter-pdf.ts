@@ -1,10 +1,10 @@
 import { GState, jsPDF } from 'jspdf';
 import { saleCompanyLetter } from '../constants/sale-companies';
 import {
+  documentContractFolio,
   fullName,
   hasIneDocumentos,
   isSignedSaleStatus,
-  realContrato,
   type SaleFormData,
 } from '../types/sale-form';
 import { formatMoneyDisplay, normalizeFrequency } from './sale-finance';
@@ -225,10 +225,11 @@ function drawLetter(
   const c = form.contacto;
   const p = form.pago;
   const company = saleCompanyLetter(form.ubicacionPlan.planKind);
-  const contrato =
-    realContrato(form.meta.contrato) ||
-    v(form.meta.folioSolicitud) ||
-    (opts?.saleId ? String(opts.saleId) : '');
+  const contrato = documentContractFolio(
+    form.meta.contrato,
+    form.meta.folioSolicitud,
+    opts?.saleId,
+  );
   const fecha = formatLongDate(form.meta.fecha);
   const lugarFecha = fecha
     ? `Culiacán, Sinaloa a ${fecha}`
