@@ -8,6 +8,7 @@ import {
   fullName,
   realContrato,
   type SaleFormData,
+  type SalePersonName,
 } from '../types/sale-form';
 import { listSaleAttachments } from '../utils/attachment-preview';
 import {
@@ -118,11 +119,7 @@ function cobranzaLabel(value: string): string {
   return found?.label || text(value);
 }
 
-function personName(person: {
-  nombres?: string;
-  apellidoPaterno?: string;
-  apellidoMaterno?: string;
-}): string {
+function personName(person: SalePersonName): string {
   return text(fullName(person));
 }
 
@@ -166,7 +163,7 @@ const contratoRows = computed((): DetailRow[] => {
   ];
 });
 
-const contactoPersonales = computed(() => {
+const contactoPersonales = computed((): DetailRow[] => {
   const c = props.form.contacto;
   return [
     { label: 'Nombre', value: personName(c) },
@@ -182,7 +179,7 @@ const contactoPersonales = computed(() => {
   ];
 });
 
-const contactoDomicilio = computed(() => {
+const contactoDomicilio = computed((): DetailRow[] => {
   const c = props.form.contacto;
   return [
     { label: 'Dirección', value: text(c.direccion), wide: true },
@@ -199,7 +196,7 @@ const contactoDomicilio = computed(() => {
   ];
 });
 
-const contactoFactura = computed(() => {
+const contactoFactura = computed((): DetailRow[] => {
   const c = props.form.contacto;
   const regimen =
     c.regimenFiscal === 'OTRO' ? c.regimenFiscalOtro : c.regimenFiscal;
@@ -213,7 +210,7 @@ const contactoFactura = computed(() => {
   ];
 });
 
-const sustitutoRows = computed(() => {
+const sustitutoRows = computed((): DetailRow[] => {
   const p = props.form.derechohabientes.titularSustituto;
   return [
     { label: 'Nombre', value: personName(p) },
@@ -223,7 +220,7 @@ const sustitutoRows = computed(() => {
   ];
 });
 
-const segundoPersonales = computed(() => {
+const segundoPersonales = computed((): DetailRow[] => {
   const p = props.form.segundoContacto;
   return [
     { label: 'Nombre', value: personName(p) },
@@ -233,7 +230,7 @@ const segundoPersonales = computed(() => {
   ];
 });
 
-const segundoDomicilio = computed(() => {
+const segundoDomicilio = computed((): DetailRow[] => {
   const p = props.form.segundoContacto;
   return [
     { label: 'Dirección', value: text(p.direccion), wide: true },
@@ -250,9 +247,9 @@ const segundoDomicilio = computed(() => {
   ];
 });
 
-const planRows = computed(() => {
+const planRows = computed((): DetailRow[] => {
   const plan = props.form.ubicacionPlan;
-  const rows = [
+  const rows: DetailRow[] = [
     {
       label: 'Tipo de plan',
       value: plan.planKind === 'PARQUE' ? 'Parque' : 'Plan a futuro',
@@ -283,7 +280,7 @@ const planRows = computed(() => {
   return rows;
 });
 
-const financiamientoRows = computed(() => {
+const financiamientoRows = computed((): DetailRow[] => {
   const pago = props.form.pago;
   const rows = [
     { label: 'Descuento', value: pago.promocionDescuento ? `${pago.promocionDescuento}%` : '—' },
@@ -301,10 +298,10 @@ const financiamientoRows = computed(() => {
   return rows;
 });
 
-const cobranzaRows = computed(() => {
+const cobranzaRows = computed((): DetailRow[] => {
   const pago = props.form.pago;
   const c = props.form.contacto;
-  const rows = [
+  const rows: DetailRow[] = [
     { label: 'Tipo de cobranza', value: cobranzaLabel(c.tipoCobranza) },
   ];
   if (cobranza.value === 'DOMICILIADO') {
@@ -330,7 +327,7 @@ const reconocimientos = computed(() => props.form.meta.reconocimientoVentas ?? [
 
 const documentos = computed(() => listSaleAttachments(props.form));
 
-const declaraciones = computed(() => {
+const declaraciones = computed((): DetailRow[] => {
   const d = props.form.declaraciones;
   return [
     { label: 'Mercadotecnia', value: yesNo(d.aceptaMercadotecnia) },
