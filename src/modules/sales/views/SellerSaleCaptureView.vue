@@ -736,9 +736,17 @@ function syncPagoInicialCuota() {
   }
 }
 
+function applyContadoCobranzaDefault() {
+  if (normalizeFrequency(form.pago.frecuencia) !== 'CONTADO') return;
+  form.contacto.tipoCobranza = 'OTRO';
+}
+
 function restorePagoInicialActivoFromForm() {
-  pagoInicialActivo.value = parseMoney(form.pago.pagoInicial) > 0;
+  const contado = normalizeFrequency(form.pago.frecuencia) === 'CONTADO';
+  pagoInicialActivo.value =
+    contado || parseMoney(form.pago.pagoInicial) > 0;
   syncPagoInicialCuota();
+  applyContadoCobranzaDefault();
 }
 
 watch(pagoInicialActivo, (active) => {
@@ -857,9 +865,18 @@ const isPagoContado = computed(
   () => normalizeFrequency(form.pago.frecuencia) === 'CONTADO',
 );
 
+/** Contado de servicio funerario no pide comprobante de domicilio. Parque sí. */
+const omiteComprobanteDomicilio = computed(
+  () => isPagoContado.value && isPlanFuturo.value,
+);
+
 function onFrecuenciaChange() {
   if (isPagoContado.value) {
     form.pago.plazo = '0';
+    pagoInicialActivo.value = true;
+    applyContadoCobranzaDefault();
+  } else if (String(form.pago.plazo).trim() === '0') {
+    form.pago.plazo = '';
   }
   form.pago.diasEspecificosPago = defaultSpecificDaysForFrequency(
     form.pago.frecuencia,
@@ -1165,8 +1182,8 @@ const stepComplete = computed<Record<StepKey, boolean>>(() => {
   const finOk =
     hasText(pago.frecuencia) &&
     (contado || hasText(pago.plazo)) &&
-    hasText(pago.fechaProximoPago) &&
-    hasText(pago.diasEspecificosPago) &&
+    (contado || hasText(pago.fechaProximoPago)) &&
+    (contado || hasText(pago.diasEspecificosPago)) &&
     parseMoney(pago.importeCadaPago) > 0 &&
     (contado || hasText(pago.anticipo));
   const descOk = discountError() === null;
@@ -1226,7 +1243,8 @@ const stepComplete = computed<Record<StepKey, boolean>>(() => {
       metodoOk,
     docs:
       hasIneDocumentos(form.documentos) &&
-      (isPagoContado.value || Boolean(form.documentos.comprobanteDomicilio)) &&
+      (omiteComprobanteDomicilio.value ||
+        Boolean(form.documentos.comprobanteDomicilio)) &&
       (!isNomina.value || Boolean(form.documentos.reciboNomina)) &&
       (!needsCardSides.value ||
         (Boolean(form.documentos.tarjetaFrente) &&
@@ -1346,8 +1364,10 @@ function missingFieldsFor(key: StepKey): string[] {
     if (!hasText(pago.frecuencia)) missing.push('Frecuencia');
     const contado = normalizeFrequency(pago.frecuencia) === 'CONTADO';
     if (!contado && !hasText(pago.plazo)) missing.push('Plazo');
-    if (!hasText(pago.fechaProximoPago)) missing.push('Fecha del próximo pago');
-    if (!hasText(pago.diasEspecificosPago)) {
+    if (!contado && !hasText(pago.fechaProximoPago)) {
+      missing.push('Fecha del próximo pago');
+    }
+    if (!contado && !hasText(pago.diasEspecificosPago)) {
       missing.push('Días específicos de pago');
     }
     if (parseMoney(pago.importeCadaPago) <= 0) {
@@ -1364,7 +1384,10 @@ function missingFieldsFor(key: StepKey): string[] {
       if (!form.documentos.ineFrente) missing.push('INE (frente)');
       if (!form.documentos.ineReverso) missing.push('INE (reverso)');
     }
-    if (!isPagoContado.value && !form.documentos.comprobanteDomicilio) {
+    if (
+      !omiteComprobanteDomicilio.value &&
+      !form.documentos.comprobanteDomicilio
+    ) {
       missing.push('Comprobante de domicilio');
     }
     if (isNomina.value && !form.documentos.reciboNomina) {
@@ -1539,6 +1562,7 @@ function clampScheduleDates() {
   if (form.meta.fechaServicio) {
     form.meta.fechaServicio = clampIsoDateMin(form.meta.fechaServicio, min);
   }
+  if (isPagoContado.value) return;
   if (!form.pago.fechaProximoPago?.trim()) {
     form.pago.fechaProximoPago = min;
   } else {
@@ -1558,6 +1582,7 @@ function validateScheduleDates(): string | null {
   if (form.meta.fechaServicio && isIsoDateBefore(form.meta.fechaServicio, min)) {
     return 'La fecha de servicio no puede ser anterior a hoy.';
   }
+  if (isPagoContado.value) return null;
   if (!hasText(form.pago.fechaProximoPago)) {
     return 'La fecha del próximo pago es obligatoria.';
   }
@@ -3568,7 +3593,7 @@ async function goBack() {
             <input
               v-model="form.pago.anticipo"
               inputmode="decimal"
-              :disabled="!canEdit"
+              :disabled="!canEdit || isPagoContado"
               placeholder="0"
               @blur="clampAnticipo"
             />
@@ -3612,7 +3637,7 @@ async function goBack() {
             <input
               v-model="pagoInicialActivo"
               type="checkbox"
-              :disabled="!canEdit || parseMoney(form.pago.importeCadaPago) <= 0"
+              :disabled="!canEdit || isPagoContado"
             />
             <span class="field-label field-label--inline">
               <span class="field-label__title">Pago inicial</span>
@@ -3620,26 +3645,30 @@ async function goBack() {
             </span>
           </label>
           <label>
-            Próximo pago *
+            Próximo pago{{ isPagoContado ? '' : ' *' }}
             <input
               v-model="form.pago.fechaProximoPago"
               type="date"
               :min="minDateToday"
-              :disabled="!canEdit"
-              required
+              :disabled="!canEdit || isPagoContado"
+              :required="!isPagoContado"
               @change="clampScheduleDates"
             />
           </label>
           <label>
-            Días específicos *
+            Días específicos{{ isPagoContado ? '' : ' *' }}
             <input
               v-model="form.pago.diasEspecificosPago"
-              :disabled="!canEdit"
-              required
+              :disabled="!canEdit || isPagoContado"
+              :required="!isPagoContado"
               placeholder="Ej. 5,20"
             />
             <small class="field-hint">
-              Quincenal: 5,20 · Semanal: 7,14,21,28 · Mensual: se captura a mano
+              {{
+                isPagoContado
+                  ? 'No aplica en pago de contado.'
+                  : 'Quincenal: 5,20 · Semanal: 7,14,21,28 · Mensual: se captura a mano'
+              }}
             </small>
           </label>
         </div>
@@ -3650,7 +3679,7 @@ async function goBack() {
             <VdSelect
               v-model="form.contacto.tipoCobranza"
               :options="tipoCobranzaOptions"
-              :disabled="!canEdit"
+              :disabled="!canEdit || isPagoContado"
               placeholder="Selecciona"
             />
           </label>
@@ -4023,7 +4052,7 @@ async function goBack() {
           </p>
 
           <div
-            v-if="!isPagoContado"
+            v-if="!omiteComprobanteDomicilio"
             class="upload-card"
             :class="{
               'upload-card--filled': form.documentos.comprobanteDomicilio,

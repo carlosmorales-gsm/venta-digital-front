@@ -8,6 +8,7 @@ import SaleDetailModal from '../components/SaleDetailModal.vue';
 import SaleFilePreviewModal from '../components/SaleFilePreviewModal.vue';
 import SalePdfPreviewModal from '../components/SalePdfPreviewModal.vue';
 import {
+  formatDigitalFolio,
   mergeSaleForm,
   realContrato,
   type SaleAttachment,
@@ -111,6 +112,10 @@ function statusMatches(itemStatus: string, filter: string): boolean {
 
 function isCompletedStatus(status: SaleStatus | string): boolean {
   return status === 'COMPLETED' || status === 'SUBMITTED';
+}
+
+function digitalSaleFolio(item: SaleListItem): string {
+  return formatDigitalFolio(item.id);
 }
 
 function completedSaleFolio(item: SaleListItem): string {
@@ -531,6 +536,7 @@ function onSelectAttachment(item: AttachmentListItem) {
               <col class="col-fecha" />
               <col class="col-titular" />
               <col class="col-vendedor" />
+              <col class="col-vd" />
               <col class="col-folio" />
               <col class="col-estatus" />
               <col class="col-money" />
@@ -544,6 +550,7 @@ function onSelectAttachment(item: AttachmentListItem) {
                 <th>Fecha local</th>
                 <th>Titular</th>
                 <th>Vendedor</th>
+                <th>Venta digital</th>
                 <th>Folio</th>
                 <th>Estatus</th>
                 <th class="num">Costo del plan</th>
@@ -558,6 +565,7 @@ function onSelectAttachment(item: AttachmentListItem) {
                 <td>{{ formatUtcToLocal(item.createdAt) }}</td>
                 <td class="cell-wrap">{{ item.titularName || '—' }}</td>
                 <td class="cell-wrap">{{ item.sellerName }}</td>
+                <td>{{ digitalSaleFolio(item) || '—' }}</td>
                 <td>{{ completedSaleFolio(item) || '—' }}</td>
                 <td>
                   <span :class="statusBadgeClass(item.status)">
@@ -631,6 +639,9 @@ function onSelectAttachment(item: AttachmentListItem) {
             </div>
             <span class="muted">{{ item.sellerName }}</span>
             <span class="muted">{{ formatUtcToLocal(item.createdAt) }}</span>
+            <span v-if="digitalSaleFolio(item)" class="muted">
+              Venta digital {{ digitalSaleFolio(item) }}
+            </span>
             <span v-if="completedSaleFolio(item)" class="muted">
               Folio {{ completedSaleFolio(item) }}
             </span>
@@ -862,7 +873,7 @@ function onSelectAttachment(item: AttachmentListItem) {
 .sales-table {
   table-layout: fixed;
   width: 100%;
-  min-width: 1040px;
+  min-width: 1120px;
 }
 
 .sales-table .col-fecha {
@@ -877,8 +888,12 @@ function onSelectAttachment(item: AttachmentListItem) {
   width: 14%;
 }
 
+.sales-table .col-vd {
+  width: 9%;
+}
+
 .sales-table .col-folio {
-  width: 10%;
+  width: 9%;
 }
 
 .sales-table .col-estatus {

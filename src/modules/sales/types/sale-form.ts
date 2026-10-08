@@ -640,7 +640,10 @@ export function normalizePagoDefaults(
         : null,
     promocionDescuento: descuento || '0',
     anticipo: anticipo || '0',
-    fechaProximoPago: proximoPago || todayIsoDate(),
+    fechaProximoPago:
+      String(pago.frecuencia ?? '').trim().toUpperCase() === 'CONTADO'
+        ? proximoPago
+        : proximoPago || todayIsoDate(),
   };
 }
 

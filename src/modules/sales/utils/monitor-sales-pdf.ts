@@ -1,6 +1,10 @@
 import { jsPDF } from 'jspdf';
 import { formatUtcToLocal } from '../../../shared/utils/datetime';
-import { mergeSaleForm, type SaleListItem } from '../types/sale-form';
+import {
+  formatDigitalFolio,
+  mergeSaleForm,
+  type SaleListItem,
+} from '../types/sale-form';
 
 const COLORS = {
   blue: [53, 100, 125] as const,
@@ -158,10 +162,11 @@ export async function downloadMonitorSalesPdf(
   const tableW = pageW - marginX * 2;
   const cols = [
     { key: 'fecha', label: 'Fecha', w: tableW * 0.12 },
-    { key: 'titular', label: 'Titular', w: tableW * 0.2 },
-    { key: 'vendedor', label: 'Vendedor', w: tableW * 0.15 },
-    { key: 'estatus', label: 'Estatus', w: tableW * 0.13 },
-    { key: 'precio', label: 'Costo plan', w: tableW * 0.11 },
+    { key: 'titular', label: 'Titular', w: tableW * 0.15 },
+    { key: 'vendedor', label: 'Vendedor', w: tableW * 0.13 },
+    { key: 'vd', label: 'Venta digital', w: tableW * 0.09 },
+    { key: 'estatus', label: 'Estatus', w: tableW * 0.12 },
+    { key: 'precio', label: 'Costo plan', w: tableW * 0.1 },
     { key: 'descuento', label: 'Desc.', w: tableW * 0.07 },
     { key: 'anticipo', label: 'Anticipo', w: tableW * 0.11 },
     { key: 'saldo', label: 'Saldo', w: tableW * 0.11 },
@@ -204,6 +209,7 @@ export async function downloadMonitorSalesPdf(
       }),
       titular: item.titularName?.trim() || '—',
       vendedor: item.sellerName?.trim() || '—',
+      vd: formatDigitalFolio(item.id) || '—',
       estatus: statusLabel(item.status),
       precio: formatMoney(money.precioPlan),
       descuento: formatDiscount(money.descuento),
