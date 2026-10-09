@@ -188,6 +188,12 @@ const FACTURA_CONTACTO_KEYS = [
   'razonSocial',
   'rfc',
   'facturaCp',
+  'mismaDireccionFactura',
+  'facturaDireccion',
+  'facturaColonia',
+  'facturaMunicipio',
+  'facturaEstado',
+  'facturaPais',
   'regimenFiscal',
   'regimenFiscalOtro',
   'telefonoFactura',
@@ -942,14 +948,24 @@ const regimenExtraOptions = FISCAL_REGIMEN_OTROS.map((r) => ({
   label: r.label,
 }));
 
+function clearFacturaDomicilio() {
+  form.contacto.facturaDireccion = '';
+  form.contacto.facturaColonia = '';
+  form.contacto.facturaMunicipio = '';
+  form.contacto.facturaEstado = '';
+  form.contacto.facturaPais = '';
+}
+
 function clearFacturaFields() {
   form.contacto.tipoPersona = '';
   form.contacto.razonSocial = '';
   form.contacto.rfc = '';
   form.contacto.facturaCp = '';
+  form.contacto.mismaDireccionFactura = '';
   form.contacto.regimenFiscal = '';
   form.contacto.regimenFiscalOtro = '';
   form.contacto.telefonoFactura = '';
+  clearFacturaDomicilio();
 }
 
 function prefillFacturaFields() {
@@ -962,6 +978,21 @@ function prefillFacturaFields() {
   }
   if (!form.contacto.telefonoFactura.trim()) {
     form.contacto.telefonoFactura = form.contacto.celular1;
+  }
+  if (!form.contacto.mismaDireccionFactura) {
+    form.contacto.mismaDireccionFactura = 'SI';
+  }
+}
+
+function onMismaDireccionFactura(event: Event) {
+  const checked = (event.target as HTMLInputElement).checked;
+  form.contacto.mismaDireccionFactura = checked ? 'SI' : 'NO';
+  if (checked) {
+    clearFacturaDomicilio();
+    return;
+  }
+  if (!form.contacto.facturaPais.trim()) {
+    form.contacto.facturaPais = 'MÉXICO';
   }
 }
 
@@ -1312,6 +1343,12 @@ function missingFieldsFor(key: StepKey): string[] {
       if (!hasText(c.telefonoFactura)) missing.push('Teléfono de factura');
       else if (!isValidMxPhone(c.telefonoFactura)) {
         missing.push('Teléfono de factura válido');
+      }
+      if (c.mismaDireccionFactura === 'NO') {
+        if (!hasText(c.facturaDireccion)) missing.push('Dirección de facturación');
+        if (!hasText(c.facturaColonia)) missing.push('Colonia de facturación');
+        if (!hasText(c.facturaMunicipio)) missing.push('Ciudad de facturación');
+        if (!hasText(c.facturaEstado)) missing.push('Estado de facturación');
       }
     }
   }
@@ -3014,6 +3051,57 @@ async function goBack() {
               </small>
             </label>
           </div>
+          <label class="check span-2">
+            <input
+              type="checkbox"
+              :checked="form.contacto.mismaDireccionFactura !== 'NO'"
+              :disabled="!canEdit"
+              @change="onMismaDireccionFactura"
+            />
+            La dirección de facturación es la misma que la de contacto
+          </label>
+          <template v-if="form.contacto.mismaDireccionFactura === 'NO'">
+            <p class="hint span-2">Domicilio de facturación</p>
+            <label class="span-2">
+              Dirección
+              <input
+                v-model="form.contacto.facturaDireccion"
+                :disabled="!canEdit"
+              />
+            </label>
+            <div class="field-row">
+              <label>
+                Colonia
+                <input
+                  v-model="form.contacto.facturaColonia"
+                  :disabled="!canEdit"
+                />
+              </label>
+              <label>
+                Ciudad
+                <input
+                  v-model="form.contacto.facturaMunicipio"
+                  :disabled="!canEdit"
+                />
+              </label>
+            </div>
+            <div class="field-row">
+              <label>
+                Estado
+                <input
+                  v-model="form.contacto.facturaEstado"
+                  :disabled="!canEdit"
+                />
+              </label>
+              <label>
+                País
+                <input
+                  v-model="form.contacto.facturaPais"
+                  :disabled="!canEdit"
+                />
+              </label>
+            </div>
+          </template>
           <label class="span-2">
             Régimen fiscal
             <VdSelect

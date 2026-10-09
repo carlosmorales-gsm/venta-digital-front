@@ -207,6 +207,19 @@ const contactoFactura = computed((): DetailRow[] => {
     { label: 'Código postal', value: text(c.facturaCp) },
     { label: 'Teléfono', value: text(c.telefonoFactura) },
     { label: 'Régimen fiscal', value: text(regimen) },
+    {
+      label: 'Misma dirección que contacto',
+      value: c.mismaDireccionFactura === 'NO' ? 'No' : 'Sí',
+    },
+    ...(c.mismaDireccionFactura === 'NO'
+      ? [
+          { label: 'Dirección de facturación', value: text(c.facturaDireccion), wide: true },
+          { label: 'Colonia de facturación', value: text(c.facturaColonia) },
+          { label: 'Ciudad de facturación', value: text(c.facturaMunicipio) },
+          { label: 'Estado de facturación', value: text(c.facturaEstado) },
+          { label: 'País de facturación', value: text(c.facturaPais) },
+        ]
+      : []),
   ];
 });
 
