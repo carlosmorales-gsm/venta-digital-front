@@ -58,6 +58,36 @@ export interface SaleBeneficiary extends SalePersonName {
   fechaNacimiento: string;
 }
 
+/** Catálogo Odoo `mascota.mascota` (venta Funepet). */
+export interface SaleMascota {
+  name: string;
+  isFinado: boolean;
+  finadoDate: string;
+  especieId: number | null;
+  especieName: string;
+  razaId: number | null;
+  razaName: string;
+  color: string;
+  rasgosParticulares: string;
+  tamanoId: number | null;
+  tamanoName: string;
+  /** chico | mediano | grande */
+  tamanoCode: string;
+  peso: string;
+  genero: '' | 'macho' | 'hembra';
+  birthDate: string;
+  lugarDeceso: '' | 'casa' | 'clinica' | 'otro';
+  veterinaria: string;
+  deathDatetime: string;
+  microchipId: string;
+  collar: boolean;
+  placaTestigo: boolean;
+  placaTestigoNumero: string;
+  recepcionDatetime: string;
+  notas: string;
+  comentarios: string;
+}
+
 export interface SaleAttachment {
   name: string;
   mime: string;
@@ -80,7 +110,7 @@ export interface SaleFormData {
     serviceTypeName: string;
     folioSolicitud: string;
     fechaServicio: string;
-    /** NUEVA | RECONOCIMIENTO | MEJORA | MINORIA */
+    /** NUEVA | RECONOCIMIENTO | MEJORA | MINORIA | FUNEPET */
     tipoVenta: string;
     estatus: string;
     anterior: string;
@@ -128,8 +158,10 @@ export interface SaleFormData {
     fechaNacimiento: string;
     domicilioEntregaDocumentacion: string;
   };
-  /** 1 obligatorio, máx. 2 */
+  /** 1 obligatorio, máx. 2. En Funepet no se capturan. */
   beneficiarios: SaleBeneficiary[];
+  /** Datos de `mascota.mascota`. Solo venta Funepet. */
+  mascota: SaleMascota;
   /** Compat PDF */
   derechohabientes: {
     titularSustituto: SaleBeneficiary;
@@ -298,6 +330,78 @@ export function emptyBeneficiary(): SaleBeneficiary {
   };
 }
 
+export function emptyMascota(): SaleMascota {
+  return {
+    name: '',
+    isFinado: false,
+    finadoDate: '',
+    especieId: null,
+    especieName: '',
+    razaId: null,
+    razaName: '',
+    color: '',
+    rasgosParticulares: '',
+    tamanoId: null,
+    tamanoName: '',
+    tamanoCode: '',
+    peso: '',
+    genero: '',
+    birthDate: '',
+    lugarDeceso: '',
+    veterinaria: '',
+    deathDatetime: '',
+    microchipId: '',
+    collar: false,
+    placaTestigo: false,
+    placaTestigoNumero: '',
+    recepcionDatetime: '',
+    notas: '',
+    comentarios: '',
+  };
+}
+
+function optId(value: unknown): number | null {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+export function normalizeMascota(raw: Partial<SaleMascota> | null | undefined): SaleMascota {
+  const base = emptyMascota();
+  if (!raw || typeof raw !== 'object') return base;
+  const genero = String(raw.genero ?? '').trim().toLowerCase();
+  const lugar = String(raw.lugarDeceso ?? '').trim().toLowerCase();
+  return {
+    ...base,
+    ...raw,
+    name: String(raw.name ?? ''),
+    isFinado: Boolean(raw.isFinado),
+    finadoDate: String(raw.finadoDate ?? ''),
+    especieId: optId(raw.especieId),
+    especieName: String(raw.especieName ?? ''),
+    razaId: optId(raw.razaId),
+    razaName: String(raw.razaName ?? ''),
+    color: String(raw.color ?? ''),
+    rasgosParticulares: String(raw.rasgosParticulares ?? ''),
+    tamanoId: optId(raw.tamanoId),
+    tamanoName: String(raw.tamanoName ?? ''),
+    tamanoCode: String(raw.tamanoCode ?? '').trim().toLowerCase(),
+    peso: String(raw.peso ?? ''),
+    genero: genero === 'macho' || genero === 'hembra' ? genero : '',
+    birthDate: String(raw.birthDate ?? ''),
+    lugarDeceso:
+      lugar === 'casa' || lugar === 'clinica' || lugar === 'otro' ? lugar : '',
+    veterinaria: String(raw.veterinaria ?? ''),
+    deathDatetime: String(raw.deathDatetime ?? ''),
+    microchipId: String(raw.microchipId ?? ''),
+    collar: Boolean(raw.collar),
+    placaTestigo: Boolean(raw.placaTestigo),
+    placaTestigoNumero: String(raw.placaTestigoNumero ?? ''),
+    recepcionDatetime: String(raw.recepcionDatetime ?? ''),
+    notas: String(raw.notas ?? ''),
+    comentarios: String(raw.comentarios ?? ''),
+  };
+}
+
 function syncDerechos(
   beneficiarios: SaleBeneficiary[],
   titularSustituto?: SaleBeneficiary,
@@ -377,6 +481,7 @@ export function createEmptySaleForm(): SaleFormData {
       domicilioEntregaDocumentacion: '',
     },
     beneficiarios,
+    mascota: emptyMascota(),
     derechohabientes: syncDerechos(beneficiarios),
     ubicacionPlan: {
       planKind: 'PLAN_FUTURO',
@@ -755,6 +860,7 @@ export function mergeSaleForm(raw: unknown): SaleFormData {
           : null,
     },
     beneficiarios,
+    mascota: normalizeMascota(src.mascota),
     derechohabientes: syncDerechos(beneficiarios, titularSustituto),
     ubicacionPlan: {
       ...base.ubicacionPlan,
@@ -967,6 +1073,7 @@ export function toUpsertSaleBody(form: SaleFormData): {
       celular: b.celular,
       fechaNacimiento: b.fechaNacimiento,
     })),
+    mascota: normalizeMascota(form.mascota),
     derechohabientes: {
       titularSustituto: {
         ...pickPerson(form.derechohabientes.titularSustituto),

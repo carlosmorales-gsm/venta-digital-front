@@ -24,6 +24,8 @@ const props = defineProps<{
   open: boolean;
   planKind: PlanKind;
   favoritePlans?: SellerDefaultPlan[];
+  /** Solo product.template con pet_future_plan (Funepet). */
+  petFuturePlan?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -69,7 +71,12 @@ async function search() {
         }
       >
     >('/odoo/planes', {
-      params: { planKind: props.planKind, q: term, limit: 20 },
+      params: {
+        planKind: props.planKind,
+        q: term,
+        limit: 20,
+        petFuturePlan: props.petFuturePlan ? '1' : undefined,
+      },
       skipGlobalLoading: true,
     });
     results.value = (data || []).map((p) => mapPlanProduct(p));
@@ -98,7 +105,9 @@ async function selectFavorite(plan: SellerDefaultPlan) {
   pickingId.value = plan.id;
   error.value = null;
   try {
-    const [fresh] = await fetchPlanesByIds(props.planKind, [plan.id]);
+    const [fresh] = await fetchPlanesByIds(props.planKind, [plan.id], {
+      petFuturePlan: props.petFuturePlan,
+    });
     if (!fresh) {
       error.value =
         'Ese plan ya no está disponible o cambió. Elígelo de nuevo en la búsqueda.';

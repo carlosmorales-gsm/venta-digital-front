@@ -27,7 +27,9 @@ import {
   isDraftParkRegulation,
 } from '../utils/park-regulation-pdf';
 import { buildParkRegulationBookletBundle } from '../utils/park-regulation-booklet-pdf';
+import { buildFunepetCaratulaBundle } from '../utils/funepet-caratula-pdf';
 import { buildSalePreviewBundle, isDraftCaratula } from '../utils/sale-pdf';
+import { parseSaleKind } from '../constants/sale-kinds';
 import { buildCardSidesBundle, buildIneSidesBundle } from '../utils/card-sides-pdf';
 import type { SaleFormData } from '../types/sale-form';
 
@@ -234,7 +236,9 @@ async function render() {
               ? await buildNoInvoiceConsentBundle(props.form, opts)
               : isCarta.value
                 ? await buildInvoiceLetterBundle(props.form, opts)
-                : await buildSalePreviewBundle(props.form, opts);
+                : parseSaleKind(props.form.meta.tipoVenta) === 'FUNEPET'
+                  ? await buildFunepetCaratulaBundle(props.form, opts)
+                  : await buildSalePreviewBundle(props.form, opts);
     downloadUrl.value = URL.createObjectURL(blob);
     try {
       pageImages.value = await renderPdfToPageImages(blob, { purpose: 'preview' });

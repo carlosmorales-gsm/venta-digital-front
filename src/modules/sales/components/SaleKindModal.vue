@@ -58,7 +58,7 @@ const emit = defineEmits<{
             />
           </svg>
           <svg
-            v-else
+            v-else-if="item.value === 'MINORIA'"
             viewBox="0 0 24 24"
             width="26"
             height="26"
@@ -66,6 +66,17 @@ const emit = defineEmits<{
             <path
               fill="currentColor"
               d="M16 18h6v-6h-2v2.59l-7.17-7.18-4 4L2 6.59 3.41 5.17l5.42 5.42 4-4L20.59 15H16z"
+            />
+          </svg>
+          <svg
+            v-else
+            viewBox="0 0 24 24"
+            width="26"
+            height="26"
+          >
+            <path
+              fill="currentColor"
+              d="M4.5 9.5A2.5 2.5 0 0 1 7 7a2.5 2.5 0 0 1 2.5 2.5A2.5 2.5 0 0 1 7 12a2.5 2.5 0 0 1-2.5-2.5zm5-4A2.5 2.5 0 0 1 12 3a2.5 2.5 0 0 1 2.5 2.5A2.5 2.5 0 0 1 12 8a2.5 2.5 0 0 1-2.5-2.5zm5 4A2.5 2.5 0 0 1 17 7a2.5 2.5 0 0 1 2.5 2.5A2.5 2.5 0 0 1 17 12a2.5 2.5 0 0 1-2.5-2.5zM12 22c-2.2 0-4.5-1.2-5.8-3.2-1.4-2.2-1.2-4.8.2-6.6C7.6 10.6 9.6 10 12 10s4.4.6 5.6 2.2c1.4 1.8 1.6 4.4.2 6.6-1.3 2-3.6 3.2-5.8 3.2z"
             />
           </svg>
         </span>
@@ -156,6 +167,11 @@ const emit = defineEmits<{
 .kind-card--minoria .kind-card__icon {
   background: #eef3f6;
   color: var(--gsm-blue);
+}
+
+.kind-card--funepet .kind-card__icon {
+  background: #e7f4ee;
+  color: #1f7a4d;
 }
 
 .kind-card:hover .kind-card__icon {

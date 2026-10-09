@@ -1,4 +1,9 @@
-export type SaleKind = 'NUEVA' | 'RECONOCIMIENTO' | 'MEJORA' | 'MINORIA';
+export type SaleKind =
+  | 'NUEVA'
+  | 'RECONOCIMIENTO'
+  | 'MEJORA'
+  | 'MINORIA'
+  | 'FUNEPET';
 
 export const SALE_KINDS: Array<{
   value: SaleKind;
@@ -8,6 +13,7 @@ export const SALE_KINDS: Array<{
   { value: 'RECONOCIMIENTO', label: 'Reconocimiento de saldo' },
   { value: 'MEJORA', label: 'Mejora' },
   { value: 'MINORIA', label: 'Minoría' },
+  { value: 'FUNEPET', label: 'Funepet' },
 ];
 
 const KIND_TO_ESTATUS: Record<SaleKind, string> = {
@@ -15,6 +21,7 @@ const KIND_TO_ESTATUS: Record<SaleKind, string> = {
   RECONOCIMIENTO: 'REACTIVACION',
   MEJORA: 'MEJORA',
   MINORIA: 'MINORIA',
+  FUNEPET: 'ACTIVO',
 };
 
 const ESTATUS_TO_KIND: Record<string, SaleKind> = {
@@ -29,7 +36,8 @@ export function isSaleKind(value: unknown): value is SaleKind {
     value === 'NUEVA' ||
     value === 'RECONOCIMIENTO' ||
     value === 'MEJORA' ||
-    value === 'MINORIA'
+    value === 'MINORIA' ||
+    value === 'FUNEPET'
   );
 }
 

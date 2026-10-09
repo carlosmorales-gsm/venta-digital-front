@@ -96,6 +96,12 @@ import {
 } from '../utils/seller-session-cache';
 import { fetchPlanesByIds } from '../utils/odoo-plans';
 import {
+  fetchMascotaEspecies,
+  fetchMascotaRazas,
+  fetchMascotaTamanos,
+  type MascotaCatalogo,
+} from '../utils/odoo-mascotas';
+import {
   computeFinancingBreakdown,
   formatMoneyDisplay,
   formatMoneyField,
@@ -248,7 +254,20 @@ const planInnerTab = ref<PlanInnerTab>('plan');
 const docsInnerTab = ref<DocsInnerTab>('subir');
 const formOpen = ref(false);
 
-const stepTitle = computed(() => STEPS[step.value]?.title ?? '');
+const isFunepet = computed(
+  () => parseSaleKind(form.meta.tipoVenta) === 'FUNEPET',
+);
+
+function stepMeta(index: number) {
+  const item = STEPS[index];
+  if (!item) return { title: '', short: '' };
+  if (isFunepet.value && item.key === 'beneficiarios') {
+    return { title: 'Mascota', short: 'Mascota' };
+  }
+  return item;
+}
+
+const stepTitle = computed(() => stepMeta(step.value).title);
 const canEdit = computed(
   () => status.value === 'NEW' || status.value === 'DRAFT',
 );
@@ -261,13 +280,81 @@ const captureTitle = computed(() => {
 const tipoVentaLabel = computed(() => saleKindLabel(form.meta.tipoVenta));
 const showAnterior = computed(() => {
   const kind = parseSaleKind(form.meta.tipoVenta) ?? 'NUEVA';
-  return kind !== 'NUEVA';
+  return kind !== 'NUEVA' && kind !== 'FUNEPET';
 });
 
 function applySaleKind(kind: SaleKind) {
   form.meta.tipoVenta = kind;
   form.meta.estatus = saleKindToEstatus(kind);
+  if (kind !== 'FUNEPET') return;
+  const hadProduct = Boolean(form.ubicacionPlan.productId);
+  const wasPark = form.ubicacionPlan.planKind === 'PARQUE';
+  form.ubicacionPlan.planKind = 'PLAN_FUTURO';
+  if (hadProduct || wasPark) onPlanKindChange();
+  if (!form.ubicacionPlan.servicioFunerario.trim()) {
+    form.ubicacionPlan.servicioFunerario = DEFAULT_SERVICIO_FUNERARIO;
+  }
 }
+
+const especies = ref<MascotaCatalogo[]>([]);
+const razas = ref<MascotaCatalogo[]>([]);
+const tamanos = ref<MascotaCatalogo[]>([]);
+const mascotaCatalogError = ref<string | null>(null);
+
+async function loadRazas(especieId: number | null) {
+  if (!especieId) {
+    razas.value = [];
+    return;
+  }
+  razas.value = await fetchMascotaRazas(especieId);
+}
+
+async function loadMascotaCatalogs() {
+  mascotaCatalogError.value = null;
+  try {
+    const [especieRows, tamanoRows] = await Promise.all([
+      fetchMascotaEspecies(),
+      fetchMascotaTamanos(),
+    ]);
+    especies.value = especieRows;
+    tamanos.value = tamanoRows;
+    await loadRazas(form.mascota.especieId);
+  } catch (e: unknown) {
+    mascotaCatalogError.value = extractApiError(
+      e,
+      'No se pudieron cargar los catálogos de mascota',
+    );
+  }
+}
+
+function onEspecieChange(event: Event) {
+  const id = Number((event.target as HTMLSelectElement).value) || null;
+  const row = especies.value.find((item) => item.id === id);
+  form.mascota.especieId = id;
+  form.mascota.especieName = row?.name ?? '';
+  form.mascota.razaId = null;
+  form.mascota.razaName = '';
+  void loadRazas(id);
+}
+
+function onRazaChange(event: Event) {
+  const id = Number((event.target as HTMLSelectElement).value) || null;
+  const row = razas.value.find((item) => item.id === id);
+  form.mascota.razaId = id;
+  form.mascota.razaName = row?.name ?? '';
+}
+
+function onTamanoChange(event: Event) {
+  const id = Number((event.target as HTMLSelectElement).value) || null;
+  const row = tamanos.value.find((item) => item.id === id);
+  form.mascota.tamanoId = id;
+  form.mascota.tamanoName = row?.name ?? '';
+  form.mascota.tamanoCode = row?.code ?? '';
+}
+
+watch(isFunepet, (on) => {
+  if (on) void loadMascotaCatalogs();
+});
 
 function onKindSelect(kind: SaleKind) {
   kindOpen.value = false;
@@ -1031,6 +1118,22 @@ function firstBeneficiaryHasName(): boolean {
   return personHasName(form.beneficiarios[0]);
 }
 
+function mascotaMissing(): string[] {
+  const pet = form.mascota;
+  const missing: string[] = [];
+  if (!hasText(pet.name)) missing.push('Nombre de la mascota');
+  if (!pet.especieId) missing.push('Especie');
+  if (!pet.tamanoId) missing.push('Tamaño');
+  if (pet.placaTestigo && !hasText(pet.placaTestigoNumero)) {
+    missing.push('Número de placa testigo');
+  }
+  return missing;
+}
+
+function mascotaReady() {
+  return mascotaMissing().length === 0;
+}
+
 const segundoNombreDuplicado = computed(() =>
   sameContactName(form.contacto, form.segundoContacto),
 );
@@ -1130,11 +1233,18 @@ const stepHasData = computed<Record<StepKey, boolean>>(() => {
     titularSustituto:
       personHasName(ts) ||
       anyText(ts.celular, ts.parentesco, ts.fechaNacimiento),
-    beneficiarios: form.beneficiarios.some(
-      (b) =>
-        personHasName(b) ||
-        anyText(b.celular, b.parentesco, b.fechaNacimiento),
-    ),
+    beneficiarios: isFunepet.value
+      ? anyText(
+          form.mascota.name,
+          form.mascota.especieName,
+          form.mascota.razaName,
+          form.mascota.color,
+        ) || Boolean(form.mascota.especieId)
+      : form.beneficiarios.some(
+          (b) =>
+            personHasName(b) ||
+            anyText(b.celular, b.parentesco, b.fechaNacimiento),
+        ),
     segundo:
       personHasName(sc) ||
       anyText(
@@ -1220,9 +1330,10 @@ const stepComplete = computed<Record<StepKey, boolean>>(() => {
     titularSustituto:
       personHasName(form.derechohabientes.titularSustituto) &&
       isEmptyOrValidMxPhone(form.derechohabientes.titularSustituto.celular),
-    beneficiarios:
-      firstBeneficiaryHasName() &&
-      form.beneficiarios.every((b) => isEmptyOrValidMxPhone(b.celular)),
+    beneficiarios: isFunepet.value
+      ? mascotaReady()
+      : firstBeneficiaryHasName() &&
+        form.beneficiarios.every((b) => isEmptyOrValidMxPhone(b.celular)),
     segundo:
       hasText(sc.nombres) &&
       hasText(sc.apellidoPaterno) &&
@@ -1324,14 +1435,18 @@ function missingFieldsFor(key: StepKey): string[] {
   }
 
   if (key === 'beneficiarios') {
-    if (!firstBeneficiaryHasName()) {
-      missing.push('Nombre del primer beneficiario');
-    }
-    form.beneficiarios.forEach((b, i) => {
-      if (!isEmptyOrValidMxPhone(b.celular)) {
-        missing.push(`Celular del beneficiario ${i + 1} válido`);
+    if (isFunepet.value) {
+      missing.push(...mascotaMissing());
+    } else {
+      if (!firstBeneficiaryHasName()) {
+        missing.push('Nombre del primer beneficiario');
       }
-    });
+      form.beneficiarios.forEach((b, i) => {
+        if (!isEmptyOrValidMxPhone(b.celular)) {
+          missing.push(`Celular del beneficiario ${i + 1} válido`);
+        }
+      });
+    }
   }
 
   if (key === 'segundo') {
@@ -1413,10 +1528,13 @@ function missingFieldsFor(key: StepKey): string[] {
 
 const stepsMenu = computed(() =>
   STEPS.map((s, index) => {
+    const meta = stepMeta(index);
     const complete = stepComplete.value[s.key];
     const hasData = complete || stepHasData.value[s.key];
     return {
       ...s,
+      title: meta.title,
+      short: meta.short,
       index,
       complete,
       hasData,
@@ -1454,12 +1572,14 @@ function firstPhoneError(
       label: 'Celular del titular sustituto',
       step: 2,
     },
-    ...form.beneficiarios.map((b, i) => ({
-      value: b.celular,
-      required: false,
-      label: `Celular del beneficiario ${i + 1}`,
-      step: 3,
-    })),
+    ...(isFunepet.value
+      ? []
+      : form.beneficiarios.map((b, i) => ({
+          value: b.celular,
+          required: false,
+          label: `Celular del beneficiario ${i + 1}`,
+          step: 3,
+        }))),
     {
       value: form.segundoContacto.celular,
       required: requireMain,
@@ -1774,7 +1894,7 @@ async function finalizeSale() {
     const idx = firstIncompleteStep.value ?? 0;
     await alert({
       title: 'Faltan datos',
-      message: `Completa el paso "${STEPS[idx]?.title}" antes de guardar la venta.`,
+      message: `Completa el paso "${stepMeta(idx).title}" antes de guardar la venta.`,
       variant: 'warning',
     });
     openStep(idx);
@@ -3124,8 +3244,249 @@ async function goBack() {
         </div>
       </div>
 
-      <!-- 3 · Beneficiarios -->
-      <div v-show="step === 3" class="benef-block">
+      <!-- 3 · Mascota (Funepet) o beneficiarios -->
+      <div v-show="step === 3 && isFunepet" class="benef-block">
+        <p class="hint">
+          El tutor es el titular de la venta. Los catálogos salen de Odoo
+          (especie, raza y tamaño).
+        </p>
+        <p v-if="mascotaCatalogError" class="field-error">
+          {{ mascotaCatalogError }}
+        </p>
+
+        <p class="hint">Identidad</p>
+        <div class="fields">
+          <label class="span-2">
+            Nombre de la mascota *
+            <input
+              v-model="form.mascota.name"
+              :disabled="!canEdit"
+              @input="forceCaptureTextUppercase"
+            />
+          </label>
+          <label class="check span-2">
+            <input
+              v-model="form.mascota.isFinado"
+              type="checkbox"
+              :disabled="!canEdit"
+            />
+            Es finado
+          </label>
+          <label v-if="form.mascota.isFinado">
+            Fecha de finado
+            <input
+              v-model="form.mascota.finadoDate"
+              type="date"
+              :disabled="!canEdit"
+            />
+          </label>
+          <label>
+            Especie *
+            <select
+              :value="form.mascota.especieId ?? ''"
+              :disabled="!canEdit"
+              @change="onEspecieChange"
+            >
+              <option value="">—</option>
+              <option
+                v-if="
+                  form.mascota.especieId &&
+                  !especies.some((item) => item.id === form.mascota.especieId)
+                "
+                :value="form.mascota.especieId"
+              >
+                {{ form.mascota.especieName || `Especie #${form.mascota.especieId}` }}
+              </option>
+              <option v-for="item in especies" :key="item.id" :value="item.id">
+                {{ item.name }}
+              </option>
+            </select>
+          </label>
+          <label>
+            Raza
+            <select
+              :value="form.mascota.razaId ?? ''"
+              :disabled="!canEdit || !form.mascota.especieId"
+              @change="onRazaChange"
+            >
+              <option value="">—</option>
+              <option
+                v-if="
+                  form.mascota.razaId &&
+                  !razas.some((item) => item.id === form.mascota.razaId)
+                "
+                :value="form.mascota.razaId"
+              >
+                {{ form.mascota.razaName || `Raza #${form.mascota.razaId}` }}
+              </option>
+              <option v-for="item in razas" :key="item.id" :value="item.id">
+                {{ item.name }}
+              </option>
+            </select>
+          </label>
+          <label>
+            Color
+            <input
+              v-model="form.mascota.color"
+              :disabled="!canEdit"
+              @input="forceCaptureTextUppercase"
+            />
+          </label>
+          <label>
+            Tamaño *
+            <select
+              :value="form.mascota.tamanoId ?? ''"
+              :disabled="!canEdit"
+              @change="onTamanoChange"
+            >
+              <option value="">—</option>
+              <option
+                v-if="
+                  form.mascota.tamanoId &&
+                  !tamanos.some((item) => item.id === form.mascota.tamanoId)
+                "
+                :value="form.mascota.tamanoId"
+              >
+                {{ form.mascota.tamanoName || `Tamaño #${form.mascota.tamanoId}` }}
+              </option>
+              <option v-for="item in tamanos" :key="item.id" :value="item.id">
+                {{ item.name }}
+              </option>
+            </select>
+          </label>
+          <label class="span-2">
+            Rasgos particulares
+            <input
+              v-model="form.mascota.rasgosParticulares"
+              :disabled="!canEdit"
+              @input="forceCaptureTextUppercase"
+            />
+          </label>
+        </div>
+
+        <p class="hint">Detalles de la mascota</p>
+        <div class="fields">
+          <label>
+            Peso
+            <input
+              v-model="form.mascota.peso"
+              inputmode="decimal"
+              :disabled="!canEdit"
+            />
+          </label>
+          <label>
+            Género
+            <select v-model="form.mascota.genero" :disabled="!canEdit">
+              <option value="">—</option>
+              <option value="macho">Macho</option>
+              <option value="hembra">Hembra</option>
+            </select>
+          </label>
+          <label>
+            Fecha de nacimiento
+            <input
+              v-model="form.mascota.birthDate"
+              type="date"
+              :disabled="!canEdit"
+            />
+          </label>
+          <label>
+            Lugar de deceso
+            <select v-model="form.mascota.lugarDeceso" :disabled="!canEdit">
+              <option value="">—</option>
+              <option value="casa">Casa</option>
+              <option value="clinica">Clínica</option>
+              <option value="otro">Otro</option>
+            </select>
+          </label>
+          <label class="span-2">
+            Veterinaria
+            <input
+              v-model="form.mascota.veterinaria"
+              :disabled="!canEdit"
+              @input="forceCaptureTextUppercase"
+            />
+          </label>
+          <label>
+            Fecha y hora de deceso
+            <input
+              v-model="form.mascota.deathDatetime"
+              type="datetime-local"
+              :disabled="!canEdit"
+            />
+          </label>
+          <label>
+            Microchip
+            <input
+              v-model="form.mascota.microchipId"
+              :disabled="!canEdit"
+              @input="forceCaptureTextUppercase"
+            />
+          </label>
+          <label class="check">
+            <input
+              v-model="form.mascota.collar"
+              type="checkbox"
+              :disabled="!canEdit"
+            />
+            Collar
+          </label>
+          <label class="check">
+            <input
+              v-model="form.mascota.placaTestigo"
+              type="checkbox"
+              :disabled="!canEdit"
+            />
+            Placa testigo
+          </label>
+          <label v-if="form.mascota.placaTestigo">
+            Número de placa *
+            <input
+              v-model="form.mascota.placaTestigoNumero"
+              :disabled="!canEdit"
+              @input="forceCaptureTextUppercase"
+            />
+          </label>
+          <label>
+            Fecha y hora de recepción
+            <input
+              v-model="form.mascota.recepcionDatetime"
+              type="datetime-local"
+              :disabled="!canEdit"
+            />
+          </label>
+        </div>
+
+        <p class="hint">Tutor y venta</p>
+        <div class="fields">
+          <label>
+            Tutor
+            <input :value="fullName(form.contacto) || '—'" readonly />
+          </label>
+          <label>
+            Celular del tutor
+            <input :value="form.contacto.celular1 || '—'" readonly />
+          </label>
+          <label class="span-2">
+            Notas
+            <input
+              v-model="form.mascota.notas"
+              :disabled="!canEdit"
+              @input="forceCaptureTextUppercase"
+            />
+          </label>
+          <label class="span-2">
+            Comentarios
+            <input
+              v-model="form.mascota.comentarios"
+              :disabled="!canEdit"
+              @input="forceCaptureTextUppercase"
+            />
+          </label>
+        </div>
+      </div>
+
+      <div v-show="step === 3 && !isFunepet" class="benef-block">
         <p class="hint">
           El primer beneficiario es obligatorio. Puedes agregar uno más
           (máximo 2).
@@ -3394,13 +3755,16 @@ async function goBack() {
             Tipo de plan
             <select
               v-model="form.ubicacionPlan.planKind"
-              :disabled="!canEdit"
+              :disabled="!canEdit || isFunepet"
               @change="onPlanKindChange"
             >
               <option value="PLAN_FUTURO">Servicio funerario</option>
               <option value="PARQUE">Parque</option>
             </select>
           </label>
+          <p v-if="isFunepet" class="hint span-2">
+            Funepet busca solo planes de servicio funerario con Pet Plan a futuro.
+          </p>
           <div class="span-2 plan-name">
             <label class="plan-name__field">
               Nombre del plan
@@ -4602,10 +4966,11 @@ async function goBack() {
               </div>
               <div class="upload-card__body">
                 <strong>Carátula del contrato</strong>
-                <span class="upload-card__hint"
-                  >Se llena con los datos de la venta. Mientras no se firme
-                  aparece como borrador</span
-                >
+                <span class="upload-card__hint">{{
+                  isFunepet
+                    ? 'Formato Funepet. Se llena con la mascota y los datos de la venta. Mientras no se firme aparece como borrador'
+                    : 'Se llena con los datos de la venta. Mientras no se firme aparece como borrador'
+                }}</span>
               </div>
               <div class="upload-card__actions">
                 <button
@@ -4619,7 +4984,7 @@ async function goBack() {
             </div>
 
             <div
-              v-if="form.documentos.ineFrente && form.documentos.ineReverso"
+              v-if="!isFunepet && form.documentos.ineFrente && form.documentos.ineReverso"
               class="upload-card upload-card--filled"
             >
               <div class="upload-card__icon" aria-hidden="true">
@@ -4678,7 +5043,11 @@ async function goBack() {
                 </svg>
               </div>
               <div class="upload-card__body">
-                <strong>Carta de aceptación de exclusiones</strong>
+                <strong>{{
+                  isFunepet
+                    ? 'Exclusiones contractuales'
+                    : 'Carta de aceptación de exclusiones'
+                }}</strong>
                 <span class="upload-card__hint"
                   >Anexo A del contrato. Se llena con titular, sucursal y fecha.
                   Mientras no se firme aparece como borrador</span
@@ -4785,7 +5154,7 @@ async function goBack() {
             </div>
 
             <div
-              v-if="isDomiciliado"
+              v-if="isDomiciliado && !isFunepet"
               class="upload-card upload-card--filled"
             >
               <div class="upload-card__icon" aria-hidden="true">
@@ -4833,7 +5202,7 @@ async function goBack() {
             </div>
 
             <div
-              v-if="isNomina && form.pago.empresaNominaId"
+              v-if="!isFunepet && isNomina && form.pago.empresaNominaId"
               class="upload-card upload-card--filled"
             >
               <div class="upload-card__icon" aria-hidden="true">
@@ -4878,7 +5247,7 @@ async function goBack() {
             </div>
 
             <div
-              v-if="needsCardSides && form.documentos.tarjetaFrente && form.documentos.tarjetaReverso"
+              v-if="!isFunepet && needsCardSides && form.documentos.tarjetaFrente && form.documentos.tarjetaReverso"
               class="upload-card upload-card--filled"
             >
               <div class="upload-card__icon" aria-hidden="true">
@@ -4914,7 +5283,7 @@ async function goBack() {
             </div>
 
             <div
-              v-if="rechazaFactura"
+              v-if="!isFunepet && rechazaFactura"
               class="upload-card upload-card--filled"
             >
               <div class="upload-card__icon" aria-hidden="true">
@@ -4958,7 +5327,7 @@ async function goBack() {
             </div>
 
             <div
-              v-if="pideFactura"
+              v-if="!isFunepet && pideFactura"
               class="upload-card upload-card--filled"
             >
               <div class="upload-card__icon" aria-hidden="true">
@@ -5136,7 +5505,8 @@ async function goBack() {
     <SalePlanSearchModal
       :open="planSearchOpen"
       :plan-kind="form.ubicacionPlan.planKind"
-      :favorite-plans="favoritePlans"
+      :favorite-plans="isFunepet ? [] : favoritePlans"
+      :pet-future-plan="isFunepet"
       @close="planSearchOpen = false"
       @select="onPlanSelected"
     />

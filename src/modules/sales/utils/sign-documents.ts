@@ -1,3 +1,4 @@
+import { parseSaleKind } from '../constants/sale-kinds';
 import type { SaleFormData } from '../types/sale-form';
 import { normalizeTipoCobranza } from './payment-method';
 
@@ -19,6 +20,21 @@ export type SignDocument = {
 
 /** Cartas y contrato que el cliente debe leer y aceptar antes de firmar. */
 export function listSignDocuments(form: SaleFormData): SignDocument[] {
+  if (parseSaleKind(form.meta.tipoVenta) === 'FUNEPET') {
+    return [
+      {
+        kind: 'caratula',
+        title: 'Carátula de contrato',
+        hint: 'Contrato de servicios funerarios para mascotas',
+      },
+      {
+        kind: 'cartaExclusiones',
+        title: 'Exclusiones contractuales',
+        hint: 'Anexo de exclusiones',
+      },
+    ];
+  }
+
   const docs: SignDocument[] = [
     {
       kind: 'caratula',

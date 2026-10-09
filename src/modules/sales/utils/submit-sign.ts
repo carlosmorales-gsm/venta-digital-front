@@ -1,3 +1,4 @@
+import { parseSaleKind } from '../constants/sale-kinds';
 import { mergeSaleForm, type SaleAttachment, type SaleFormData } from '../types/sale-form';
 import { buildAuthorizationLetterPdf } from './authorization-letter-pdf';
 import {
@@ -12,6 +13,7 @@ import { buildNoInvoiceConsentPdf } from './no-invoice-consent-pdf';
 import { buildParkRegulationBookletPdf } from './park-regulation-booklet-pdf';
 import { buildParkRegulationPdf } from './park-regulation-pdf';
 import { normalizeTipoCobranza } from './payment-method';
+import { buildFunepetCaratulaBundle } from './funepet-caratula-pdf';
 import { buildSalePreviewPdf } from './sale-pdf';
 
 export type SignSaleRequestBody = {
@@ -60,9 +62,12 @@ export async function buildSignSaleRequest(
   });
   const opts = { saleId, status: 'COMPLETED' };
   const body: SignSaleRequestBody = { firmaCliente };
+  const funepet = parseSaleKind(formForPdf.meta.tipoVenta) === 'FUNEPET';
 
   try {
-    const blob = await buildSalePreviewPdf(formForPdf, opts);
+    const blob = funepet
+      ? (await buildFunepetCaratulaBundle(formForPdf, opts)).blob
+      : await buildSalePreviewPdf(formForPdf, opts);
     body.caratulaPdf = {
       name: `caratula-contrato_venta-${saleId}.pdf`,
       mime: 'application/pdf',
@@ -72,7 +77,7 @@ export async function buildSignSaleRequest(
     console.warn('No se pudo generar carátula para Drive', pdfErr);
   }
 
-  if (formForPdf.contacto.factura === 'SI') {
+  if (!funepet && formForPdf.contacto.factura === 'SI') {
     try {
       const letter = await buildInvoiceLetterPdf(formForPdf, opts);
       body.cartaFacturaPdf = {
@@ -84,7 +89,7 @@ export async function buildSignSaleRequest(
       console.warn('No se pudo generar carta de factura para Drive', pdfErr);
     }
   }
-  if (formForPdf.contacto.factura === 'NO') {
+  if (!funepet && formForPdf.contacto.factura === 'NO') {
     try {
       const letter = await buildNoInvoiceConsentPdf(formForPdf, opts);
       body.cartaNoFacturaPdf = {
@@ -106,7 +111,7 @@ export async function buildSignSaleRequest(
   } catch (pdfErr) {
     console.warn('No se pudo generar carta de exclusiones', pdfErr);
   }
-  if (formForPdf.ubicacionPlan.planKind === 'PARQUE') {
+  if (!funepet && formForPdf.ubicacionPlan.planKind === 'PARQUE') {
     try {
       const letter = await buildParkRegulationPdf(formForPdf, opts);
       body.reglamentoParquePdf = {
@@ -129,6 +134,7 @@ export async function buildSignSaleRequest(
     }
   }
   if (
+    !funepet &&
     normalizeTipoCobranza(formForPdf.contacto.tipoCobranza) === 'NOMINA' &&
     formForPdf.pago.empresaNominaId
   ) {
@@ -143,7 +149,10 @@ export async function buildSignSaleRequest(
       console.warn('No se pudo generar carta de nómina para Drive', pdfErr);
     }
   }
-  if (normalizeTipoCobranza(formForPdf.contacto.tipoCobranza) === 'DOMICILIADO') {
+  if (
+    !funepet &&
+    normalizeTipoCobranza(formForPdf.contacto.tipoCobranza) === 'DOMICILIADO'
+  ) {
     try {
       const authLetter = await buildAuthorizationLetterPdf(formForPdf, opts);
       body.cartaAutorizacionPdf = {
@@ -156,8 +165,9 @@ export async function buildSignSaleRequest(
     }
   }
   if (
-    normalizeTipoCobranza(formForPdf.contacto.tipoCobranza) === 'DOMICILIADO' ||
-    isUasConvenio(formForPdf)
+    !funepet &&
+    (normalizeTipoCobranza(formForPdf.contacto.tipoCobranza) === 'DOMICILIADO' ||
+      isUasConvenio(formForPdf))
   ) {
     const frente = formForPdf.documentos.tarjetaFrente;
     const reverso = formForPdf.documentos.tarjetaReverso;

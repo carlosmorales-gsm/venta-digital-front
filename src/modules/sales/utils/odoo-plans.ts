@@ -19,11 +19,16 @@ export function mapPlanProduct(row: PlanApiRow): PlanProduct {
 export async function fetchPlanesByIds(
   planKind: PlanKind,
   ids: number[],
+  opts?: { petFuturePlan?: boolean },
 ): Promise<PlanProduct[]> {
   const uniqueIds = [...new Set(ids.filter((id) => Number.isFinite(id) && id > 0))];
   if (!uniqueIds.length) return [];
   const { data } = await http.get<PlanApiRow[]>('/odoo/planes', {
-    params: { planKind, ids: uniqueIds.join(',') },
+    params: {
+      planKind,
+      ids: uniqueIds.join(','),
+      petFuturePlan: opts?.petFuturePlan ? '1' : undefined,
+    },
     skipGlobalLoading: true,
   });
   const byId = new Map((data || []).map((row) => [row.id, mapPlanProduct(row)]));

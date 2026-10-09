@@ -12,7 +12,9 @@ import { buildInvoiceLetterBundle } from '../utils/invoice-letter-pdf';
 import { buildNoInvoiceConsentBundle } from '../utils/no-invoice-consent-pdf';
 import { buildParkRegulationBundle } from '../utils/park-regulation-pdf';
 import { buildParkRegulationBookletBundle } from '../utils/park-regulation-booklet-pdf';
+import { buildFunepetCaratulaBundle } from '../utils/funepet-caratula-pdf';
 import { buildSalePreviewBundle } from '../utils/sale-pdf';
+import { parseSaleKind } from '../constants/sale-kinds';
 import {
   listSignDocuments,
   type SignDocument,
@@ -116,7 +118,9 @@ async function buildDocBundle(kind: SignDocumentKind) {
     case 'cartaNomina':
       return buildConvenioLetterBundle(props.form, opts);
     default:
-      return buildSalePreviewBundle(props.form, opts);
+      return parseSaleKind(props.form.meta.tipoVenta) === 'FUNEPET'
+        ? buildFunepetCaratulaBundle(props.form, opts)
+        : buildSalePreviewBundle(props.form, opts);
   }
 }
 
