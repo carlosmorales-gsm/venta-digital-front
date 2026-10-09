@@ -2,7 +2,7 @@
 import { computed, onActivated, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { extractApiError, http } from '../../../shared/api/http';
-import { formatUtcToLocal } from '../../../shared/utils/datetime';
+import { formatUtcToLocal, getClientTimeZone } from '../../../shared/utils/datetime';
 import { useDialog } from '../../../shared/ui/dialog';
 import SaleAttachmentsModal from '../components/SaleAttachmentsModal.vue';
 import SaleFilePreviewModal from '../components/SaleFilePreviewModal.vue';
@@ -409,6 +409,7 @@ async function applyFilters() {
   applied.client = formFilters.client.trim();
   applied.query = formFilters.client.trim() ? '' : clientQuery.value.trim();
   clientMenuOpen.value = false;
+  await load();
 }
 
 function clearFilters() {
@@ -422,6 +423,7 @@ function clearFilters() {
   applied.dateTo = range.dateTo;
   applied.client = '';
   applied.query = '';
+  void load();
 }
 
 const previewOpen = ref(false);
@@ -464,7 +466,15 @@ async function load() {
   loading.value = true;
   error.value = null;
   try {
-    const res = await http.get<SalesResponse>('/sales');
+    const res = await http.get<SalesResponse>('/sales', {
+      params: {
+        dateFrom: applied.dateFrom || undefined,
+        dateTo: applied.dateTo || undefined,
+        client: applied.client || undefined,
+        q: applied.query || undefined,
+        timeZone: getClientTimeZone(),
+      },
+    });
     data.value = res.data;
   } catch (e: unknown) {
     error.value = extractApiError(e, 'No se pudieron cargar las ventas');

@@ -76,8 +76,8 @@ function mockPagoSchedule(frecuencia: string | null | undefined): {
   if (code === 'CONTADO') {
     return {
       frecuencia: 'CONTADO',
-      fechaProximoPago: nextMonthOnDay(15),
-      diasEspecificosPago: '15',
+      fechaProximoPago: '',
+      diasEspecificosPago: '',
     };
   }
   return {
@@ -191,6 +191,12 @@ type InvoiceMock = Pick<
   | 'razonSocial'
   | 'rfc'
   | 'facturaCp'
+  | 'mismaDireccionFactura'
+  | 'facturaDireccion'
+  | 'facturaColonia'
+  | 'facturaMunicipio'
+  | 'facturaEstado'
+  | 'facturaPais'
   | 'regimenFiscal'
   | 'regimenFiscalOtro'
   | 'telefonoFactura'
@@ -251,6 +257,10 @@ function applyMockPagoRules(
   pago.frecuencia = schedule.frecuencia;
   pago.fechaProximoPago = schedule.fechaProximoPago;
   pago.diasEspecificosPago = schedule.diasEspecificosPago;
+  if (schedule.frecuencia === 'CONTADO') {
+    pago.plazo = '0';
+    pago.anticipo = '0';
+  }
   if (contacto.tipoCobranza === 'DOMICILIADO') {
     if (!pago.formaPago.startsWith('TARJETA')) {
       pago.formaPago = 'TARJETA DEBITO';
@@ -319,12 +329,20 @@ export function mockInvoiceContacto(
     (tipo === 'MORAL'
       ? `${fullNameOf(contacto) || 'Cliente'} SA de CV`
       : fullNameOf(contacto));
+  const misma = extra?.mismaDireccionFactura === 'NO' ? 'NO' : 'SI';
   return {
     factura: 'SI',
     tipoPersona: tipo,
     razonSocial: razon,
     rfc: extra?.rfc?.trim() || mockRfc(contacto, tipo),
     facturaCp: extra?.facturaCp?.trim() || contacto.cp || '80000',
+    mismaDireccionFactura: misma,
+    facturaDireccion: misma === 'NO' ? extra?.facturaDireccion?.trim() || 'Av. Reforma 120' : '',
+    facturaColonia: misma === 'NO' ? extra?.facturaColonia?.trim() || 'Centro' : '',
+    facturaMunicipio:
+      misma === 'NO' ? extra?.facturaMunicipio?.trim() || contacto.municipio || 'Culiacán' : '',
+    facturaEstado: misma === 'NO' ? extra?.facturaEstado?.trim() || contacto.estado || 'Sinaloa' : '',
+    facturaPais: misma === 'NO' ? extra?.facturaPais?.trim() || 'MÉXICO' : '',
     regimenFiscal: extra?.regimenFiscal?.trim() || (tipo === 'MORAL' ? '601' : '612'),
     regimenFiscalOtro: extra?.regimenFiscalOtro ?? '',
     telefonoFactura:
@@ -788,7 +806,7 @@ const SEEDS: DevSaleSeed[] = [
     },
   },
   {
-    label: 'Carlos Morales · Plan futuro',
+    label: 'Carlos Morales · Contado servicio funerario',
     meta: {
       fecha: todayIso(),
       contrato: '',
@@ -808,7 +826,7 @@ const SEEDS: DevSaleSeed[] = [
       cp: '81200',
       municipio: 'Los Mochis',
       estado: 'Sinaloa',
-      tipoCobranza: 'VENTANILLA',
+      tipoCobranza: 'OTRO',
       sindicalizado: 'NO',
       celular1: '6681112233',
       correo: 'sistemas@sanmartin.com.mx',
@@ -850,12 +868,12 @@ const SEEDS: DevSaleSeed[] = [
     pago: {
       precioPlan: '42000',
       promocionDescuento: '0',
-      anticipo: '6000',
-      pagoInicial: '4200',
-      plazo: '24',
-      importeCadaPago: '1500',
-      saldo: '36000',
-      frecuencia: 'MENSUAL',
+      anticipo: '0',
+      pagoInicial: '42000',
+      plazo: '0',
+      importeCadaPago: '42000',
+      saldo: '0',
+      frecuencia: 'CONTADO',
       formaPago: 'EFECTIVO',
       nombreJefeVentas: 'Luis Ortega',
     },
@@ -946,7 +964,7 @@ const SEEDS: DevSaleSeed[] = [
     declaraciones: { aceptaMercadotecnia: 'SI', aceptaPublicidad: 'SI' },
   },
   {
-    label: 'Pedro Castro · Plan futuro',
+    label: 'Pedro Castro · Factura en otro domicilio',
     meta: {
       fecha: todayIso(),
       contrato: '',
@@ -1029,10 +1047,17 @@ const SEEDS: DevSaleSeed[] = [
       razonSocial: 'Transportes Castro del Pacífico SA de CV',
       rfc: 'TCP830914AA1',
       regimenFiscal: '601',
+      mismaDireccionFactura: 'NO',
+      facturaDireccion: 'Av. del Mar 450',
+      facturaColonia: 'Centro',
+      facturaMunicipio: 'Mazatlán',
+      facturaEstado: 'Sinaloa',
+      facturaPais: 'MÉXICO',
+      facturaCp: '82000',
     },
   },
   {
-    label: 'Dolores Vargas · Parque',
+    label: 'Dolores Vargas · Contado parque',
     meta: {
       fecha: todayIso(),
       contrato: '',
@@ -1052,7 +1077,7 @@ const SEEDS: DevSaleSeed[] = [
       cp: '80020',
       municipio: 'Culiacán',
       estado: 'Sinaloa',
-      tipoCobranza: 'VENTANILLA',
+      tipoCobranza: 'OTRO',
       sindicalizado: 'NO',
       celular1: '6673030404',
       correo: 'sistemas@sanmartin.com.mx',
@@ -1104,12 +1129,12 @@ const SEEDS: DevSaleSeed[] = [
     pago: {
       precioPlan: '25000',
       promocionDescuento: '0',
-      anticipo: '2500',
-      pagoInicial: '2500',
-      plazo: '18',
-      importeCadaPago: '1250',
-      saldo: '22500',
-      frecuencia: 'MENSUAL',
+      anticipo: '0',
+      pagoInicial: '25000',
+      plazo: '0',
+      importeCadaPago: '25000',
+      saldo: '0',
+      frecuencia: 'CONTADO',
       formaPago: 'EFECTIVO',
       nombreJefeVentas: 'Luis Ortega',
     },
@@ -1196,6 +1221,8 @@ const SEEDS: DevSaleSeed[] = [
 ];
 
 function buildFromSeed(seed: DevSaleSeed): SaleFormData {
+  const contado = normalizeFrequency(seed.pago.frecuencia) === 'CONTADO';
+  const servicioFunerario = seed.ubicacionPlan.planKind === 'PLAN_FUTURO';
   const form = mergeSaleForm({
     ...createEmptySaleForm(),
     meta: { ...createEmptySaleForm().meta, ...seed.meta },
@@ -1227,7 +1254,8 @@ function buildFromSeed(seed: DevSaleSeed): SaleFormData {
       ineFrente: mockDoc('ine-frente-mock.png'),
       ineReverso: mockDoc('ine-reverso-mock.png'),
       inePdf: null,
-      comprobanteDomicilio: mockDoc('comprobante-mock.png'),
+      comprobanteDomicilio:
+        contado && servicioFunerario ? null : mockDoc('comprobante-mock.png'),
       constanciaSituacionFiscal:
         seed.contacto.factura === 'SI' || seed.factura
           ? mockPdf('constancia-mock.pdf')
@@ -1259,6 +1287,16 @@ function buildFromSeed(seed: DevSaleSeed): SaleFormData {
     },
   });
   applyMockContactoRules(form);
+  if (form.contacto.factura === 'SI' || seed.factura) {
+    Object.assign(form.contacto, mockInvoiceContacto(form.contacto, seed.factura));
+  }
+  if (normalizeFrequency(form.pago.frecuencia) === 'CONTADO') {
+    form.contacto.tipoCobranza = 'OTRO';
+    form.pago.plazo = '0';
+    form.pago.anticipo = '0';
+    form.pago.fechaProximoPago = '';
+    form.pago.diasEspecificosPago = '';
+  }
   return form;
 }
 

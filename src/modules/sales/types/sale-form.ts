@@ -126,6 +126,13 @@ export interface SaleFormData {
     razonSocial: string;
     rfc: string;
     facturaCp: string;
+    /** SI: el domicilio de facturación es el de contacto. NO: se captura aparte. */
+    mismaDireccionFactura: string;
+    facturaDireccion: string;
+    facturaColonia: string;
+    facturaMunicipio: string;
+    facturaEstado: string;
+    facturaPais: string;
     regimenFiscal: string;
     regimenFiscalOtro: string;
     telefonoFactura: string;
@@ -448,6 +455,12 @@ export function createEmptySaleForm(): SaleFormData {
       razonSocial: '',
       rfc: '',
       facturaCp: '',
+      mismaDireccionFactura: '',
+      facturaDireccion: '',
+      facturaColonia: '',
+      facturaMunicipio: '',
+      facturaEstado: '',
+      facturaPais: '',
       regimenFiscal: '',
       regimenFiscalOtro: '',
       telefonoFactura: '',
@@ -623,6 +636,12 @@ export function createPrefillSaleForm(): SaleFormData {
     razonSocial: '',
     rfc: '',
     facturaCp: '',
+    mismaDireccionFactura: '',
+    facturaDireccion: '',
+    facturaColonia: '',
+    facturaMunicipio: '',
+    facturaEstado: '',
+    facturaPais: '',
     regimenFiscal: '',
     regimenFiscalOtro: '',
     telefonoFactura: '',
@@ -1034,6 +1053,12 @@ export function toUpsertSaleBody(form: SaleFormData): {
       razonSocial: c.razonSocial,
       rfc: c.rfc,
       facturaCp: c.facturaCp,
+      mismaDireccionFactura: c.mismaDireccionFactura,
+      facturaDireccion: c.facturaDireccion,
+      facturaColonia: c.facturaColonia,
+      facturaMunicipio: c.facturaMunicipio,
+      facturaEstado: c.facturaEstado,
+      facturaPais: c.facturaPais,
       regimenFiscal: c.regimenFiscal,
       regimenFiscalOtro: c.regimenFiscalOtro,
       telefonoFactura: c.telefonoFactura,

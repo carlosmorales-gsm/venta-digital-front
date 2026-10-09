@@ -208,7 +208,7 @@ function selectOptions(item: CorrectionFieldDef): SelectOption[] | null {
       current,
     );
   }
-  if (key === 'contacto.factura') {
+  if (key === 'contacto.factura' || key === 'contacto.mismaDireccionFactura') {
     return withCurrent(
       [
         { value: 'SI', label: 'Sí' },
