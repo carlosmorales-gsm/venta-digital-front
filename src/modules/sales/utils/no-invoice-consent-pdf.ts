@@ -1,5 +1,7 @@
 import { GState, jsPDF } from 'jspdf';
 import { saleCompanyName } from '../constants/sale-companies';
+import { parseSaleKind } from '../constants/sale-kinds';
+import { buildFunepetNoInvoicePdf } from './funepet-no-invoice-pdf';
 import {
   documentContractFolio,
   fullName,
@@ -348,6 +350,9 @@ export async function buildNoInvoiceConsentPdf(
   form: SaleFormData,
   opts?: NoInvoiceConsentOpts,
 ): Promise<Blob> {
+  if (parseSaleKind(form.meta.tipoVenta) === 'FUNEPET') {
+    return buildFunepetNoInvoicePdf(form, opts);
+  }
   const doc = new jsPDF({
     unit: 'pt',
     format: [PAGE_W, PAGE_H],

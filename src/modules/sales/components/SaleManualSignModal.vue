@@ -2,7 +2,7 @@
 import { computed, nextTick, onUnmounted, reactive, ref, watch } from 'vue';
 import VdModal from '../../../shared/ui/modal/VdModal.vue';
 import { fullName, type SaleFormData } from '../types/sale-form';
-import { pdfBlobViewUrl } from '../utils/pdf-page-renderer';
+import { pdfBlobViewUrl, renderPdfToPageImages } from '../utils/pdf-page-renderer';
 import {
   buildAuthorizationLetterBundle,
 } from '../utils/authorization-letter-pdf';
@@ -153,7 +153,14 @@ async function openDocument(doc: SignDocument) {
 
   loadingDoc.value = true;
   try {
-    const { blob, pages } = await buildDocBundle(doc.kind);
+    const { blob, pages: composePages } = await buildDocBundle(doc.kind);
+    let pages = composePages;
+    try {
+      const sharp = await renderPdfToPageImages(blob, { purpose: 'preview' });
+      if (sharp.length) pages = sharp;
+    } catch {
+      /* se usan las hojas ya generadas */
+    }
     if (pages.length) {
       pageCache.set(doc.kind, pages);
       pageImages.value = pages;

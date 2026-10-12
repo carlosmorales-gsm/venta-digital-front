@@ -1,5 +1,6 @@
 import { GState, jsPDF } from 'jspdf';
 import { saleCompanyLetter } from '../constants/sale-companies';
+import { parseSaleKind } from '../constants/sale-kinds';
 import {
   documentContractFolio,
   fullName,
@@ -66,6 +67,34 @@ function frequencyLabel(raw: string) {
   if (code === 'SEMANAL') return 'SEMANAL';
   if (code === 'CONTADO') return 'CONTADO';
   return v(raw).toUpperCase();
+}
+
+function loadRaster(src: string): Promise<LogoAsset | null> {
+  return fetch(src)
+    .then(async (res) => {
+      if (!res.ok) return null;
+      const blob = await res.blob();
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(blob);
+      });
+      const size = await new Promise<{ width: number; height: number }>(
+        (resolve, reject) => {
+          const img = new Image();
+          img.onload = () =>
+            resolve({
+              width: img.naturalWidth || 1,
+              height: img.naturalHeight || 1,
+            });
+          img.onerror = () => reject(new Error(src));
+          img.src = dataUrl;
+        },
+      );
+      return { dataUrl, ...size };
+    })
+    .catch(() => null);
 }
 
 function loadHeaderLogo(): Promise<LogoAsset | null> {
@@ -224,7 +253,13 @@ function drawLetter(
 ) {
   const c = form.contacto;
   const p = form.pago;
-  const company = saleCompanyLetter(form.ubicacionPlan.planKind);
+  const funepet = parseSaleKind(form.meta.tipoVenta) === 'FUNEPET';
+  const company = funepet
+    ? {
+        ...saleCompanyLetter('PLAN_FUTURO'),
+        rfcDisplay: 'R.FC. IAB081111ID6',
+      }
+    : saleCompanyLetter(form.ubicacionPlan.planKind);
   const contrato = documentContractFolio(
     form.meta.contrato,
     form.meta.folioSolicitud,
@@ -240,10 +275,19 @@ function drawLetter(
   const inicio = formatShortDate(form.meta.fecha);
   const hasIne = hasIneDocumentos(form.documentos);
 
-  if (logo) {
+  if (logo && funepet) {
+    const logoH = 118;
+    const logoW = (logo.width / logo.height) * logoH;
+    doc.addImage(logo.dataUrl, 'PNG', M, 18, logoW, logoH, undefined, 'FAST');
+  } else if (logo) {
     const logoH = 68;
     const logoW = (logo.width / logo.height) * logoH;
     doc.addImage(logo.dataUrl, 'PNG', M, 28, Math.min(logoW, 210), logoH);
+  } else if (funepet) {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(22);
+    doc.setTextColor(0, 103, 177);
+    doc.text('funepet', M, 72);
   } else {
     doc.setFont('times', 'bold');
     doc.setFontSize(16);
@@ -259,9 +303,10 @@ function drawLetter(
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(16.5);
   doc.text('CARTA DE AUTORIZACIÓN', titleX, 50, { align: 'center' });
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(11);
+  doc.setFont('helvetica', funepet ? 'bold' : 'normal');
+  doc.setFontSize(funepet ? 14 : 11);
   doc.text('Servicio Cargo Automático', titleX, 68, { align: 'center' });
+  doc.setFontSize(funepet ? 12.5 : 11);
   doc.text('Cargos Recurrentes', titleX, 83, { align: 'center' });
 
   strokeRect(doc, 312, 98, 254, 22);
@@ -478,7 +523,10 @@ export async function buildAuthorizationLetterPdf(
     format: [PAGE_W, PAGE_H],
     compress: true,
   });
-  const logo = await loadHeaderLogo();
+  const funepet = parseSaleKind(form.meta.tipoVenta) === 'FUNEPET';
+  const logo = funepet
+    ? await loadRaster('/forms/funepet-domiciliacion-logo.png')
+    : await loadHeaderLogo();
   drawLetter(doc, form, logo, opts);
   if (isDraftAuthorizationLetter(form, opts)) {
     drawDraftWatermark(doc);

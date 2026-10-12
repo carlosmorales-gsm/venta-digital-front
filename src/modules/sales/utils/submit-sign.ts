@@ -89,7 +89,7 @@ export async function buildSignSaleRequest(
       console.warn('No se pudo generar carta de factura para Drive', pdfErr);
     }
   }
-  if (!funepet && formForPdf.contacto.factura === 'NO') {
+  if (formForPdf.contacto.factura === 'NO') {
     try {
       const letter = await buildNoInvoiceConsentPdf(formForPdf, opts);
       body.cartaNoFacturaPdf = {
@@ -104,7 +104,9 @@ export async function buildSignSaleRequest(
   try {
     const letter = await buildExclusionesLetterPdf(formForPdf, opts);
     body.cartaExclusionesPdf = {
-      name: `carta-aceptacion-exclusiones_venta-${saleId}.pdf`,
+      name: funepet
+        ? `exclusiones-contractuales_venta-${saleId}.pdf`
+        : `carta-aceptacion-exclusiones_venta-${saleId}.pdf`,
       mime: 'application/pdf',
       dataBase64: await blobToBase64(letter),
     };
@@ -149,10 +151,7 @@ export async function buildSignSaleRequest(
       console.warn('No se pudo generar carta de nómina para Drive', pdfErr);
     }
   }
-  if (
-    !funepet &&
-    normalizeTipoCobranza(formForPdf.contacto.tipoCobranza) === 'DOMICILIADO'
-  ) {
+  if (normalizeTipoCobranza(formForPdf.contacto.tipoCobranza) === 'DOMICILIADO') {
     try {
       const authLetter = await buildAuthorizationLetterPdf(formForPdf, opts);
       body.cartaAutorizacionPdf = {

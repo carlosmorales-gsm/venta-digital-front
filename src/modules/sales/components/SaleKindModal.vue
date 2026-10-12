@@ -69,15 +69,20 @@ const emit = defineEmits<{
             />
           </svg>
           <svg
-            v-else
-            viewBox="0 0 24 24"
-            width="26"
-            height="26"
+            v-else-if="item.value === 'FUNEPET'"
+            viewBox="0 0 48 48"
+            width="28"
+            height="28"
           >
-            <path
-              fill="currentColor"
-              d="M4.5 9.5A2.5 2.5 0 0 1 7 7a2.5 2.5 0 0 1 2.5 2.5A2.5 2.5 0 0 1 7 12a2.5 2.5 0 0 1-2.5-2.5zm5-4A2.5 2.5 0 0 1 12 3a2.5 2.5 0 0 1 2.5 2.5A2.5 2.5 0 0 1 12 8a2.5 2.5 0 0 1-2.5-2.5zm5 4A2.5 2.5 0 0 1 17 7a2.5 2.5 0 0 1 2.5 2.5A2.5 2.5 0 0 1 17 12a2.5 2.5 0 0 1-2.5-2.5zM12 22c-2.2 0-4.5-1.2-5.8-3.2-1.4-2.2-1.2-4.8.2-6.6C7.6 10.6 9.6 10 12 10s4.4.6 5.6 2.2c1.4 1.8 1.6 4.4.2 6.6-1.3 2-3.6 3.2-5.8 3.2z"
-            />
+            <g fill="currentColor">
+              <ellipse cx="9.6" cy="21.4" rx="3.7" ry="4.9" transform="rotate(-24 9.6 21.4)" />
+              <ellipse cx="18.2" cy="12.6" rx="4" ry="5.4" transform="rotate(-9 18.2 12.6)" />
+              <ellipse cx="29.8" cy="12.6" rx="4" ry="5.4" transform="rotate(9 29.8 12.6)" />
+              <ellipse cx="38.4" cy="21.4" rx="3.7" ry="4.9" transform="rotate(24 38.4 21.4)" />
+              <path
+                d="M24 22.6C27.7 22.6 30.4 25.7 33 29.5C35.3 32.8 37.7 35.5 36.5 39.3C35.5 42.5 32.1 43.3 29.1 42.5C27.3 42 25.6 41.5 24 41.5C22.4 41.5 20.7 42 18.9 42.5C15.9 43.3 12.5 42.5 11.5 39.3C10.3 35.5 12.7 32.8 15 29.5C17.6 25.7 20.3 22.6 24 22.6Z"
+              />
+            </g>
           </svg>
         </span>
         <strong>{{ item.label }}</strong>
@@ -170,8 +175,8 @@ const emit = defineEmits<{
 }
 
 .kind-card--funepet .kind-card__icon {
-  background: #e7f4ee;
-  color: #1f7a4d;
+  background: #e5f3fb;
+  color: #0072c0;
 }
 
 .kind-card:hover .kind-card__icon {

@@ -34,8 +34,10 @@ import {
   cardNumberError,
   cobranzaMissing,
   digitsOnly,
+  formaPagoOptionsFor,
   formatCardNumber,
   isLikelyEmail,
+  isTarjetaFormaPago,
   normalizeCardExpiry,
   normalizeTipoCobranza,
   TIPO_COBRANZA_OPTIONS,
@@ -53,6 +55,7 @@ import {
   createEmptySaleForm,
   DEFAULT_SERVICIO_FUNERARIO,
   emptyBeneficiary,
+  emptyMascota,
   formatDigitalFolio,
   mergeSaleForm,
   hasIneDocumentos,
@@ -80,7 +83,9 @@ import {
 } from '../utils/phone';
 import {
   mockConstanciaAttachment,
+  pickFunepetMock,
   pickRandomDevSaleMock,
+  type FunepetPetMock,
 } from '../utils/dev-sale-mocks';
 import {
   applyCatalogClienteToForm,
@@ -358,6 +363,60 @@ function onTamanoChange(event: Event) {
   form.mascota.tamanoCode = row?.code ?? '';
 }
 
+function catalogKey(text: string): string {
+  return text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase('es-MX');
+}
+
+function pickCatalogRow(
+  rows: MascotaCatalogo[],
+  hints: string[],
+): MascotaCatalogo | null {
+  const match = rows.find((row) => {
+    const key = catalogKey(`${row.code ?? ''} ${row.name}`);
+    return hints.some((h) => key.includes(h));
+  });
+  return match ?? rows[0] ?? null;
+}
+
+async function applyDevMascota(pet: FunepetPetMock) {
+  if (!especies.value.length || !tamanos.value.length) {
+    await loadMascotaCatalogs();
+  }
+  const especie = pickCatalogRow(
+    especies.value,
+    pet.especie === 'perro' ? ['perr', 'can'] : ['gat', 'feli'],
+  );
+  const tamano = pickCatalogRow(tamanos.value, [
+    pet.tamano,
+    pet.tamano.charAt(0) === 'c' ? 'peque' : pet.tamano,
+  ]);
+  await loadRazas(especie?.id ?? null);
+  const raza = razas.value.length
+    ? razas.value[Math.floor(Math.random() * razas.value.length)]!
+    : null;
+  Object.assign(form.mascota, {
+    ...emptyMascota(),
+    name: pet.name,
+    especieId: especie?.id ?? null,
+    especieName: especie?.name ?? '',
+    razaId: raza?.id ?? null,
+    razaName: raza?.name ?? '',
+    tamanoId: tamano?.id ?? null,
+    tamanoName: tamano?.name ?? '',
+    tamanoCode: tamano?.code ?? '',
+    color: pet.color,
+    rasgosParticulares: pet.rasgosParticulares,
+    genero: pet.genero,
+    peso: pet.peso,
+    birthDate: pet.birthDate,
+    collar: pet.collar,
+    notas: pet.notas,
+  });
+}
+
 watch(isFunepet, (on) => {
   if (on) void loadMascotaCatalogs();
 });
@@ -407,6 +466,7 @@ const needsCardSides = computed(
   () => isDomiciliado.value || isUasNomina.value,
 );
 const tipoCobranzaOptions = computed(() => TIPO_COBRANZA_OPTIONS);
+const formaPagoDomiciliadoOptions = formaPagoOptionsFor('DOMICILIADO');
 const empresasConvenio = ref<Array<{ id: number; name: string }>>([]);
 const parentescos = ref<SaleBranch[]>([]);
 const empresaNominaOptions = computed(() =>
@@ -561,6 +621,7 @@ const cvvError = computed(() => {
 function metodoPagoMissing(): string[] {
   return cobranzaMissing({
     tipoCobranza: form.contacto.tipoCobranza,
+    formaPago: form.pago.formaPago,
     cuenta: form.pago.cuenta,
     vencimientoTarjeta: form.pago.vencimientoTarjeta,
     cvv: form.pago.cvv,
@@ -868,6 +929,9 @@ watch(
   (tipo) => {
     const kind = normalizeTipoCobranza(tipo);
     if (kind === 'DOMICILIADO') {
+      if (!isTarjetaFormaPago(form.pago.formaPago)) {
+        form.pago.formaPago = '';
+      }
       if (!form.pago.titularTarjeta.trim()) {
         form.pago.titularTarjeta = fullName(form.contacto);
       }
@@ -879,6 +943,9 @@ watch(
       form.documentos.reciboNomina = null;
       form.documentos.domiciliacionBanorte = null;
       return;
+    }
+    if (isTarjetaFormaPago(form.pago.formaPago)) {
+      form.pago.formaPago = '';
     }
     form.pago.cuenta = '';
     form.pago.cvv = '';
@@ -2364,7 +2431,9 @@ function toggleAllDevPrefill(on: boolean) {
 async function applyDevPrefill() {
   if (!isDev || !canEdit.value) return;
   const selected = [
-    ...STEPS.filter((s) => devPrefillSteps[s.key]),
+    ...STEPS.map((s, i) => ({ key: s.key, short: stepMeta(i).short })).filter(
+      (s) => devPrefillSteps[s.key],
+    ),
     ...DEV_PREFILL_EXTRAS.filter((s) => devPrefillSteps[s.key]),
   ];
   if (!selected.length) {
@@ -2376,11 +2445,18 @@ async function applyDevPrefill() {
     return;
   }
 
-  const { label, form: mock, invoice } = pickRandomDevSaleMock();
+  const { label: baseLabel, form: mock, invoice } = pickRandomDevSaleMock();
+  const funepet = isFunepet.value ? pickFunepetMock() : null;
+  const label = funepet ? `${baseLabel} · Funepet (${funepet.pet.name})` : baseLabel;
   if (devPrefillSteps.meta) {
-    const contrato = form.meta.contrato;
+    const { contrato, tipoVenta, estatus } = form.meta;
     Object.assign(form.meta, mock.meta);
     form.meta.contrato = contrato;
+    if (funepet) {
+      form.meta.tipoVenta = tipoVenta;
+      form.meta.estatus = estatus;
+      form.meta.anterior = '';
+    }
     applyDefaultServiceType();
   }
   if (devPrefillSteps.titular) {
@@ -2396,7 +2472,9 @@ async function applyDevPrefill() {
       mock.derechohabientes.titularSustituto,
     );
   }
-  if (devPrefillSteps.beneficiarios) {
+  if (devPrefillSteps.beneficiarios && funepet) {
+    await applyDevMascota(funepet.pet);
+  } else if (devPrefillSteps.beneficiarios) {
     form.beneficiarios.splice(
       0,
       form.beneficiarios.length,
@@ -2417,8 +2495,15 @@ async function applyDevPrefill() {
     }
   }
   if (devPrefillSteps.plan) {
-    Object.assign(form.ubicacionPlan, mock.ubicacionPlan);
+    Object.assign(form.ubicacionPlan, funepet?.ubicacionPlan ?? mock.ubicacionPlan);
     Object.assign(form.pago, mock.pago);
+    if (funepet) {
+      const precio = form.ubicacionPlan.precioPlan;
+      const contado = normalizeFrequency(form.pago.frecuencia) === 'CONTADO';
+      form.pago.precioPlan = precio;
+      form.pago.anticipo = contado ? '0' : String(Math.round(parseMoney(precio) * 0.1));
+      if (!contado) form.pago.plazo = '12';
+    }
     clampDescuento();
     recomputeSaldo();
     restorePagoInicialActivoFromForm();
@@ -4141,6 +4226,16 @@ async function goBack() {
 
           <template v-if="isDomiciliado">
             <label class="span-2">
+              Método de pago *
+              <VdSelect
+                v-model="form.pago.formaPago"
+                :options="formaPagoDomiciliadoOptions"
+                :disabled="!canEdit"
+                placeholder="Selecciona"
+              />
+              <small class="field-hint">Débito o crédito</small>
+            </label>
+            <label class="span-2">
               Número de tarjeta *
               <input
                 :value="formatCardNumber(form.pago.cuenta)"
@@ -5136,10 +5231,11 @@ async function goBack() {
                     ? 'Exclusiones contractuales'
                     : 'Carta de aceptación de exclusiones'
                 }}</strong>
-                <span class="upload-card__hint"
-                  >Anexo A del contrato. Se llena con titular, sucursal y fecha.
-                  Mientras no se firme aparece como borrador</span
-                >
+                <span class="upload-card__hint">{{
+                  isFunepet
+                    ? 'Periodo de espera de 90 días. Se llena con titular, ciudad y fecha. Mientras no se firme aparece como borrador'
+                    : 'Anexo A del contrato. Se llena con titular, sucursal y fecha. Mientras no se firme aparece como borrador'
+                }}</span>
               </div>
               <div class="upload-card__actions">
                 <button
@@ -5242,7 +5338,7 @@ async function goBack() {
             </div>
 
             <div
-              v-if="isDomiciliado && !isFunepet"
+              v-if="isDomiciliado"
               class="upload-card upload-card--filled"
             >
               <div class="upload-card__icon" aria-hidden="true">
@@ -5272,9 +5368,11 @@ async function goBack() {
                 <span class="upload-card__hint">
                   Cargo automático.
                   {{
-                    form.ubicacionPlan.planKind === 'PARQUE'
-                      ? 'Empresa San Martín (plan parque)'
-                      : 'Empresa Inhumaciones (plan a futuro)'
+                    isFunepet
+                      ? 'Funepet · Inhumaciones ABC'
+                      : form.ubicacionPlan.planKind === 'PARQUE'
+                        ? 'Empresa San Martín (plan parque)'
+                        : 'Empresa Inhumaciones (plan a futuro)'
                   }}. Mientras no se firme aparece como borrador
                 </span>
               </div>
@@ -5371,7 +5469,7 @@ async function goBack() {
             </div>
 
             <div
-              v-if="!isFunepet && rechazaFactura"
+              v-if="rechazaFactura"
               class="upload-card upload-card--filled"
             >
               <div class="upload-card__icon" aria-hidden="true">
@@ -5398,10 +5496,13 @@ async function goBack() {
               </div>
               <div class="upload-card__body">
                 <strong>Consentimiento de no factura</strong>
-                <span class="upload-card__hint"
-                  >Se llena con el nombre del titular y la empresa. Mientras no
-                  se firme aparece como borrador</span
-                >
+                <span class="upload-card__hint">
+                  {{
+                    isFunepet
+                      ? 'Carta Funepet. Se llena con el titular e Inhumaciones ABC. Mientras no se firme aparece como borrador'
+                      : 'Se llena con el nombre del titular y la empresa. Mientras no se firme aparece como borrador'
+                  }}
+                </span>
               </div>
               <div class="upload-card__actions">
                 <button
@@ -5640,9 +5741,9 @@ async function goBack() {
             Ninguno
           </button>
         </div>
-        <label v-for="s in STEPS" :key="s.key" class="check">
+        <label v-for="(s, i) in STEPS" :key="s.key" class="check">
           <input v-model="devPrefillSteps[s.key]" type="checkbox" />
-          {{ s.title }}
+          {{ stepMeta(i).title }}
         </label>
         <label
           v-for="s in DEV_PREFILL_EXTRAS"

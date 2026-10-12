@@ -86,9 +86,10 @@ async function renderPages(
       canvas,
       intent: purpose === 'preview' ? 'print' : 'display',
     } as Parameters<typeof page.render>[0]).promise;
+    // JPEG submuestrea el color y difumina texto azul/gris pequeño; en vista previa va PNG.
     pages.push(
       purpose === 'preview'
-        ? canvas.toDataURL('image/jpeg', 0.97)
+        ? canvas.toDataURL('image/png')
         : canvas.toDataURL('image/jpeg', 0.92),
     );
   }

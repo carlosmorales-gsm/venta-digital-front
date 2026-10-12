@@ -21,7 +21,7 @@ export type SignDocument = {
 /** Cartas y contrato que el cliente debe leer y aceptar antes de firmar. */
 export function listSignDocuments(form: SaleFormData): SignDocument[] {
   if (parseSaleKind(form.meta.tipoVenta) === 'FUNEPET') {
-    return [
+    const docs: SignDocument[] = [
       {
         kind: 'caratula',
         title: 'Carátula de contrato',
@@ -30,9 +30,24 @@ export function listSignDocuments(form: SaleFormData): SignDocument[] {
       {
         kind: 'cartaExclusiones',
         title: 'Exclusiones contractuales',
-        hint: 'Anexo de exclusiones',
+        hint: 'Periodo de espera de 90 días',
       },
     ];
+    if (normalizeTipoCobranza(form.contacto.tipoCobranza) === 'DOMICILIADO') {
+      docs.push({
+        kind: 'cartaAutorizacion',
+        title: 'Carta de autorización',
+        hint: 'Cargo automático a tarjeta · Funepet',
+      });
+    }
+    if (form.contacto.factura === 'NO') {
+      docs.push({
+        kind: 'cartaNoFactura',
+        title: 'Consentimiento de no factura',
+        hint: 'Acepta factura con RFC genérico · Funepet',
+      });
+    }
+    return docs;
   }
 
   const docs: SignDocument[] = [

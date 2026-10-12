@@ -71,7 +71,7 @@ export interface SaleMascota {
   rasgosParticulares: string;
   tamanoId: number | null;
   tamanoName: string;
-  /** chico | mediano | grande */
+  /** mini | chico | mediano | grande | gigante */
   tamanoCode: string;
   peso: string;
   genero: '' | 'macho' | 'hembra';

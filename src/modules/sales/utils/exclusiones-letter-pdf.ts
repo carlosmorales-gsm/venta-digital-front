@@ -1,5 +1,7 @@
 import { GState, jsPDF } from 'jspdf';
+import { parseSaleKind } from '../constants/sale-kinds';
 import { documentContractFolio, fullName, isSignedSaleStatus, type SaleFormData } from '../types/sale-form';
+import { buildFunepetExclusionesPdf } from './funepet-exclusiones-pdf';
 
 const PAGE_W = 612.28;
 const PAGE_H = 792;
@@ -321,6 +323,9 @@ export async function buildExclusionesLetterPdf(
   form: SaleFormData,
   opts?: ExclusionesLetterOpts,
 ): Promise<Blob> {
+  if (parseSaleKind(form.meta.tipoVenta) === 'FUNEPET') {
+    return buildFunepetExclusionesPdf(form, opts);
+  }
   const doc = new jsPDF({
     unit: 'pt',
     format: 'letter',

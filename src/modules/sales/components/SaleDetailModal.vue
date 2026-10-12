@@ -12,6 +12,7 @@ import {
 } from '../types/sale-form';
 import { listSaleAttachments } from '../utils/attachment-preview';
 import {
+  formaPagoOptionsFor,
   formatCardNumber,
   normalizeTipoCobranza,
   TIPO_COBRANZA_OPTIONS,
@@ -319,6 +320,13 @@ const cobranzaRows = computed((): DetailRow[] => {
   ];
   if (cobranza.value === 'DOMICILIADO') {
     rows.push(
+      {
+        label: 'Método de pago',
+        value:
+          formaPagoOptionsFor('').find(
+            (item) => item.value === (pago.formaPago || '').trim().toUpperCase(),
+          )?.label || text(pago.formaPago),
+      },
       { label: 'Número de tarjeta', value: text(formatCardNumber(pago.cuenta)) },
       { label: 'Vencimiento', value: text(pago.vencimientoTarjeta) },
       { label: 'Dígitos de seguridad', value: pago.cvv?.trim() ? 'Capturado' : '—' },

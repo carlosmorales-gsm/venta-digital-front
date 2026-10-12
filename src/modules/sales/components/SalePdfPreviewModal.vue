@@ -116,6 +116,12 @@ const modalTitle = computed(() => {
       : 'Reglamento de parque';
   }
   if (isExclusiones.value) {
+    const funepet = parseSaleKind(props.form.meta.tipoVenta) === 'FUNEPET';
+    if (funepet) {
+      return isDraft.value
+        ? 'Exclusiones contractuales (borrador)'
+        : 'Exclusiones contractuales';
+    }
     return isDraft.value
       ? 'Carta de aceptación de exclusiones (borrador)'
       : 'Carta de aceptación de exclusiones';
@@ -158,6 +164,12 @@ const downloadName = computed(() => {
       : 'reglamento-parque.pdf';
   }
   if (isExclusiones.value) {
+    const funepet = parseSaleKind(props.form.meta.tipoVenta) === 'FUNEPET';
+    if (funepet) {
+      return isDraft.value
+        ? 'exclusiones-contractuales-borrador.pdf'
+        : 'exclusiones-contractuales.pdf';
+    }
     return isDraft.value
       ? 'carta-aceptacion-exclusiones-borrador.pdf'
       : 'carta-aceptacion-exclusiones.pdf';
@@ -262,7 +274,9 @@ async function render() {
         : isReglamento.value
           ? 'No se pudo generar el reglamento de parque.'
           : isExclusiones.value
-            ? 'No se pudo generar la carta de aceptación de exclusiones.'
+            ? parseSaleKind(props.form.meta.tipoVenta) === 'FUNEPET'
+              ? 'No se pudieron generar las exclusiones contractuales.'
+              : 'No se pudo generar la carta de aceptación de exclusiones.'
             : isNoFactura.value
             ? 'No se pudo generar el consentimiento de no factura.'
             : isCarta.value

@@ -127,6 +127,7 @@ export function isLikelyEmail(value: string) {
 /** Campos faltantes del método de cobranza (domiciliado / nómina / otro). */
 export function cobranzaMissing(input: {
   tipoCobranza?: string | null;
+  formaPago?: string | null;
   cuenta?: string | null;
   vencimientoTarjeta?: string | null;
   cvv?: string | null;
@@ -145,6 +146,9 @@ export function cobranzaMissing(input: {
   if (!tipo) missing.push('Tipo de cobranza');
 
   if (tipo === 'DOMICILIADO') {
+    if (!isTarjetaFormaPago(input.formaPago || '')) {
+      missing.push('Método de pago');
+    }
     const cardErr = cardNumberError(input.cuenta || '', tipo);
     if (cardErr) missing.push(cardErr);
     const expErr = cardExpiryError(input.vencimientoTarjeta || '');

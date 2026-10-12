@@ -1300,6 +1300,121 @@ function buildFromSeed(seed: DevSaleSeed): SaleFormData {
   return form;
 }
 
+type PetSize = 'chico' | 'mediano' | 'grande';
+
+export type FunepetPetMock = {
+  name: string;
+  /** Pista para elegir la especie del catálogo de Odoo. */
+  especie: 'perro' | 'gato';
+  tamano: PetSize;
+  color: string;
+  rasgosParticulares: string;
+  genero: 'macho' | 'hembra';
+  peso: string;
+  birthDate: string;
+  collar: boolean;
+  notas: string;
+};
+
+const FUNEPET_PETS: FunepetPetMock[] = [
+  {
+    name: 'Canela',
+    especie: 'perro',
+    tamano: 'grande',
+    color: 'Dorado',
+    rasgosParticulares: 'Mancha blanca en el pecho',
+    genero: 'hembra',
+    peso: '28',
+    birthDate: '2016-04-12',
+    collar: true,
+    notas: 'Tutor prefiere cremación individual',
+  },
+  {
+    name: 'Max',
+    especie: 'perro',
+    tamano: 'mediano',
+    color: 'Negro con café',
+    rasgosParticulares: 'Oreja izquierda caída',
+    genero: 'macho',
+    peso: '16',
+    birthDate: '2018-09-03',
+    collar: true,
+    notas: '',
+  },
+  {
+    name: 'Rocky',
+    especie: 'perro',
+    tamano: 'chico',
+    color: 'Blanco con manchas negras',
+    rasgosParticulares: 'Cicatriz en la pata trasera derecha',
+    genero: 'macho',
+    peso: '7',
+    birthDate: '2019-01-20',
+    collar: false,
+    notas: '',
+  },
+  {
+    name: 'Michi',
+    especie: 'gato',
+    tamano: 'chico',
+    color: 'Atigrado gris',
+    rasgosParticulares: 'Cola corta',
+    genero: 'macho',
+    peso: '4.5',
+    birthDate: '2017-06-15',
+    collar: false,
+    notas: '',
+  },
+  {
+    name: 'Luna',
+    especie: 'gato',
+    tamano: 'chico',
+    color: 'Blanco',
+    rasgosParticulares: 'Un ojo azul y uno verde',
+    genero: 'hembra',
+    peso: '3.8',
+    birthDate: '2020-02-28',
+    collar: true,
+    notas: 'Vive en departamento',
+  },
+];
+
+const FUNEPET_PLANS: Record<
+  PetSize,
+  { nombrePlan: string; productId: number; productDefaultCode: string; precioPlan: string }
+> = {
+  chico: {
+    nombrePlan: 'Pet Plan a futuro chico',
+    productId: 9201,
+    productDefaultCode: 'PET-FP-CH',
+    precioPlan: '6500',
+  },
+  mediano: {
+    nombrePlan: 'Pet Plan a futuro mediano',
+    productId: 9202,
+    productDefaultCode: 'PET-FP-MD',
+    precioPlan: '8500',
+  },
+  grande: {
+    nombrePlan: 'Pet Plan a futuro grande',
+    productId: 9203,
+    productDefaultCode: 'PET-FP-GR',
+    precioPlan: '11500',
+  },
+};
+
+/** Mascota y Pet Plan a futuro del mismo tamaño para ventas Funepet. */
+export function pickFunepetMock(): {
+  pet: FunepetPetMock;
+  ubicacionPlan: Partial<SaleFormData['ubicacionPlan']>;
+} {
+  const pet = FUNEPET_PETS[Math.floor(Math.random() * FUNEPET_PETS.length)]!;
+  return {
+    pet,
+    ubicacionPlan: mockPlanFuturo(FUNEPET_PLANS[pet.tamano]),
+  };
+}
+
 export function mockConstanciaAttachment(): SaleAttachment {
   return mockPdf('constancia-mock.pdf');
 }
