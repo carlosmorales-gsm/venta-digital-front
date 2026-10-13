@@ -90,6 +90,7 @@ import {
 import {
   applyCatalogClienteToForm,
   clienteDisplayName,
+  fillOriginFolioSolicitud,
   searchCatalogClientes,
   type CatalogCliente,
 } from '../utils/odoo-clientes';
@@ -181,6 +182,10 @@ const previewOpen = ref(false);
 const cartaPreviewOpen = ref(false);
 const cartaNoFacturaPreviewOpen = ref(false);
 const cartaExclusionesPreviewOpen = ref(false);
+const reconocimientoPreviewOpen = ref(false);
+const reconocimientoPreviewId = ref<number | null>(null);
+const noPapeleriaPreviewOpen = ref(false);
+const noPapeleriaPreviewId = ref<number | null>(null);
 const reglamentoParquePreviewOpen = ref(false);
 const reglamentoParqueFolletoPreviewOpen = ref(false);
 const cartaAuthPreviewOpen = ref(false);
@@ -267,6 +272,9 @@ const formOpen = ref(false);
 
 const isFunepet = computed(
   () => parseSaleKind(form.meta.tipoVenta) === 'FUNEPET',
+);
+const needsRecognitionLetter = computed(() =>
+  saleNeedsOriginSales(form.meta.tipoVenta),
 );
 
 function stepMeta(index: number) {
@@ -2403,6 +2411,7 @@ function applyRecognition(payload: {
 }) {
   applyCatalogClienteToForm(form, payload.cliente);
   form.meta.reconocimientoVentas = payload.ventas;
+  void fillOriginFolioSolicitud(payload.ventas, form.meta.tipoVenta);
   recomputeSaldo();
   form.meta.anterior = payload.ventas
     .map((v) => String(v.folio || '').trim())
@@ -2449,11 +2458,25 @@ async function applyDevPrefill() {
   const funepet = isFunepet.value ? pickFunepetMock() : null;
   const label = funepet ? `${baseLabel} · Funepet (${funepet.pet.name})` : baseLabel;
   if (devPrefillSteps.meta) {
-    const { contrato, tipoVenta, estatus } = form.meta;
-    Object.assign(form.meta, mock.meta);
+    const {
+      contrato,
+      tipoVenta,
+      estatus,
+      anterior,
+      reconocimientoVentas,
+    } = form.meta;
+    const meta = { ...mock.meta };
+    delete meta.tipoVenta;
+    delete meta.anterior;
+    delete meta.reconocimientoVentas;
+    Object.assign(form.meta, meta);
     form.meta.contrato = contrato;
+    form.meta.tipoVenta = tipoVenta;
+    if (saleNeedsOriginSales(tipoVenta)) {
+      form.meta.reconocimientoVentas = reconocimientoVentas;
+      form.meta.anterior = anterior;
+    }
     if (funepet) {
-      form.meta.tipoVenta = tipoVenta;
       form.meta.estatus = estatus;
       form.meta.anterior = '';
     }
@@ -5167,7 +5190,7 @@ async function goBack() {
             </div>
 
             <div
-              v-if="!isFunepet && form.documentos.ineFrente && form.documentos.ineReverso"
+              v-if="form.documentos.ineFrente && form.documentos.ineReverso"
               class="upload-card upload-card--filled"
             >
               <div class="upload-card__icon" aria-hidden="true">
@@ -5247,6 +5270,110 @@ async function goBack() {
                 </button>
               </div>
             </div>
+
+            <template v-if="needsRecognitionLetter">
+              <p
+                v-if="!form.meta.reconocimientoVentas.length"
+                class="upload-card__hint"
+              >
+                Selecciona las ventas a reconocer. Se genera un formato
+                FOR-GSM-CMR-08 por cada una.
+              </p>
+              <div
+                v-for="venta in form.meta.reconocimientoVentas"
+                :key="venta.id"
+                class="upload-card upload-card--filled"
+              >
+                <div class="upload-card__icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none">
+                    <path
+                      d="M7 3.5h7.2L19 8.3V20a1.5 1.5 0 0 1-1.5 1.5h-10A1.5 1.5 0 0 1 6 20V5a1.5 1.5 0 0 1 1-1.5z"
+                      stroke="currentColor"
+                      stroke-width="1.7"
+                      stroke-linejoin="round"
+                    />
+                    <path
+                      d="M14 3.5V8h5"
+                      stroke="currentColor"
+                      stroke-width="1.7"
+                      stroke-linejoin="round"
+                    />
+                    <path
+                      d="M9 13h6M9 16.5h4"
+                      stroke="currentColor"
+                      stroke-width="1.7"
+                      stroke-linecap="round"
+                    />
+                  </svg>
+                </div>
+                <div class="upload-card__body">
+                  <strong>Solicitud de reconocimiento · {{ venta.folio }}</strong>
+                  <span class="upload-card__hint"
+                    >FOR-GSM-CMR-08 de este contrato anterior. Mientras no se
+                    firme aparece como borrador</span
+                  >
+                </div>
+                <div class="upload-card__actions">
+                  <button
+                    type="button"
+                    class="upload-card__btn"
+                    @click="
+                      reconocimientoPreviewId = venta.id;
+                      reconocimientoPreviewOpen = true;
+                    "
+                  >
+                    <span class="upload-card__btn-text">Vista previa</span>
+                  </button>
+                </div>
+              </div>
+              <div
+                v-for="venta in form.meta.reconocimientoVentas"
+                :key="`nopapel-${venta.id}`"
+                class="upload-card upload-card--filled"
+              >
+                <div class="upload-card__icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none">
+                    <path
+                      d="M7 3.5h7.2L19 8.3V20a1.5 1.5 0 0 1-1.5 1.5h-10A1.5 1.5 0 0 1 6 20V5a1.5 1.5 0 0 1 1-1.5z"
+                      stroke="currentColor"
+                      stroke-width="1.7"
+                      stroke-linejoin="round"
+                    />
+                    <path
+                      d="M14 3.5V8h5"
+                      stroke="currentColor"
+                      stroke-width="1.7"
+                      stroke-linejoin="round"
+                    />
+                    <path
+                      d="M9 13h6M9 16.5h4"
+                      stroke="currentColor"
+                      stroke-width="1.7"
+                      stroke-linecap="round"
+                    />
+                  </svg>
+                </div>
+                <div class="upload-card__body">
+                  <strong>Carta de no papelería · {{ venta.folio }}</strong>
+                  <span class="upload-card__hint"
+                    >FOR-GSM-CMR-09 de este contrato anterior. Mientras no se
+                    firme aparece como borrador</span
+                  >
+                </div>
+                <div class="upload-card__actions">
+                  <button
+                    type="button"
+                    class="upload-card__btn"
+                    @click="
+                      noPapeleriaPreviewId = venta.id;
+                      noPapeleriaPreviewOpen = true;
+                    "
+                  >
+                    <span class="upload-card__btn-text">Vista previa</span>
+                  </button>
+                </div>
+              </div>
+            </template>
 
             <div
               v-if="isParque"
@@ -5388,7 +5515,7 @@ async function goBack() {
             </div>
 
             <div
-              v-if="!isFunepet && isNomina && form.pago.empresaNominaId"
+              v-if="isNomina && form.pago.empresaNominaId"
               class="upload-card upload-card--filled"
             >
               <div class="upload-card__icon" aria-hidden="true">
@@ -5433,7 +5560,7 @@ async function goBack() {
             </div>
 
             <div
-              v-if="!isFunepet && needsCardSides && form.documentos.tarjetaFrente && form.documentos.tarjetaReverso"
+              v-if="needsCardSides && form.documentos.tarjetaFrente && form.documentos.tarjetaReverso"
               class="upload-card upload-card--filled"
             >
               <div class="upload-card__icon" aria-hidden="true">
@@ -5516,7 +5643,7 @@ async function goBack() {
             </div>
 
             <div
-              v-if="!isFunepet && pideFactura"
+              v-if="pideFactura"
               class="upload-card upload-card--filled"
             >
               <div class="upload-card__icon" aria-hidden="true">
@@ -5633,6 +5760,24 @@ async function goBack() {
       :sale-id="saleId"
       :status="status === 'NEW' ? undefined : status"
       @close="cartaNoFacturaPreviewOpen = false"
+    />
+    <SalePdfPreviewModal
+      kind="cartaNoPapeleria"
+      :open="noPapeleriaPreviewOpen"
+      :origin-id="noPapeleriaPreviewId"
+      :form="form"
+      :sale-id="saleId"
+      :status="status === 'NEW' ? undefined : status"
+      @close="noPapeleriaPreviewOpen = false"
+    />
+    <SalePdfPreviewModal
+      kind="solicitudReconocimiento"
+      :open="reconocimientoPreviewOpen"
+      :origin-id="reconocimientoPreviewId"
+      :form="form"
+      :sale-id="saleId"
+      :status="status === 'NEW' ? undefined : status"
+      @close="reconocimientoPreviewOpen = false"
     />
     <SalePdfPreviewModal
       kind="cartaExclusiones"

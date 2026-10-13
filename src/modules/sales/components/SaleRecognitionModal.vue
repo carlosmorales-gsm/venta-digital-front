@@ -137,6 +137,11 @@ async function selectCliente(row: CatalogCliente) {
       : await listClienteSuspendidas(row.id);
     titular.value = data.titular;
     beneficiario.value = data.beneficiario;
+    if (!isPlanChange.value) {
+      for (const item of [...data.titular, ...data.beneficiario]) {
+        selectedIds.add(item.id);
+      }
+    }
   } catch (e: unknown) {
     salesError.value = extractApiError(
       e,
@@ -156,6 +161,7 @@ function backToCliente() {
 }
 
 function toggleVenta(id: number) {
+  if (!isPlanChange.value) return;
   if (selectedIds.has(id)) selectedIds.delete(id);
   else selectedIds.add(id);
 }
@@ -214,9 +220,14 @@ function origenLabel(v: ReconocimientoVenta) {
 
       <template v-else>
         <p class="hint">
-          Paso 2 de 2. Elige las ventas
-          {{ isPlanChange ? 'activas' : 'a reconocer' }} de
-          <strong>{{ cliente ? clienteDisplayName(cliente) : 'este cliente' }}</strong>.
+          <template v-if="isPlanChange">
+            Paso 2 de 2. Elige las ventas activas de
+            <strong>{{ cliente ? clienteDisplayName(cliente) : 'este cliente' }}</strong>.
+          </template>
+          <template v-else>
+            Paso 2 de 2. Se reconocen todas las ventas suspendidas de
+            <strong>{{ cliente ? clienteDisplayName(cliente) : 'este cliente' }}</strong>.
+          </template>
         </p>
         <p v-if="salesLoading" class="hint">Cargando ventas…</p>
         <p v-else-if="salesError" class="err">{{ salesError }}</p>
@@ -232,8 +243,9 @@ function origenLabel(v: ReconocimientoVenta) {
         </p>
         <ul v-else class="list list--sales">
           <li v-for="v in ventas" :key="v.id">
-            <label class="sale">
+            <label class="sale" :class="{ 'sale--fixed': !isPlanChange }">
               <input
+                v-if="isPlanChange"
                 type="checkbox"
                 :checked="selectedIds.has(v.id)"
                 @change="toggleVenta(v.id)"
@@ -395,6 +407,13 @@ function origenLabel(v: ReconocimientoVenta) {
   align-items: flex-start;
   gap: 0.65rem;
   cursor: pointer;
+}
+
+.sale--fixed,
+.sale--fixed:hover {
+  cursor: default;
+  border-color: var(--vd-line);
+  background: #fff;
 }
 
 .sale input[type='checkbox'] {

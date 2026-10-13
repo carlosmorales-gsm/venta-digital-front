@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { extractApiError, http } from '../../../shared/api/http';
+import { parseSaleKind } from '../constants/sale-kinds';
 import { isSignedSaleStatus, mergeSaleForm, type SaleFormData, type SaleListItem } from '../types/sale-form';
 import SaleManualSignModal from '../components/SaleManualSignModal.vue';
 import { buildSignSaleRequest } from '../utils/submit-sign';
@@ -14,6 +15,11 @@ const submitting = ref(false);
 const form = ref<SaleFormData | null>(null);
 const saleId = ref<number | null>(null);
 const status = ref('');
+const funepet = ref(false);
+const logoSrc = computed(() =>
+  funepet.value ? '/forms/funepet-domiciliacion-logo.png' : '/logo-gsm-azul.svg',
+);
+const logoAlt = computed(() => (funepet.value ? 'Funepet' : 'Grupo San Martín'));
 
 function token(): string {
   return String(route.params.token || '').trim();
@@ -28,11 +34,21 @@ async function load() {
     );
     saleId.value = data.id;
     status.value = data.status;
+    const loaded = data.payload ? mergeSaleForm(data.payload) : null;
+    form.value = loaded;
+    const fromForm = parseSaleKind(loaded?.meta.tipoVenta);
+    const fromApi = parseSaleKind(
+      (data as SaleListItem & { tipoVenta?: string; funepet?: boolean }).tipoVenta,
+    );
+    funepet.value =
+      fromForm === 'FUNEPET' ||
+      fromApi === 'FUNEPET' ||
+      (data as { funepet?: boolean }).funepet === true;
     if (data.alreadySigned || isSignedSaleStatus(data.status)) {
       done.value = true;
+      form.value = null;
       return;
     }
-    form.value = mergeSaleForm(data.payload);
   } catch (e: unknown) {
     error.value = extractApiError(
       e,
@@ -68,7 +84,13 @@ onMounted(() => {
 
 <template>
   <section class="sign-page">
-    <img src="/logo-gsm-azul.svg" alt="Grupo San Martín" class="sign-page__logo" />
+    <img
+      v-if="!loading"
+      :src="logoSrc"
+      :alt="logoAlt"
+      class="sign-page__logo"
+      :class="{ 'sign-page__logo--funepet': funepet }"
+    />
     <h1>Firma de documentos</h1>
 
     <p v-if="loading" class="sign-page__msg">Cargando tus documentos…</p>
@@ -105,7 +127,11 @@ onMounted(() => {
 }
 .sign-page__logo {
   width: min(180px, 64vw);
+  height: auto;
   margin-bottom: 0.75rem;
+}
+.sign-page__logo--funepet {
+  width: min(220px, 72vw);
 }
 .sign-page h1 {
   color: var(--gsm-blue);

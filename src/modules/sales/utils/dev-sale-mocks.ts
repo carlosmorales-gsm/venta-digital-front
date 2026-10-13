@@ -1284,6 +1284,8 @@ function buildFromSeed(seed: DevSaleSeed): SaleFormData {
       reglamentoParqueFolletoPdf: null,
       cartaAutorizacionPdf: null,
       cartaNominaPdf: null,
+      solicitudReconocimientoPdfs: [],
+      cartaNoPapeleriaPdfs: [],
     },
   });
   applyMockContactoRules(form);

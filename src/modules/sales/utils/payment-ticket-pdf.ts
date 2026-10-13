@@ -1,4 +1,5 @@
 import { jsPDF } from 'jspdf';
+import { parseSaleKind } from '../constants/sale-kinds';
 import { formatDigitalFolio, fullName, type SaleFormData } from '../types/sale-form';
 import {
   paymentDueAmount,
@@ -99,9 +100,10 @@ export async function buildPaymentTicketPdf(
   form: SaleFormData,
   opts: { saleId: number; sellerName?: string },
 ): Promise<Blob> {
+  const funepet = parseSaleKind(form.meta.tipoVenta) === 'FUNEPET';
   const doc = new jsPDF({
     unit: 'pt',
-    format: [PAGE_W, PAGE_H],
+    format: [PAGE_W, funepet ? PAGE_H + 70 : PAGE_H],
     compress: true,
   });
 
@@ -123,9 +125,11 @@ export async function buildPaymentTicketPdf(
 
   let y = 16;
 
-  const logo = await loadImageAsPng('/logo-gsm-azul.svg');
+  const logo = await loadImageAsPng(
+    funepet ? '/forms/funepet-domiciliacion-logo.png' : '/logo-gsm-azul.svg',
+  );
   if (logo) {
-    const logoH = 36;
+    const logoH = funepet ? 92 : 36;
     const logoW = Math.min(
       PAGE_W - M * 2,
       (logo.width / logo.height) * logoH,
@@ -143,7 +147,9 @@ export async function buildPaymentTicketPdf(
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
     doc.setTextColor(...INK);
-    doc.text('GRUPO SAN MARTÍN', PAGE_W / 2, y + 10, { align: 'center' });
+    doc.text(funepet ? 'FUNEPET' : 'GRUPO SAN MARTÍN', PAGE_W / 2, y + 10, {
+      align: 'center',
+    });
     y += 22;
   }
 

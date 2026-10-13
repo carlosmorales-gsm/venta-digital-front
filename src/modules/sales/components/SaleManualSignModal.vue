@@ -8,6 +8,8 @@ import {
 } from '../utils/authorization-letter-pdf';
 import { buildConvenioLetterBundle } from '../utils/convenio-letter-pdf';
 import { buildExclusionesLetterBundle } from '../utils/exclusiones-letter-pdf';
+import { buildRecognitionBalanceBundle } from '../utils/recognition-balance-pdf';
+import { buildNoStationeryBundle } from '../utils/no-stationery-pdf';
 import { buildInvoiceLetterBundle } from '../utils/invoice-letter-pdf';
 import { buildNoInvoiceConsentBundle } from '../utils/no-invoice-consent-pdf';
 import { buildParkRegulationBundle } from '../utils/park-regulation-pdf';
@@ -18,7 +20,6 @@ import { parseSaleKind } from '../constants/sale-kinds';
 import {
   listSignDocuments,
   type SignDocument,
-  type SignDocumentKind,
 } from '../utils/sign-documents';
 
 const props = defineProps<{
@@ -39,7 +40,7 @@ const emit = defineEmits<{
 type Phase = 'list' | 'read' | 'sign';
 
 const phase = ref<Phase>('list');
-const accepted = reactive<Partial<Record<SignDocumentKind, boolean>>>({});
+const accepted = reactive<Record<string, boolean>>({});
 const activeDoc = ref<SignDocument | null>(null);
 const reachedEnd = ref(false);
 const acceptCurrent = ref(false);
@@ -50,7 +51,7 @@ const docError = ref<string | null>(null);
 const pageImages = ref<string[]>([]);
 const embedUrl = ref<string | null>(null);
 const objectUrls = ref<string[]>([]);
-const pageCache = new Map<SignDocumentKind, string[]>();
+const pageCache = new Map<string, string[]>();
 
 const canvasRef = ref<HTMLCanvasElement | null>(null);
 const hasStroke = ref(false);
@@ -58,15 +59,22 @@ let drawing = false;
 let ctx: CanvasRenderingContext2D | null = null;
 
 const signDocs = computed(() => listSignDocuments(props.form));
+const isFunepet = computed(
+  () => parseSaleKind(props.form.meta.tipoVenta) === 'FUNEPET',
+);
+
+function docKey(doc: SignDocument) {
+  return doc.key || doc.kind;
+}
 
 const acceptedCount = computed(
-  () => signDocs.value.filter((d) => accepted[d.kind]).length,
+  () => signDocs.value.filter((d) => accepted[docKey(d)]).length,
 );
 
 const allAccepted = computed(
   () =>
     signDocs.value.length > 0 &&
-    signDocs.value.every((d) => accepted[d.kind]),
+    signDocs.value.every((d) => accepted[docKey(d)]),
 );
 
 const modalTitle = computed(() => {
@@ -89,7 +97,7 @@ function resetFlow() {
   hasStroke.value = false;
   drawing = false;
   pageCache.clear();
-  for (const key of Object.keys(accepted) as SignDocumentKind[]) {
+  for (const key of Object.keys(accepted)) {
     delete accepted[key];
   }
   revokeObjectUrls();
@@ -100,9 +108,9 @@ function revokeObjectUrls() {
   objectUrls.value = [];
 }
 
-async function buildDocBundle(kind: SignDocumentKind) {
+async function buildDocBundle(doc: SignDocument) {
   const opts = { saleId: props.saleId, status: props.status };
-  switch (kind) {
+  switch (doc.kind) {
     case 'cartaFactura':
       return buildInvoiceLetterBundle(props.form, opts);
     case 'cartaExclusiones':
@@ -117,6 +125,16 @@ async function buildDocBundle(kind: SignDocumentKind) {
       return buildAuthorizationLetterBundle(props.form, opts);
     case 'cartaNomina':
       return buildConvenioLetterBundle(props.form, opts);
+    case 'solicitudReconocimiento':
+      return buildRecognitionBalanceBundle(props.form, {
+        ...opts,
+        originId: doc.originId,
+      });
+    case 'cartaNoPapeleria':
+      return buildNoStationeryBundle(props.form, {
+        ...opts,
+        originId: doc.originId,
+      });
     default:
       return parseSaleKind(props.form.meta.tipoVenta) === 'FUNEPET'
         ? buildFunepetCaratulaBundle(props.form, opts)
@@ -137,13 +155,14 @@ function updateReachedEnd() {
 async function openDocument(doc: SignDocument) {
   activeDoc.value = doc;
   phase.value = 'read';
-  reachedEnd.value = Boolean(accepted[doc.kind]);
-  acceptCurrent.value = Boolean(accepted[doc.kind]);
+  const key = docKey(doc);
+  reachedEnd.value = Boolean(accepted[key]);
+  acceptCurrent.value = Boolean(accepted[key]);
   pageImages.value = [];
   embedUrl.value = null;
   docError.value = null;
 
-  const cached = pageCache.get(doc.kind);
+  const cached = pageCache.get(key);
   if (cached?.length) {
     pageImages.value = cached;
     await nextTick();
@@ -153,7 +172,7 @@ async function openDocument(doc: SignDocument) {
 
   loadingDoc.value = true;
   try {
-    const { blob, pages: composePages } = await buildDocBundle(doc.kind);
+    const { blob, pages: composePages } = await buildDocBundle(doc);
     let pages = composePages;
     try {
       const sharp = await renderPdfToPageImages(blob, { purpose: 'preview' });
@@ -162,7 +181,7 @@ async function openDocument(doc: SignDocument) {
       /* se usan las hojas ya generadas */
     }
     if (pages.length) {
-      pageCache.set(doc.kind, pages);
+      pageCache.set(key, pages);
       pageImages.value = pages;
     } else {
       const url = URL.createObjectURL(blob);
@@ -193,7 +212,7 @@ function backToList() {
 function onAcceptChange(checked: boolean) {
   if (!activeDoc.value || !reachedEnd.value) return;
   acceptCurrent.value = checked;
-  accepted[activeDoc.value.kind] = checked;
+  accepted[docKey(activeDoc.value)] = checked;
 }
 
 function goSign() {
@@ -290,6 +309,13 @@ onUnmounted(() => {
     :hide-close="persistent"
     @close="persistent ? undefined : emit('close')"
   >
+    <img
+      v-if="persistent && phase !== 'read'"
+      :src="isFunepet ? '/forms/funepet-domiciliacion-logo.png' : '/logo-gsm-azul.svg'"
+      :alt="isFunepet ? 'Funepet' : 'Grupo San Martín'"
+      class="sign-brand"
+      :class="{ 'sign-brand--funepet': isFunepet }"
+    />
     <div v-if="phase === 'list'" class="docs">
       <p class="docs__hint">
         El titular
@@ -298,11 +324,11 @@ onUnmounted(() => {
         Hasta entonces no se puede firmar.
       </p>
       <ul class="docs__list">
-        <li v-for="doc in signDocs" :key="doc.kind">
+        <li v-for="doc in signDocs" :key="docKey(doc)">
           <button
             type="button"
             class="docs__item"
-            :class="{ 'docs__item--done': accepted[doc.kind] }"
+            :class="{ 'docs__item--done': accepted[docKey(doc)] }"
             @click="openDocument(doc)"
           >
             <span class="docs__item-text">
@@ -311,9 +337,9 @@ onUnmounted(() => {
             </span>
             <span
               class="docs__item-status"
-              :class="{ 'docs__item-status--ok': accepted[doc.kind] }"
+              :class="{ 'docs__item-status--ok': accepted[docKey(doc)] }"
             >
-              {{ accepted[doc.kind] ? 'Aceptado' : 'Leer' }}
+              {{ accepted[docKey(doc)] ? 'Aceptado' : 'Leer' }}
             </span>
           </button>
         </li>
@@ -455,6 +481,15 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.sign-brand {
+  display: block;
+  width: min(180px, 64%);
+  height: auto;
+  margin: 0 auto 0.85rem;
+}
+.sign-brand--funepet {
+  width: min(180px, 52%);
+}
 .docs,
 .sign {
   display: flex;

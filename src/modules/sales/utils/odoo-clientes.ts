@@ -128,6 +128,42 @@ export async function listClienteActivas(
   return listClienteVentas(partnerId, 'activas');
 }
 
+/** Completa `folioSolicitud` de ventas origen que se eligieron antes de traer ese dato. */
+export async function fillOriginFolioSolicitud(
+  ventas: ReconocimientoVenta[],
+  tipoVenta?: string | null,
+): Promise<void> {
+  const missing = ventas.filter(
+    (item) => item.id > 0 && item.partnerId && !String(item.folioSolicitud ?? '').trim(),
+  );
+  if (!missing.length) return;
+  const kind = String(tipoVenta ?? '').trim().toUpperCase();
+  const load =
+    kind === 'MEJORA' || kind === 'MINORIA'
+      ? listClienteActivas
+      : listClienteSuspendidas;
+  const partnerIds = [...new Set(missing.map((item) => Number(item.partnerId)))];
+  for (const partnerId of partnerIds) {
+    if (!partnerId) continue;
+    try {
+      const data = await load(partnerId);
+      const byId = new Map(
+        [...data.titular, ...data.beneficiario].map((item) => [
+          item.id,
+          String(item.folioSolicitud ?? '').trim(),
+        ]),
+      );
+      for (const venta of missing) {
+        if (Number(venta.partnerId) !== partnerId) continue;
+        const folio = byId.get(venta.id) || '';
+        if (folio) venta.folioSolicitud = folio;
+      }
+    } catch {
+      /* la carta sigue sin el folio si el listado no responde */
+    }
+  }
+}
+
 async function listClienteVentas(
   partnerId: number,
   kind: 'suspendidas' | 'activas',

@@ -30,6 +30,8 @@ export type PlanKind = 'PARQUE' | 'PLAN_FUTURO';
 export type ReconocimientoVenta = {
   id: number;
   folio: string;
+  /** Folio de solicitud de esa venta origen (`x_studio_folio_solicitud`). */
+  folioSolicitud?: string;
   partnerId?: number;
   partnerName: string;
   dateOrder: string;
@@ -259,6 +261,8 @@ export interface SaleFormData {
     reglamentoParqueFolletoPdf: SaleAttachment | null;
     cartaAutorizacionPdf: SaleAttachment | null;
     cartaNominaPdf: SaleAttachment | null;
+    solicitudReconocimientoPdfs: SaleAttachment[];
+    cartaNoPapeleriaPdfs: SaleAttachment[];
   };
 }
 
@@ -569,6 +573,8 @@ export function createEmptySaleForm(): SaleFormData {
       reglamentoParqueFolletoPdf: null,
       cartaAutorizacionPdf: null,
       cartaNominaPdf: null,
+      solicitudReconocimientoPdfs: [],
+      cartaNoPapeleriaPdfs: [],
     },
   };
 }
@@ -840,6 +846,7 @@ export function mergeSaleForm(raw: unknown): SaleFormData {
             .map((item): ReconocimientoVenta => ({
               id: Number(item.id) || 0,
               folio: String(item.folio ?? ''),
+              folioSolicitud: String(item.folioSolicitud ?? ''),
               partnerId:
                 item.partnerId != null && Number(item.partnerId) > 0
                   ? Number(item.partnerId)
@@ -960,6 +967,8 @@ export function mergeSaleForm(raw: unknown): SaleFormData {
         src.documentos?.reglamentoParqueFolletoPdf ?? null,
       cartaAutorizacionPdf: src.documentos?.cartaAutorizacionPdf ?? null,
       cartaNominaPdf: src.documentos?.cartaNominaPdf ?? null,
+      solicitudReconocimientoPdfs: recognitionLettersFrom(src.documentos),
+      cartaNoPapeleriaPdfs: noStationeryLettersFrom(src.documentos),
     },
   };
 }
@@ -986,6 +995,32 @@ export function primaryIneAttachment(
 export function syncBeneficiariosToDerechos(form: SaleFormData) {
   const ts = form.derechohabientes?.titularSustituto ?? emptyBeneficiary();
   form.derechohabientes = syncDerechos(form.beneficiarios, ts);
+}
+
+function noStationeryLettersFrom(
+  docs?: {
+    cartaNoPapeleriaPdfs?: SaleAttachment[] | null;
+    cartaNoPapeleriaPdf?: SaleAttachment | null;
+  } | null,
+): SaleAttachment[] {
+  if (Array.isArray(docs?.cartaNoPapeleriaPdfs)) {
+    return docs.cartaNoPapeleriaPdfs.filter((item) => item?.name);
+  }
+  if (docs?.cartaNoPapeleriaPdf?.name) return [docs.cartaNoPapeleriaPdf];
+  return [];
+}
+
+function recognitionLettersFrom(
+  docs?: {
+    solicitudReconocimientoPdfs?: SaleAttachment[] | null;
+    solicitudReconocimientoPdf?: SaleAttachment | null;
+  } | null,
+): SaleAttachment[] {
+  if (Array.isArray(docs?.solicitudReconocimientoPdfs)) {
+    return docs.solicitudReconocimientoPdfs.filter((item) => item?.name);
+  }
+  if (docs?.solicitudReconocimientoPdf?.name) return [docs.solicitudReconocimientoPdf];
+  return [];
 }
 
 function pickAttachment(att: SaleAttachment | null | undefined): SaleAttachment | null {
@@ -1034,6 +1069,7 @@ export function toUpsertSaleBody(form: SaleFormData): {
       reconocimientoVentas: form.meta.reconocimientoVentas.map((item) => ({
         id: item.id,
         folio: item.folio,
+        folioSolicitud: item.folioSolicitud,
         partnerId: item.partnerId,
         partnerName: item.partnerName,
         dateOrder: item.dateOrder,
@@ -1164,6 +1200,14 @@ export function toUpsertSaleBody(form: SaleFormData): {
       reglamentoParqueFolletoPdf: pickAttachment(docs.reglamentoParqueFolletoPdf),
       cartaAutorizacionPdf: pickAttachment(docs.cartaAutorizacionPdf),
       cartaNominaPdf: pickAttachment(docs.cartaNominaPdf),
+      solicitudReconocimientoPdfs: recognitionLettersFrom(docs).flatMap((item) => {
+        const picked = pickAttachment(item);
+        return picked ? [picked] : [];
+      }),
+      cartaNoPapeleriaPdfs: noStationeryLettersFrom(docs).flatMap((item) => {
+        const picked = pickAttachment(item);
+        return picked ? [picked] : [];
+      }),
     },
   };
   return {

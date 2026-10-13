@@ -41,6 +41,8 @@ const bancoOtro = ref('');
 const comprobanteTransferencia = ref<SaleAttachment | null>(null);
 const transferFileError = ref<string | null>(null);
 const transferInput = ref<HTMLInputElement | null>(null);
+/** Evita borrar el comprobante de esta venta mientras se rellenan los datos al abrir. */
+let hydratingPayment = false;
 
 const showBancoOtro = computed(() => isOtherBank(bancoChoice.value));
 
@@ -116,13 +118,24 @@ const cambioInsufficient = computed(() => {
   return received > 0 && received + 0.001 < amountDue.value;
 });
 
+function clearTransferFile() {
+  comprobanteTransferencia.value = null;
+  transferFileError.value = null;
+  if (transferInput.value) transferInput.value.value = '';
+}
+
 watch(
   () => props.open,
   (open) => {
-    if (!open) return;
+    if (!open) {
+      clearTransferFile();
+      return;
+    }
+    hydratingPayment = true;
     comprobanteTransferencia.value =
       props.form.documentos.comprobanteTransferencia ?? null;
     transferFileError.value = null;
+    if (transferInput.value) transferInput.value.value = '';
     const src = props.form.pago;
     const merged = src.precioPlan?.trim()
       ? { ...src }
@@ -159,6 +172,7 @@ watch(
       bancoChoice.value = BANK_OTHER;
       bancoOtro.value = bank;
     }
+    hydratingPayment = false;
   },
 );
 
@@ -166,6 +180,7 @@ watch(
   () => pago.formaPago,
   (method) => {
     const forma = String(method || '').trim().toUpperCase();
+    if (!hydratingPayment) clearTransferFile();
     if (forma === 'EFECTIVO') {
       pago.cuenta = '';
       pago.banco = '';
@@ -178,11 +193,8 @@ watch(
     if (forma === 'CHEQUE') {
       pago.cuenta = '';
     }
-    if (forma !== 'TRANSFERENCIA' && forma !== 'EFECTIVO') {
-      comprobanteTransferencia.value = null;
-      transferFileError.value = null;
-    }
   },
+  { flush: 'sync' },
 );
 
 function fileKindLabel(mime?: string) {
@@ -206,12 +218,6 @@ async function onTransferFile(ev: Event) {
   } finally {
     input.value = '';
   }
-}
-
-function clearTransferFile() {
-  comprobanteTransferencia.value = null;
-  transferFileError.value = null;
-  if (transferInput.value) transferInput.value.value = '';
 }
 
 function resolveBanco() {

@@ -27,6 +27,14 @@ import {
   isDraftParkRegulation,
 } from '../utils/park-regulation-pdf';
 import { buildParkRegulationBookletBundle } from '../utils/park-regulation-booklet-pdf';
+import {
+  buildRecognitionBalanceBundle,
+  isDraftRecognitionBalance,
+} from '../utils/recognition-balance-pdf';
+import {
+  buildNoStationeryBundle,
+  isDraftNoStationery,
+} from '../utils/no-stationery-pdf';
 import { buildFunepetCaratulaBundle } from '../utils/funepet-caratula-pdf';
 import { buildSalePreviewBundle, isDraftCaratula } from '../utils/sale-pdf';
 import { parseSaleKind } from '../constants/sale-kinds';
@@ -39,6 +47,7 @@ const props = withDefaults(
     form: SaleFormData;
     saleId?: number | null;
     status?: string;
+    originId?: number | null;
     kind?:
       | 'caratula'
       | 'cartaFactura'
@@ -48,10 +57,12 @@ const props = withDefaults(
       | 'reglamentoParqueFolleto'
       | 'cartaAutorizacion'
       | 'cartaNomina'
+      | 'solicitudReconocimiento'
+      | 'cartaNoPapeleria'
       | 'tarjeta'
       | 'ine';
   }>(),
-  { kind: 'caratula' },
+  { kind: 'caratula', originId: null },
 );
 
 const emit = defineEmits<{ close: [] }>();
@@ -75,6 +86,8 @@ const isReglamentoFolleto = computed(
 );
 const isAuth = computed(() => props.kind === 'cartaAutorizacion');
 const isNomina = computed(() => props.kind === 'cartaNomina');
+const isReconocimiento = computed(() => props.kind === 'solicitudReconocimiento');
+const isNoPapeleria = computed(() => props.kind === 'cartaNoPapeleria');
 const isTarjeta = computed(() => props.kind === 'tarjeta');
 const isIne = computed(() => props.kind === 'ine');
 const isDraft = computed(() => {
@@ -86,6 +99,8 @@ const isDraft = computed(() => {
     return isDraftParkRegulation(props.form, opts);
   }
   if (isExclusiones.value) return isDraftExclusionesLetter(props.form, opts);
+  if (isReconocimiento.value) return isDraftRecognitionBalance(props.form, opts);
+  if (isNoPapeleria.value) return isDraftNoStationery(props.form, opts);
   if (isNoFactura.value) return isDraftNoInvoiceConsent(props.form, opts);
   if (isCarta.value) return isDraftInvoiceLetter(props.form, opts);
   return isDraftCaratula(props.form, opts);
@@ -114,6 +129,24 @@ const modalTitle = computed(() => {
     return isDraft.value
       ? 'Reglamento de parque (borrador)'
       : 'Reglamento de parque';
+  }
+  if (isReconocimiento.value) {
+    const folio =
+      props.form.meta.reconocimientoVentas.find((item) => item.id === props.originId)
+        ?.folio || '';
+    const base = folio
+      ? `Solicitud de reconocimiento · ${folio}`
+      : 'Solicitud de reconocimiento de saldo';
+    return isDraft.value ? `${base} (borrador)` : base;
+  }
+  if (isNoPapeleria.value) {
+    const folio =
+      props.form.meta.reconocimientoVentas.find((item) => item.id === props.originId)
+        ?.folio || '';
+    const base = folio
+      ? `Carta de no papelería · ${folio}`
+      : 'Carta de no papelería';
+    return isDraft.value ? `${base} (borrador)` : base;
   }
   if (isExclusiones.value) {
     const funepet = parseSaleKind(props.form.meta.tipoVenta) === 'FUNEPET';
@@ -163,6 +196,24 @@ const downloadName = computed(() => {
       ? 'reglamento-parque-borrador.pdf'
       : 'reglamento-parque.pdf';
   }
+  if (isReconocimiento.value) {
+    const folio = (
+      props.form.meta.reconocimientoVentas.find((item) => item.id === props.originId)
+        ?.folio || 'saldo'
+    ).replace(/[^\w.-]+/g, '-');
+    return isDraft.value
+      ? `solicitud-reconocimiento-${folio}-borrador.pdf`
+      : `solicitud-reconocimiento-${folio}.pdf`;
+  }
+  if (isNoPapeleria.value) {
+    const folio = (
+      props.form.meta.reconocimientoVentas.find((item) => item.id === props.originId)
+        ?.folio || 'contrato'
+    ).replace(/[^\w.-]+/g, '-');
+    return isDraft.value
+      ? `carta-no-papeleria-${folio}-borrador.pdf`
+      : `carta-no-papeleria-${folio}.pdf`;
+  }
   if (isExclusiones.value) {
     const funepet = parseSaleKind(props.form.meta.tipoVenta) === 'FUNEPET';
     if (funepet) {
@@ -190,7 +241,7 @@ const generatingLabel = computed(() => {
   if (isTarjeta.value) return 'Armando PDF de la tarjeta…';
   if (isIne.value) return 'Armando PDF de la INE…';
   if (isReglamentoFolleto.value) return 'Generando folleto…';
-  if (isAuth.value || isNomina.value || isCarta.value || isNoFactura.value || isReglamento.value || isExclusiones.value) {
+  if (isAuth.value || isNomina.value || isCarta.value || isNoFactura.value || isReglamento.value || isExclusiones.value || isReconocimiento.value || isNoPapeleria.value) {
     return 'Generando carta…';
   }
   return 'Generando carátula…';
@@ -209,7 +260,11 @@ async function render() {
   }
 
   try {
-    const opts = { saleId: props.saleId, status: props.status };
+    const opts = {
+      saleId: props.saleId,
+      status: props.status,
+      originId: props.originId,
+    };
     if (isTarjeta.value) {
       const frente = props.form.documentos.tarjetaFrente;
       const reverso = props.form.documentos.tarjetaReverso;
@@ -244,6 +299,10 @@ async function render() {
           ? await buildParkRegulationBundle(props.form, opts)
           : isExclusiones.value
             ? await buildExclusionesLetterBundle(props.form, opts)
+            : isReconocimiento.value
+              ? await buildRecognitionBalanceBundle(props.form, opts)
+            : isNoPapeleria.value
+              ? await buildNoStationeryBundle(props.form, opts)
             : isNoFactura.value
               ? await buildNoInvoiceConsentBundle(props.form, opts)
               : isCarta.value
@@ -277,6 +336,10 @@ async function render() {
             ? parseSaleKind(props.form.meta.tipoVenta) === 'FUNEPET'
               ? 'No se pudieron generar las exclusiones contractuales.'
               : 'No se pudo generar la carta de aceptación de exclusiones.'
+            : isReconocimiento.value
+              ? 'No se pudo generar la solicitud de reconocimiento de saldo.'
+            : isNoPapeleria.value
+              ? 'No se pudo generar la carta de no papelería.'
             : isNoFactura.value
             ? 'No se pudo generar el consentimiento de no factura.'
             : isCarta.value
@@ -292,6 +355,7 @@ watch(
     [
       props.open,
       props.kind,
+      props.originId,
       props.form.pago.empresaNominaId,
       props.form.pago.empresaNomina,
     ] as const,

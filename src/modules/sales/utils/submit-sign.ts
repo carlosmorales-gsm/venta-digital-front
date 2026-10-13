@@ -14,6 +14,14 @@ import { buildParkRegulationBookletPdf } from './park-regulation-booklet-pdf';
 import { buildParkRegulationPdf } from './park-regulation-pdf';
 import { normalizeTipoCobranza } from './payment-method';
 import { buildFunepetCaratulaBundle } from './funepet-caratula-pdf';
+import {
+  buildRecognitionBalancePdf,
+  saleUsesRecognitionLetter,
+} from './recognition-balance-pdf';
+import {
+  buildNoStationeryPdf,
+  saleUsesNoStationery,
+} from './no-stationery-pdf';
 import { buildSalePreviewPdf } from './sale-pdf';
 
 export type SignSaleRequestBody = {
@@ -26,6 +34,8 @@ export type SignSaleRequestBody = {
   reglamentoParqueFolletoPdf?: SaleAttachment;
   cartaAutorizacionPdf?: SaleAttachment;
   cartaNominaPdf?: SaleAttachment;
+  solicitudReconocimientoPdfs?: SaleAttachment[];
+  cartaNoPapeleriaPdfs?: SaleAttachment[];
   tarjetaPdf?: SaleAttachment;
   inePdf?: SaleAttachment;
 };
@@ -77,7 +87,7 @@ export async function buildSignSaleRequest(
     console.warn('No se pudo generar carátula para Drive', pdfErr);
   }
 
-  if (!funepet && formForPdf.contacto.factura === 'SI') {
+  if (formForPdf.contacto.factura === 'SI') {
     try {
       const letter = await buildInvoiceLetterPdf(formForPdf, opts);
       body.cartaFacturaPdf = {
@@ -113,7 +123,7 @@ export async function buildSignSaleRequest(
   } catch (pdfErr) {
     console.warn('No se pudo generar carta de exclusiones', pdfErr);
   }
-  if (!funepet && formForPdf.ubicacionPlan.planKind === 'PARQUE') {
+  if (formForPdf.ubicacionPlan.planKind === 'PARQUE') {
     try {
       const letter = await buildParkRegulationPdf(formForPdf, opts);
       body.reglamentoParquePdf = {
@@ -136,7 +146,6 @@ export async function buildSignSaleRequest(
     }
   }
   if (
-    !funepet &&
     normalizeTipoCobranza(formForPdf.contacto.tipoCobranza) === 'NOMINA' &&
     formForPdf.pago.empresaNominaId
   ) {
@@ -151,6 +160,52 @@ export async function buildSignSaleRequest(
       console.warn('No se pudo generar carta de nómina para Drive', pdfErr);
     }
   }
+  if (saleUsesRecognitionLetter(formForPdf)) {
+    const letters: SaleAttachment[] = [];
+    for (const venta of formForPdf.meta.reconocimientoVentas ?? []) {
+      try {
+        const letter = await buildRecognitionBalancePdf(formForPdf, {
+          ...opts,
+          originId: venta.id,
+        });
+        const folio = (venta.folio || String(venta.id)).replace(/[^\w.-]+/g, '-');
+        letters.push({
+          name: `solicitud-reconocimiento-saldo_venta-${saleId}-${folio}.pdf`,
+          mime: 'application/pdf',
+          dataBase64: await blobToBase64(letter),
+        });
+      } catch (pdfErr) {
+        console.warn(
+          `No se pudo generar la solicitud de reconocimiento ${venta.folio || venta.id}`,
+          pdfErr,
+        );
+      }
+    }
+    if (letters.length) body.solicitudReconocimientoPdfs = letters;
+  }
+  if (saleUsesNoStationery(formForPdf)) {
+    const letters: SaleAttachment[] = [];
+    for (const venta of formForPdf.meta.reconocimientoVentas ?? []) {
+      try {
+        const letter = await buildNoStationeryPdf(formForPdf, {
+          ...opts,
+          originId: venta.id,
+        });
+        const folio = (venta.folio || String(venta.id)).replace(/[^\w.-]+/g, '-');
+        letters.push({
+          name: `carta-no-papeleria_venta-${saleId}-${folio}.pdf`,
+          mime: 'application/pdf',
+          dataBase64: await blobToBase64(letter),
+        });
+      } catch (pdfErr) {
+        console.warn(
+          `No se pudo generar la carta de no papelería ${venta.folio || venta.id}`,
+          pdfErr,
+        );
+      }
+    }
+    if (letters.length) body.cartaNoPapeleriaPdfs = letters;
+  }
   if (normalizeTipoCobranza(formForPdf.contacto.tipoCobranza) === 'DOMICILIADO') {
     try {
       const authLetter = await buildAuthorizationLetterPdf(formForPdf, opts);
@@ -164,9 +219,8 @@ export async function buildSignSaleRequest(
     }
   }
   if (
-    !funepet &&
-    (normalizeTipoCobranza(formForPdf.contacto.tipoCobranza) === 'DOMICILIADO' ||
-      isUasConvenio(formForPdf))
+    normalizeTipoCobranza(formForPdf.contacto.tipoCobranza) === 'DOMICILIADO' ||
+    isUasConvenio(formForPdf)
   ) {
     const frente = formForPdf.documentos.tarjetaFrente;
     const reverso = formForPdf.documentos.tarjetaReverso;
