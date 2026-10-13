@@ -4,6 +4,7 @@ import {
   FISCAL_REGIMEN_OTRO,
   FISCAL_REGIMEN_OTROS,
 } from '../constants/fiscal-regimes';
+import { parseSaleKind } from '../constants/sale-kinds';
 import { documentContractFolio, fullName, isSignedSaleStatus, type SaleFormData } from '../types/sale-form';
 
 const PAGE_W = 612.28;
@@ -15,7 +16,39 @@ const MUTED: [number, number, number] = [70, 74, 80];
 const LINE: [number, number, number] = [40, 42, 46];
 const LOGO: [number, number, number] = [74, 84, 94];
 const HEADER_H = 62;
-const CONTENT_W = PAGE_W - ML - MR;
+
+type LetterLayout = {
+  pageW: number;
+  pageH: number;
+  ml: number;
+  mr: number;
+  /** Desplaza el formato debajo del membrete Funepet. */
+  y0: number;
+  funepet: boolean;
+};
+
+const GSM_LAYOUT: LetterLayout = {
+  pageW: PAGE_W,
+  pageH: PAGE_H,
+  ml: ML,
+  mr: MR,
+  y0: 0,
+  funepet: false,
+};
+
+/** Misma proporción que el membrete Funepet (1436×2048). */
+const FUNEPET_LAYOUT: LetterLayout = {
+  pageW: 595.28,
+  pageH: 849.05,
+  ml: 46,
+  mr: 46,
+  y0: 176,
+  funepet: true,
+};
+
+function contentW(layout: LetterLayout) {
+  return layout.pageW - layout.ml - layout.mr;
+}
 
 type LogoAsset = { dataUrl: string; width: number; height: number };
 
@@ -51,41 +84,70 @@ function loadHeaderLogo(): Promise<LogoAsset | null> {
   });
 }
 
-function drawOfficialHeader(doc: Doc, logo: LogoAsset | null) {
-  if (logo) {
-    const logoH = 34;
-    const logoW = (logo.width / logo.height) * logoH;
-    doc.addImage(logo.dataUrl, 'PNG', ML, 14, logoW, logoH);
-  } else {
-    doc.setFont('times', 'bold');
-    doc.setFontSize(12);
-    setInk(doc, LOGO);
-    doc.text('SAN MARTÍN', ML, 28);
-    doc.setFont('times', 'normal');
-    doc.setFontSize(5.5);
-    doc.setTextColor(120, 128, 136);
-    doc.text('TU VIDA, UN LEGADO', ML, 37);
+function loadFunepetFondo(): Promise<string | null> {
+  return fetch('/forms/funepet-no-factura-fondo.jpg')
+    .then(async (res) => {
+      if (!res.ok) return null;
+      const blob = await res.blob();
+      return await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(blob);
+      });
+    })
+    .catch(() => null);
+}
+
+function drawOfficialHeader(
+  doc: Doc,
+  logo: LogoAsset | null,
+  layout: LetterLayout,
+) {
+  const y0 = layout.y0;
+  if (!layout.funepet) {
+    if (logo) {
+      const logoH = 34;
+      const logoW = (logo.width / logo.height) * logoH;
+      doc.addImage(logo.dataUrl, 'PNG', layout.ml, 14, logoW, logoH);
+    } else {
+      doc.setFont('times', 'bold');
+      doc.setFontSize(12);
+      setInk(doc, LOGO);
+      doc.text('SAN MARTÍN', layout.ml, 28);
+      doc.setFont('times', 'normal');
+      doc.setFontSize(5.5);
+      doc.setTextColor(120, 128, 136);
+      doc.text('TU VIDA, UN LEGADO', layout.ml, 37);
+    }
   }
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
   setInk(doc);
-  doc.text('FORMATO', PAGE_W / 2, 26, { align: 'center' });
+  doc.text('FORMATO', layout.pageW / 2, 26 + y0, { align: 'center' });
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
-  doc.text('CARTA DE REQUERIMIENTO DE FACTURA', PAGE_W / 2, 41, {
+  doc.text('CARTA DE REQUERIMIENTO DE FACTURA', layout.pageW / 2, 41 + y0, {
     align: 'center',
   });
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
   setInk(doc);
-  doc.text('FOR-GSM-CMR-05', PAGE_W - MR, 26, { align: 'right' });
-  doc.text('V.001', PAGE_W - MR, 41, { align: 'right' });
+  doc.text('FOR-GSM-CMR-05', layout.pageW - layout.mr, 26 + y0, {
+    align: 'right',
+  });
+  doc.text('V.001', layout.pageW - layout.mr, 41 + y0, { align: 'right' });
 
   doc.setDrawColor(...LINE);
   doc.setLineWidth(0.6);
-  doc.line(ML, HEADER_H - 2, PAGE_W - MR, HEADER_H - 2);
+  doc.line(
+    layout.ml,
+    HEADER_H - 2 + y0,
+    layout.pageW - layout.mr,
+    HEADER_H - 2 + y0,
+  );
 }
 
 const MONTHS = [
@@ -158,14 +220,15 @@ function labeledLine(
   label: string,
   value: string,
   y: number,
-  lineW = 220,
+  lineW: number,
+  ml: number,
 ) {
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(10);
   setInk(doc);
-  doc.text(label, ML, y);
+  doc.text(label, ml, y);
   const labelW = doc.getTextWidth(label);
-  blankLine(doc, ML + labelW + 8, y, lineW, value);
+  blankLine(doc, ml + labelW + 8, y, lineW, value);
 }
 
 export function isDraftInvoiceLetter(
@@ -177,15 +240,15 @@ export function isDraftInvoiceLetter(
   return !form.documentos?.firmaCliente?.dataBase64?.trim();
 }
 
-function drawDraftWatermark(doc: Doc) {
-  const ys = [PAGE_H * 0.22, PAGE_H * 0.48, PAGE_H * 0.74];
+function drawDraftWatermark(doc: Doc, layout: LetterLayout) {
+  const ys = [layout.pageH * 0.22, layout.pageH * 0.48, layout.pageH * 0.74];
   doc.saveGraphicsState();
   doc.setGState(new GState({ opacity: 0.11 }));
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(72);
   doc.setTextColor(130, 138, 146);
   for (const y of ys) {
-    doc.text('BORRADOR', PAGE_W / 2, y, {
+    doc.text('BORRADOR', layout.pageW / 2, y, {
       align: 'center',
       baseline: 'middle',
       angle: 32,
@@ -210,12 +273,16 @@ function otroRegimenLabel(form: SaleFormData): string {
   return v(form.contacto.regimenFiscalOtro);
 }
 
-function drawDateLine(doc: Doc, date: { day: string; month: string; year: string }) {
-  const y = 88;
+function drawDateLine(
+  doc: Doc,
+  date: { day: string; month: string; year: string },
+  layout: LetterLayout,
+) {
+  const y = 88 + layout.y0;
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(11);
   setInk(doc);
-  const end = PAGE_W - MR;
+  const end = layout.pageW - layout.mr;
   const yearW = 48;
   const monthW = 132;
   const dayW = 32;
@@ -253,75 +320,81 @@ function drawDateLine(doc: Doc, date: { day: string; month: string; year: string
   doc.text(city, x, y);
 }
 
-function drawFolio(doc: Doc, folio: string) {
+function drawFolio(doc: Doc, folio: string, layout: LetterLayout) {
+  const y = 74 + layout.y0;
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9);
   setInk(doc);
-  doc.text('FOLIO:', ML, 74);
-  if (folio) doc.text(folio, 100, 74);
+  doc.text('FOLIO:', layout.ml, y);
+  if (folio) doc.text(folio, layout.ml + 46, y);
 }
 
 function drawLetter(
   doc: Doc,
   form: SaleFormData,
   logo: LogoAsset | null,
-  opts?: InvoiceLetterOpts,
+  opts: InvoiceLetterOpts | undefined,
+  layout: LetterLayout,
 ) {
   const c = form.contacto;
   const date = parseDate(form.meta.fecha);
   const tipo = v(c.tipoPersona).toUpperCase();
   const code = regimenCode(form);
+  const ml = layout.ml;
+  const width = contentW(layout);
+  const compact = layout.funepet;
 
-  drawOfficialHeader(doc, logo);
+  drawOfficialHeader(doc, logo, layout);
   drawFolio(
     doc,
     documentContractFolio(form.meta.contrato, form.meta.folioSolicitud, opts?.saleId),
+    layout,
   );
-  drawDateLine(doc, date);
+  drawDateLine(doc, date, layout);
 
-  let y = 128;
+  let y = 128 + layout.y0;
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(10);
   setInk(doc);
-  doc.text('TIPO DE PERSONA :', ML, y);
+  doc.text('TIPO DE PERSONA :', ml, y);
   y += 16;
-  checkBox(doc, tipo === 'FISICA', ML, y, 'FISICA');
+  checkBox(doc, tipo === 'FISICA', ml, y, 'FISICA');
   y += 18;
-  checkBox(doc, tipo === 'MORAL', ML, y, 'MORAL');
+  checkBox(doc, tipo === 'MORAL', ml, y, 'MORAL');
 
-  y += 32;
+  y += compact ? 22 : 32;
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(10);
   setInk(doc);
-  doc.text('RAZÓN SOCIAL:', ML, y);
+  doc.text('RAZÓN SOCIAL:', ml, y);
   y += 13;
   doc.setFont('helvetica', 'italic');
   doc.setFontSize(8);
   doc.setTextColor(...MUTED);
   doc.text(
     'Escríbela tal cual estás registrado en el SAT incluyendo espacios y puntos, excluyendo el régimen capital.',
-    ML,
+    ml,
     y,
-    { maxWidth: CONTENT_W },
+    { maxWidth: width },
   );
-  y += 22;
-  blankLine(doc, ML, y, CONTENT_W, v(c.razonSocial).toUpperCase());
+  y += compact ? 16 : 22;
+  blankLine(doc, ml, y, width, v(c.razonSocial).toUpperCase());
 
-  y += 36;
-  labeledLine(doc, 'RFC:', v(c.rfc).toUpperCase(), y, 160);
+  y += compact ? 26 : 36;
+  labeledLine(doc, 'RFC:', v(c.rfc).toUpperCase(), y, 160, ml);
 
-  y += 32;
-  labeledLine(doc, 'CÓDIGO POSTAL:', v(c.facturaCp || c.cp), y, 90);
+  y += compact ? 24 : 32;
+  labeledLine(doc, 'CÓDIGO POSTAL:', v(c.facturaCp || c.cp), y, 90, ml);
 
-  y += 36;
+  y += compact ? 26 : 36;
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(10);
   setInk(doc);
-  doc.text('REGIMEN FISCAL:', ML, y);
-  y += 18;
+  doc.text('REGIMEN FISCAL:', ml, y);
+  y += compact ? 16 : 18;
   for (const item of FISCAL_REGIMEN_CARTA) {
-    checkBox(doc, code === item.value, ML, y, item.label);
-    y += 18;
+    checkBox(doc, code === item.value, ml, y, item.label);
+    y += compact ? 16 : 18;
   }
   const otroOn =
     Boolean(code) && !FISCAL_REGIMEN_CARTA.some((r) => r.value === code);
@@ -329,43 +402,44 @@ function drawLetter(
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(10);
   setInk(doc);
-  doc.text('OTRO:', ML, y);
-  blankLine(doc, ML + 40, y, 220, otroOn ? otroRegimenLabel(form) : '');
+  doc.text('OTRO:', ml, y);
+  blankLine(doc, ml + 40, y, 220, otroOn ? otroRegimenLabel(form) : '');
 
-  y += 36;
+  y += compact ? 26 : 36;
   labeledLine(
     doc,
     'TELÉFONO DE CONTACTO:',
     v(c.telefonoFactura || c.celular1),
     y,
-    260,
+    compact ? 200 : 260,
+    ml,
   );
 
-  y += 40;
+  y += compact ? 28 : 40;
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8.5);
   setInk(doc);
   doc.text(
     '*CONSTANCIA DE SITUACIÓN FISCAL; NO ES OBLIGATORIA SOLO PARA CORROBORAR TUS DATOS.',
-    ML,
+    ml,
     y,
-    { maxWidth: CONTENT_W },
+    { maxWidth: width },
   );
 
-  y += 52;
+  y += compact ? 36 : 52;
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11);
   setInk(doc);
-  doc.text('ATENTAMENTE.', PAGE_W / 2, y, { align: 'center' });
+  doc.text('ATENTAMENTE.', layout.pageW / 2, y, { align: 'center' });
 
   const firma = form.documentos.firmaCliente;
-  const lineY = y + 70;
+  const lineY = y + (layout.funepet ? 56 : 70);
   if (firma?.dataBase64?.trim()) {
     const dataUrl = firma.dataBase64.startsWith('data:')
       ? firma.dataBase64
       : `data:${firma.mime || 'image/png'};base64,${firma.dataBase64}`;
     try {
-      doc.addImage(dataUrl, 'PNG', PAGE_W / 2 - 70, y + 14, 140, 42);
+      doc.addImage(dataUrl, 'PNG', layout.pageW / 2 - 70, y + 14, 140, 42);
     } catch {
       /* ignore */
     }
@@ -376,31 +450,39 @@ function drawLetter(
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(10);
     setInk(doc);
-    doc.text(signer, PAGE_W / 2, lineY - 4, { align: 'center' });
+    doc.text(signer, layout.pageW / 2, lineY - 4, { align: 'center' });
   }
 
   doc.setDrawColor(...LINE);
   doc.setLineWidth(0.55);
-  doc.line(PAGE_W / 2 - 150, lineY, PAGE_W / 2 + 150, lineY);
+  doc.line(layout.pageW / 2 - 150, lineY, layout.pageW / 2 + 150, lineY);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(10);
   setInk(doc);
-  doc.text('Nombre y Firma.', PAGE_W / 2, lineY + 16, { align: 'center' });
+  doc.text('Nombre y Firma.', layout.pageW / 2, lineY + 16, { align: 'center' });
 }
 
 export async function buildInvoiceLetterPdf(
   form: SaleFormData,
   opts?: InvoiceLetterOpts,
 ): Promise<Blob> {
+  const funepet = parseSaleKind(form.meta.tipoVenta) === 'FUNEPET';
+  const layout = funepet ? FUNEPET_LAYOUT : GSM_LAYOUT;
   const doc = new jsPDF({
     unit: 'pt',
-    format: [PAGE_W, PAGE_H],
+    format: [layout.pageW, layout.pageH],
     compress: true,
   });
-  const logo = await loadHeaderLogo();
-  drawLetter(doc, form, logo, opts);
+  if (funepet) {
+    const fondo = await loadFunepetFondo();
+    if (fondo) {
+      doc.addImage(fondo, 'JPEG', 0, 0, layout.pageW, layout.pageH, undefined, 'FAST');
+    }
+  }
+  const logo = funepet ? null : await loadHeaderLogo();
+  drawLetter(doc, form, logo, opts, layout);
   if (isDraftInvoiceLetter(form, opts)) {
-    drawDraftWatermark(doc);
+    drawDraftWatermark(doc, layout);
   }
   return doc.output('blob');
 }

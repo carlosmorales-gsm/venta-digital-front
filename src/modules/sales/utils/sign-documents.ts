@@ -80,7 +80,7 @@ export function listSignDocuments(form: SaleFormData): SignDocument[] {
       docs.push({
         kind: 'cartaFactura',
         title: 'Carta de requerimiento de factura',
-        hint: 'Datos fiscales para facturar',
+        hint: 'Datos fiscales para facturar · Funepet',
       });
     }
     return docs;
