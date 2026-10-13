@@ -96,9 +96,14 @@ export function isImageAttachment(att: SaleAttachment): boolean {
   return /\.(jpe?g|png|gif|webp|bmp)$/i.test(att.name);
 }
 
+type SingleAttachmentKind = Exclude<
+  AttachmentKind,
+  'solicitudReconocimientoPdf' | 'cartaNoPapeleriaPdf'
+>;
+
 export function listSaleAttachments(form: SaleFormData): AttachmentListItem[] {
   const docs = form.documentos;
-  const keys: AttachmentKind[] = [
+  const keys: SingleAttachmentKind[] = [
     'caratulaPdf',
     'cartaFacturaPdf',
     'cartaNoFacturaPdf',

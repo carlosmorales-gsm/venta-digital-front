@@ -2465,10 +2465,15 @@ async function applyDevPrefill() {
       anterior,
       reconocimientoVentas,
     } = form.meta;
-    const meta = { ...mock.meta };
-    delete meta.tipoVenta;
-    delete meta.anterior;
-    delete meta.reconocimientoVentas;
+    const {
+      tipoVenta: mockTipoVenta,
+      anterior: mockAnterior,
+      reconocimientoVentas: mockVentas,
+      ...meta
+    } = mock.meta;
+    void mockTipoVenta;
+    void mockAnterior;
+    void mockVentas;
     Object.assign(form.meta, meta);
     form.meta.contrato = contrato;
     form.meta.tipoVenta = tipoVenta;
