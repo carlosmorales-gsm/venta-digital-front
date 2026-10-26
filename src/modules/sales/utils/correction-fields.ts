@@ -26,6 +26,8 @@ const field = (
   kind: 'field',
 });
 
+export const PLAN_CORRECTION_KEY = 'ubicacionPlan.corregirPlan';
+
 const doc = (
   key: string,
   label: string,
@@ -102,6 +104,8 @@ export const CORRECTION_FIELDS: CorrectionFieldDef[] = [
   field('segundo', '2.º contacto', 'segundoContacto.colonia', 'Colonia'),
   field('segundo', '2.º contacto', 'segundoContacto.cp', 'C.P.'),
 
+  field('plan', 'Plan y financiamiento', 'pago.fechaProximoPago', 'Fecha de primer pago'),
+  field('plan', 'Plan y financiamiento', PLAN_CORRECTION_KEY, 'Corregir plan'),
   field('plan', 'Plan', 'ubicacionPlan.nombrePlan', 'Plan'),
   field('plan', 'Plan', 'ubicacionPlan.parqueFuneral', 'Parque'),
   field('plan', 'Plan', 'ubicacionPlan.seccion', 'Sección'),

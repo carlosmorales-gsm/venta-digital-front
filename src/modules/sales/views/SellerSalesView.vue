@@ -67,6 +67,7 @@ const router = useRouter();
 const route = useRoute();
 const auth = useAuthStore();
 const { alert, confirm } = useDialog();
+const syncingId = ref<number | null>(null);
 
 const loading = ref(true);
 const data = ref<SalesResponse | null>(null);
@@ -151,6 +152,35 @@ function matchesSaleFilters(item: SaleListItem): boolean {
     }
   }
   return matchesClient(item);
+}
+
+function canSyncSale(item: SaleListItem): boolean {
+  return (
+    auth.isImpersonating &&
+    item.status !== 'DRAFT' &&
+    item.status !== 'REJECTED'
+  );
+}
+
+async function syncSale(item: SaleListItem) {
+  if (syncingId.value) return;
+  syncingId.value = item.id;
+  try {
+    await http.post(`/sales/${item.id}/sync`, {}, { skipGlobalLoading: true });
+    await alert({
+      title: 'Venta sincronizada',
+      message: `La venta #${item.id} ya está en el expediente de Odoo.`,
+      variant: 'success',
+    });
+  } catch (e: unknown) {
+    await alert({
+      title: 'No se sincronizó',
+      message: extractApiError(e, 'No se pudo sincronizar la venta'),
+      variant: 'danger',
+    });
+  } finally {
+    syncingId.value = null;
+  }
 }
 
 function isExpiredDraft(item: SaleListItem): boolean {
@@ -1171,6 +1201,15 @@ async function removeDraft(id: number) {
               </div>
               <div class="sale-card__actions">
                 <button
+                  v-if="canSyncSale(item)"
+                  type="button"
+                  class="btn btn-ghost btn-sm sync-btn"
+                  :disabled="syncingId === item.id"
+                  @click="syncSale(item)"
+                >
+                  {{ syncingId === item.id ? 'Sincronizando…' : 'Sincronizar' }}
+                </button>
+                <button
                   type="button"
                   class="icon-btn"
                   title="Archivos anexados"
@@ -1627,6 +1666,10 @@ async function removeDraft(id: number) {
   align-items: center;
   gap: 0.35rem;
   flex-shrink: 0;
+}
+
+.sync-btn {
+  white-space: nowrap;
 }
 
 .status-badge {

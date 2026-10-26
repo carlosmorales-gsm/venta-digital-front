@@ -55,23 +55,34 @@ async function blobToBase64(blob: Blob): Promise<string> {
 export async function buildSignSaleRequest(
   form: SaleFormData,
   saleId: number,
-  dataUrl: string,
+  dataUrl?: string | null,
 ): Promise<{ body: SignSaleRequestBody; hasCaratula: boolean }> {
-  const base64 = dataUrl.includes(',') ? dataUrl.split(',')[1]! : dataUrl;
-  const firmaCliente: SaleAttachment = {
-    name: 'firma-cliente.png',
-    mime: 'image/png',
-    dataBase64: base64,
-  };
-  const formForPdf = mergeSaleForm({
-    ...form,
-    documentos: {
-      ...form.documentos,
-      firmaCliente,
-    },
-  });
+  const rawUrl = (dataUrl || '').trim();
+  const base64 = rawUrl.includes(',') ? rawUrl.split(',')[1]! : rawUrl;
+  const firmaCliente: SaleAttachment | null = base64
+    ? {
+        name: 'firma-cliente.png',
+        mime: 'image/png',
+        dataBase64: base64,
+      }
+    : form.documentos.firmaCliente;
+  const formForPdf = firmaCliente
+    ? mergeSaleForm({
+        ...form,
+        documentos: {
+          ...form.documentos,
+          firmaCliente,
+        },
+      })
+    : form;
   const opts = { saleId, status: 'COMPLETED' };
-  const body: SignSaleRequestBody = { firmaCliente };
+  const body: SignSaleRequestBody = {
+    firmaCliente: firmaCliente ?? {
+      name: 'firma-cliente.png',
+      mime: 'image/png',
+      dataBase64: '',
+    },
+  };
   const funepet = parseSaleKind(formForPdf.meta.tipoVenta) === 'FUNEPET';
 
   try {
