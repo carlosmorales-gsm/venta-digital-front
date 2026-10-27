@@ -35,7 +35,7 @@ interface SalesResponse {
   message: string;
 }
 
-const { alert } = useDialog();
+const { alert, confirm } = useDialog();
 
 const loading = ref(true);
 const exporting = ref(false);
@@ -70,6 +70,7 @@ const attachmentItems = ref<AttachmentListItem[]>([]);
 const filePreviewOpen = ref(false);
 const filePreviewTitle = ref('Archivo');
 const filePreviewAttachment = ref<SaleAttachment | null>(null);
+const syncingId = ref<number | null>(null);
 
 const allItems = computed(() => data.value?.items ?? []);
 
@@ -379,6 +380,40 @@ async function openAttachments(item: SaleListItem) {
   }
 }
 
+function canSyncSale(status: SaleStatus | string) {
+  return status !== 'DRAFT' && status !== 'REJECTED';
+}
+
+async function syncSale(item: SaleListItem) {
+  if (syncingId.value != null) return;
+  const ok = await confirm({
+    title: 'Sincronizar',
+    message: 'Se actualizará el expediente de esta venta en Odoo.',
+    confirmText: 'Sincronizar',
+    cancelText: 'Cancelar',
+  });
+  if (!ok) return;
+  syncingId.value = item.id;
+  try {
+    await http.post(`/sales/${item.id}/sync`, undefined, {
+      skipGlobalLoading: true,
+    });
+    await alert({
+      title: 'Sincronizada',
+      message: 'El expediente se actualizó en Odoo.',
+      variant: 'success',
+    });
+  } catch (e: unknown) {
+    await alert({
+      title: 'Sincronizar',
+      message: extractApiError(e, 'No se pudo sincronizar la venta'),
+      variant: 'danger',
+    });
+  } finally {
+    syncingId.value = null;
+  }
+}
+
 function onSelectAttachment(item: AttachmentListItem) {
   attachmentsOpen.value = false;
   filePreviewTitle.value = item.label;
@@ -619,6 +654,22 @@ function onSelectAttachment(item: AttachmentListItem) {
                       />
                     </svg>
                   </button>
+                  <button
+                    v-if="canSyncSale(item.status)"
+                    type="button"
+                    class="icon-btn"
+                    :title="syncingId === item.id ? 'Sincronizando…' : 'Sincronizar'"
+                    :aria-label="syncingId === item.id ? 'Sincronizando' : 'Sincronizar'"
+                    :disabled="syncingId != null"
+                    @click="syncSale(item)"
+                  >
+                    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                      <path
+                        fill="currentColor"
+                        d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0 0 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74A7.93 7.93 0 0 0 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"
+                      />
+                    </svg>
+                  </button>
                 </td>
               </tr>
             </tbody>
@@ -703,6 +754,22 @@ function onSelectAttachment(item: AttachmentListItem) {
                   <path
                     fill="currentColor"
                     d="M12 5c-5 0-9.27 3.11-11 7 1.73 3.89 6 7 11 7s9.27-3.11 11-7c-1.73-3.89-6-7-11-7Zm0 12a5 5 0 1 1 0-10 5 5 0 0 1 0 10Zm0-2.5A2.5 2.5 0 1 0 12 9a2.5 2.5 0 0 0 0 5Z"
+                  />
+                </svg>
+              </button>
+              <button
+                v-if="canSyncSale(item.status)"
+                type="button"
+                class="icon-btn"
+                :title="syncingId === item.id ? 'Sincronizando…' : 'Sincronizar'"
+                :aria-label="syncingId === item.id ? 'Sincronizando' : 'Sincronizar'"
+                :disabled="syncingId != null"
+                @click="syncSale(item)"
+              >
+                <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                  <path
+                    fill="currentColor"
+                    d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0 0 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74A7.93 7.93 0 0 0 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"
                   />
                 </svg>
               </button>
@@ -909,7 +976,7 @@ function onSelectAttachment(item: AttachmentListItem) {
 }
 
 .sales-table .col-actions {
-  width: 148px;
+  width: 192px;
 }
 
 .sales-table th,
@@ -1060,6 +1127,11 @@ function onSelectAttachment(item: AttachmentListItem) {
 .icon-btn:hover {
   border-color: var(--gsm-blue);
   background: rgba(53, 100, 125, 0.06);
+}
+
+.icon-btn:disabled {
+  opacity: 0.55;
+  cursor: wait;
 }
 
 @media (max-width: 1100px) {
