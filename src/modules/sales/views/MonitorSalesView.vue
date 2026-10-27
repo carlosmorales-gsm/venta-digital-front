@@ -1533,6 +1533,11 @@ function onSelectAttachment(item: AttachmentListItem) {
   background: rgba(53, 100, 125, 0.06);
 }
 
+.icon-btn:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
 @media (max-width: 1100px) {
   .filters {
     grid-template-columns: repeat(2, minmax(0, 1fr));
