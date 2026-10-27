@@ -40,6 +40,7 @@ const { alert, confirm } = useDialog();
 
 const loading = ref(true);
 const syncingId = ref<number | null>(null);
+const resendingSignId = ref<number | null>(null);
 const refreshingId = ref<number | null>(null);
 const actionsItem = ref<SaleListItem | null>(null);
 const exporting = ref(false);
@@ -359,6 +360,45 @@ async function refreshDocuments(item: SaleListItem) {
     });
   } finally {
     refreshingId.value = null;
+  }
+}
+
+function canResendSign(item: SaleListItem): boolean {
+  return (
+    item.status === 'PENDING_VALIDATION' ||
+    item.status === 'COMPLETED' ||
+    item.status === 'SUBMITTED'
+  );
+}
+
+async function resendSignLink(item: SaleListItem) {
+  if (resendingSignId.value != null) return;
+  const ok = await confirm({
+    title: 'Enviar firma de nuevo',
+    message:
+      'Se enviará un correo al titular para que firme otra vez. Al firmar, los documentos se reemplazan con la firma nueva.',
+    confirmText: 'Enviar',
+    cancelText: 'Cancelar',
+  });
+  if (!ok) return;
+  resendingSignId.value = item.id;
+  try {
+    await http.post(`/sales/${item.id}/resend-sign-link`, {
+      frontUrl: window.location.origin,
+    });
+    await alert({
+      title: 'Firma enviada',
+      message: 'Se envió el enlace de firma al correo del titular.',
+      variant: 'success',
+    });
+  } catch (e: unknown) {
+    await alert({
+      title: 'Firma',
+      message: extractApiError(e, 'No se pudo enviar el enlace de firma'),
+      variant: 'danger',
+    });
+  } finally {
+    resendingSignId.value = null;
   }
 }
 
@@ -1117,6 +1157,23 @@ function onSelectAttachment(item: AttachmentListItem) {
             </svg>
           </span>
           {{ refreshingId === actionsItem.id ? 'Actualizando…' : 'Actualizar documentos' }}
+        </button>
+        <button
+          v-if="canResendSign(actionsItem)"
+          type="button"
+          class="actions-menu__item"
+          :disabled="resendingSignId === actionsItem.id"
+          @click="runSaleAction(resendSignLink)"
+        >
+          <span class="actions-menu__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="22" height="22">
+              <path
+                fill="currentColor"
+                d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4-8 5L4 8V6l8 5 8-5v2z"
+              />
+            </svg>
+          </span>
+          {{ resendingSignId === actionsItem.id ? 'Enviando…' : 'Enviar firma de nuevo' }}
         </button>
         <button
           v-if="canSyncSale(actionsItem)"

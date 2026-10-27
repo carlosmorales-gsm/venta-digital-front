@@ -29,9 +29,9 @@ async function load() {
   loading.value = true;
   error.value = null;
   try {
-    const { data } = await http.get<SaleListItem & { alreadySigned?: boolean }>(
-      `/public/sign/${encodeURIComponent(token())}`,
-    );
+    const { data } = await http.get<
+      SaleListItem & { alreadySigned?: boolean; resign?: boolean }
+    >(`/public/sign/${encodeURIComponent(token())}`);
     saleId.value = data.id;
     status.value = data.status;
     const loaded = data.payload ? mergeSaleForm(data.payload) : null;
@@ -44,7 +44,7 @@ async function load() {
       fromForm === 'FUNEPET' ||
       fromApi === 'FUNEPET' ||
       (data as { funepet?: boolean }).funepet === true;
-    if (data.alreadySigned || isSignedSaleStatus(data.status)) {
+    if (data.alreadySigned || (isSignedSaleStatus(data.status) && !data.resign)) {
       done.value = true;
       form.value = null;
       return;
