@@ -22,6 +22,10 @@ import {
   buildNoStationeryPdf,
   saleUsesNoStationery,
 } from './no-stationery-pdf';
+import {
+  buildCancellationRequestPdf,
+  saleUsesCancellationRequest,
+} from './cancellation-request-pdf';
 import { buildSalePreviewPdf } from './sale-pdf';
 
 export type SignSaleRequestBody = {
@@ -36,6 +40,7 @@ export type SignSaleRequestBody = {
   cartaNominaPdf?: SaleAttachment;
   solicitudReconocimientoPdfs?: SaleAttachment[];
   cartaNoPapeleriaPdfs?: SaleAttachment[];
+  solicitudCancelacionPdfs?: SaleAttachment[];
   tarjetaPdf?: SaleAttachment;
   inePdf?: SaleAttachment;
 };
@@ -216,6 +221,29 @@ export async function buildSignSaleRequest(
       }
     }
     if (letters.length) body.cartaNoPapeleriaPdfs = letters;
+  }
+  if (saleUsesCancellationRequest(formForPdf.meta.tipoVenta)) {
+    const letters: SaleAttachment[] = [];
+    for (const venta of formForPdf.meta.reconocimientoVentas ?? []) {
+      try {
+        const letter = await buildCancellationRequestPdf(formForPdf, {
+          ...opts,
+          originId: venta.id,
+        });
+        const folio = (venta.folio || String(venta.id)).replace(/[^\w.-]+/g, '-');
+        letters.push({
+          name: `solicitud-cancelacion_venta-${saleId}-${folio}.pdf`,
+          mime: 'application/pdf',
+          dataBase64: await blobToBase64(letter),
+        });
+      } catch (pdfErr) {
+        console.warn(
+          `No se pudo generar la solicitud de cancelación ${venta.folio || venta.id}`,
+          pdfErr,
+        );
+      }
+    }
+    if (letters.length) body.solicitudCancelacionPdfs = letters;
   }
   if (normalizeTipoCobranza(formForPdf.contacto.tipoCobranza) === 'DOMICILIADO') {
     try {

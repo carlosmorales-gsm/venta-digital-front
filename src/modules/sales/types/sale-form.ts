@@ -41,6 +41,9 @@ export type ReconocimientoVenta = {
   paidAmount?: number;
   matchType: 'titular' | 'beneficiario';
   matchedBeneficiaryName?: string;
+  /** Empresa de esa cotización en Odoo (1 Parque · 2 Plan a futuro). */
+  companyId?: number;
+  companyName?: string;
 };
 
 /** Valor por defecto en captura (plan a futuro). */
@@ -263,6 +266,7 @@ export interface SaleFormData {
     cartaNominaPdf: SaleAttachment | null;
     solicitudReconocimientoPdfs: SaleAttachment[];
     cartaNoPapeleriaPdfs: SaleAttachment[];
+    solicitudCancelacionPdfs: SaleAttachment[];
   };
 }
 
@@ -575,6 +579,7 @@ export function createEmptySaleForm(): SaleFormData {
       cartaNominaPdf: null,
       solicitudReconocimientoPdfs: [],
       cartaNoPapeleriaPdfs: [],
+      solicitudCancelacionPdfs: [],
     },
   };
 }
@@ -862,6 +867,11 @@ export function mergeSaleForm(raw: unknown): SaleFormData {
               matchType:
                 item.matchType === 'beneficiario' ? 'beneficiario' : 'titular',
               matchedBeneficiaryName: String(item.matchedBeneficiaryName ?? ''),
+              companyId:
+                item.companyId != null && Number(item.companyId) > 0
+                  ? Number(item.companyId)
+                  : undefined,
+              companyName: String(item.companyName ?? ''),
             }))
             .filter((item) => item.id > 0)
         : [],
@@ -969,6 +979,7 @@ export function mergeSaleForm(raw: unknown): SaleFormData {
       cartaNominaPdf: src.documentos?.cartaNominaPdf ?? null,
       solicitudReconocimientoPdfs: recognitionLettersFrom(src.documentos),
       cartaNoPapeleriaPdfs: noStationeryLettersFrom(src.documentos),
+      solicitudCancelacionPdfs: cancellationLettersFrom(src.documentos),
     },
   };
 }
@@ -995,6 +1006,17 @@ export function primaryIneAttachment(
 export function syncBeneficiariosToDerechos(form: SaleFormData) {
   const ts = form.derechohabientes?.titularSustituto ?? emptyBeneficiary();
   form.derechohabientes = syncDerechos(form.beneficiarios, ts);
+}
+
+function cancellationLettersFrom(
+  docs?: {
+    solicitudCancelacionPdfs?: SaleAttachment[] | null;
+  } | null,
+): SaleAttachment[] {
+  if (Array.isArray(docs?.solicitudCancelacionPdfs)) {
+    return docs.solicitudCancelacionPdfs.filter((item) => item?.name);
+  }
+  return [];
 }
 
 function noStationeryLettersFrom(
@@ -1078,6 +1100,8 @@ export function toUpsertSaleBody(form: SaleFormData): {
         paidAmount: item.paidAmount,
         matchType: item.matchType,
         matchedBeneficiaryName: item.matchedBeneficiaryName,
+        companyId: item.companyId,
+        companyName: item.companyName,
       })),
     },
     contacto: {
@@ -1205,6 +1229,10 @@ export function toUpsertSaleBody(form: SaleFormData): {
         return picked ? [picked] : [];
       }),
       cartaNoPapeleriaPdfs: noStationeryLettersFrom(docs).flatMap((item) => {
+        const picked = pickAttachment(item);
+        return picked ? [picked] : [];
+      }),
+      solicitudCancelacionPdfs: cancellationLettersFrom(docs).flatMap((item) => {
         const picked = pickAttachment(item);
         return picked ? [picked] : [];
       }),

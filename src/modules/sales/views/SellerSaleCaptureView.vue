@@ -186,6 +186,8 @@ const reconocimientoPreviewOpen = ref(false);
 const reconocimientoPreviewId = ref<number | null>(null);
 const noPapeleriaPreviewOpen = ref(false);
 const noPapeleriaPreviewId = ref<number | null>(null);
+const cancelacionPreviewOpen = ref(false);
+const cancelacionPreviewId = ref<number | null>(null);
 const reglamentoParquePreviewOpen = ref(false);
 const reglamentoParqueFolletoPreviewOpen = ref(false);
 const cartaAuthPreviewOpen = ref(false);
@@ -5378,6 +5380,53 @@ async function goBack() {
                   </button>
                 </div>
               </div>
+              <div
+                v-for="venta in form.meta.reconocimientoVentas"
+                :key="`cancelacion-${venta.id}`"
+                class="upload-card upload-card--filled"
+              >
+                <div class="upload-card__icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none">
+                    <path
+                      d="M7 3.5h7.2L19 8.3V20a1.5 1.5 0 0 1-1.5 1.5h-10A1.5 1.5 0 0 1 6 20V5a1.5 1.5 0 0 1 1-1.5z"
+                      stroke="currentColor"
+                      stroke-width="1.7"
+                      stroke-linejoin="round"
+                    />
+                    <path
+                      d="M14 3.5V8h5"
+                      stroke="currentColor"
+                      stroke-width="1.7"
+                      stroke-linejoin="round"
+                    />
+                    <path
+                      d="M9 13h6M9 16.5h4"
+                      stroke="currentColor"
+                      stroke-width="1.7"
+                      stroke-linecap="round"
+                    />
+                  </svg>
+                </div>
+                <div class="upload-card__body">
+                  <strong>Solicitud de cancelación · {{ venta.folio }}</strong>
+                  <span class="upload-card__hint"
+                    >Una por contrato a reconocer. Mientras no se firme aparece
+                    como borrador</span
+                  >
+                </div>
+                <div class="upload-card__actions">
+                  <button
+                    type="button"
+                    class="upload-card__btn"
+                    @click="
+                      cancelacionPreviewId = venta.id;
+                      cancelacionPreviewOpen = true;
+                    "
+                  >
+                    <span class="upload-card__btn-text">Vista previa</span>
+                  </button>
+                </div>
+              </div>
             </template>
 
             <div
@@ -5774,6 +5823,15 @@ async function goBack() {
       :sale-id="saleId"
       :status="status === 'NEW' ? undefined : status"
       @close="noPapeleriaPreviewOpen = false"
+    />
+    <SalePdfPreviewModal
+      kind="solicitudCancelacion"
+      :open="cancelacionPreviewOpen"
+      :origin-id="cancelacionPreviewId"
+      :form="form"
+      :sale-id="saleId"
+      :status="status === 'NEW' ? undefined : status"
+      @close="cancelacionPreviewOpen = false"
     />
     <SalePdfPreviewModal
       kind="solicitudReconocimiento"

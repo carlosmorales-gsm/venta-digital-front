@@ -344,6 +344,7 @@ async function refreshDocuments(item: SaleListItem) {
         cartaNominaPdf: body.cartaNominaPdf ?? null,
         solicitudReconocimientoPdfs: body.solicitudReconocimientoPdfs ?? null,
         cartaNoPapeleriaPdfs: body.cartaNoPapeleriaPdfs ?? null,
+        solicitudCancelacionPdfs: body.solicitudCancelacionPdfs ?? null,
       },
       { timeout: 120000 },
     );

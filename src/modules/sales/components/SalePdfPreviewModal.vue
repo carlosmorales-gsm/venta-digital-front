@@ -35,6 +35,10 @@ import {
   buildNoStationeryBundle,
   isDraftNoStationery,
 } from '../utils/no-stationery-pdf';
+import {
+  buildCancellationRequestBundle,
+  isDraftCancellationRequest,
+} from '../utils/cancellation-request-pdf';
 import { buildFunepetCaratulaBundle } from '../utils/funepet-caratula-pdf';
 import { buildSalePreviewBundle, isDraftCaratula } from '../utils/sale-pdf';
 import { parseSaleKind } from '../constants/sale-kinds';
@@ -59,6 +63,7 @@ const props = withDefaults(
       | 'cartaNomina'
       | 'solicitudReconocimiento'
       | 'cartaNoPapeleria'
+      | 'solicitudCancelacion'
       | 'tarjeta'
       | 'ine';
   }>(),
@@ -88,6 +93,7 @@ const isAuth = computed(() => props.kind === 'cartaAutorizacion');
 const isNomina = computed(() => props.kind === 'cartaNomina');
 const isReconocimiento = computed(() => props.kind === 'solicitudReconocimiento');
 const isNoPapeleria = computed(() => props.kind === 'cartaNoPapeleria');
+const isCancelacion = computed(() => props.kind === 'solicitudCancelacion');
 const isTarjeta = computed(() => props.kind === 'tarjeta');
 const isIne = computed(() => props.kind === 'ine');
 const isDraft = computed(() => {
@@ -101,6 +107,7 @@ const isDraft = computed(() => {
   if (isExclusiones.value) return isDraftExclusionesLetter(props.form, opts);
   if (isReconocimiento.value) return isDraftRecognitionBalance(props.form, opts);
   if (isNoPapeleria.value) return isDraftNoStationery(props.form, opts);
+  if (isCancelacion.value) return isDraftCancellationRequest(props.form, opts);
   if (isNoFactura.value) return isDraftNoInvoiceConsent(props.form, opts);
   if (isCarta.value) return isDraftInvoiceLetter(props.form, opts);
   return isDraftCaratula(props.form, opts);
@@ -146,6 +153,15 @@ const modalTitle = computed(() => {
     const base = folio
       ? `Carta de no papelería · ${folio}`
       : 'Carta de no papelería';
+    return isDraft.value ? `${base} (borrador)` : base;
+  }
+  if (isCancelacion.value) {
+    const folio =
+      props.form.meta.reconocimientoVentas.find((item) => item.id === props.originId)
+        ?.folio || '';
+    const base = folio
+      ? `Solicitud de cancelación · ${folio}`
+      : 'Solicitud de cancelación de contrato';
     return isDraft.value ? `${base} (borrador)` : base;
   }
   if (isExclusiones.value) {
@@ -214,6 +230,15 @@ const downloadName = computed(() => {
       ? `carta-no-papeleria-${folio}-borrador.pdf`
       : `carta-no-papeleria-${folio}.pdf`;
   }
+  if (isCancelacion.value) {
+    const folio = (
+      props.form.meta.reconocimientoVentas.find((item) => item.id === props.originId)
+        ?.folio || 'contrato'
+    ).replace(/[^\w.-]+/g, '-');
+    return isDraft.value
+      ? `solicitud-cancelacion-${folio}-borrador.pdf`
+      : `solicitud-cancelacion-${folio}.pdf`;
+  }
   if (isExclusiones.value) {
     const funepet = parseSaleKind(props.form.meta.tipoVenta) === 'FUNEPET';
     if (funepet) {
@@ -241,7 +266,7 @@ const generatingLabel = computed(() => {
   if (isTarjeta.value) return 'Armando PDF de la tarjeta…';
   if (isIne.value) return 'Armando PDF de la INE…';
   if (isReglamentoFolleto.value) return 'Generando folleto…';
-  if (isAuth.value || isNomina.value || isCarta.value || isNoFactura.value || isReglamento.value || isExclusiones.value || isReconocimiento.value || isNoPapeleria.value) {
+  if (isAuth.value || isNomina.value || isCarta.value || isNoFactura.value || isReglamento.value || isExclusiones.value || isReconocimiento.value || isNoPapeleria.value || isCancelacion.value) {
     return 'Generando carta…';
   }
   return 'Generando carátula…';
@@ -303,6 +328,8 @@ async function render() {
               ? await buildRecognitionBalanceBundle(props.form, opts)
             : isNoPapeleria.value
               ? await buildNoStationeryBundle(props.form, opts)
+            : isCancelacion.value
+              ? await buildCancellationRequestBundle(props.form, opts)
             : isNoFactura.value
               ? await buildNoInvoiceConsentBundle(props.form, opts)
               : isCarta.value
@@ -340,6 +367,8 @@ async function render() {
               ? 'No se pudo generar la solicitud de reconocimiento de saldo.'
             : isNoPapeleria.value
               ? 'No se pudo generar la carta de no papelería.'
+            : isCancelacion.value
+              ? 'No se pudo generar la solicitud de cancelación de contrato.'
             : isNoFactura.value
             ? 'No se pudo generar el consentimiento de no factura.'
             : isCarta.value

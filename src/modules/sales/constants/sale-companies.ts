@@ -9,6 +9,17 @@ export function saleCompanyName(planKind: PlanKind | string): string {
   return 'INHUMACIONES ABC S.A. DE C.V.';
 }
 
+/** Razón social de la venta origen. 1 Parque · 2 Plan a futuro. */
+export function saleCompanyNameById(
+  companyId: number | null | undefined,
+  companyName = '',
+): string {
+  const id = Number(companyId);
+  if (id === 1) return saleCompanyName('PARQUE');
+  if (id === 2) return saleCompanyName('PLAN_FUTURO');
+  return companyName.trim();
+}
+
 export type SaleCompanyLetter = {
   /** Líneas grandes del recuadro derecho. */
   boxTitle: string[];

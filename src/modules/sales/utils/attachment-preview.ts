@@ -23,7 +23,8 @@ export type AttachmentKind =
   | 'cartaAutorizacionPdf'
   | 'cartaNominaPdf'
   | 'solicitudReconocimientoPdf'
-  | 'cartaNoPapeleriaPdf';
+  | 'cartaNoPapeleriaPdf'
+  | 'solicitudCancelacionPdf';
 
 export type AttachmentListItem = {
   kind: AttachmentKind;
@@ -55,6 +56,7 @@ const LABELS: Record<AttachmentKind, string> = {
   cartaNominaPdf: 'Carta de consentimiento (nómina)',
   solicitudReconocimientoPdf: 'Solicitud de reconocimiento de saldo',
   cartaNoPapeleriaPdf: 'Carta de no papelería',
+  solicitudCancelacionPdf: 'Solicitud de cancelación de contrato',
 };
 
 const ALLOWED_IMAGE_MIMES = new Set([
@@ -98,7 +100,7 @@ export function isImageAttachment(att: SaleAttachment): boolean {
 
 type SingleAttachmentKind = Exclude<
   AttachmentKind,
-  'solicitudReconocimientoPdf' | 'cartaNoPapeleriaPdf'
+  'solicitudReconocimientoPdf' | 'cartaNoPapeleriaPdf' | 'solicitudCancelacionPdf'
 >;
 
 export function listSaleAttachments(form: SaleFormData): AttachmentListItem[] {
@@ -135,6 +137,17 @@ export function listSaleAttachments(form: SaleFormData): AttachmentListItem[] {
     items.push({
       kind: 'cartaNoPapeleriaPdf',
       label: label || LABELS.cartaNoPapeleriaPdf,
+      attachment,
+    });
+  }
+  for (const attachment of docs.solicitudCancelacionPdfs ?? []) {
+    if (!attachment?.dataBase64?.trim() && !attachment?.driveFileUrl?.trim()) {
+      continue;
+    }
+    const label = attachment.name?.replace(/\.pdf$/i, '').trim();
+    items.push({
+      kind: 'solicitudCancelacionPdf',
+      label: label || LABELS.solicitudCancelacionPdf,
       attachment,
     });
   }

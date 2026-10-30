@@ -12,7 +12,8 @@ export type SignDocumentKind =
   | 'cartaNoFactura'
   | 'cartaFactura'
   | 'solicitudReconocimiento'
-  | 'cartaNoPapeleria';
+  | 'cartaNoPapeleria'
+  | 'solicitudCancelacion';
 
 export type SignDocument = {
   kind: SignDocumentKind;
@@ -114,6 +115,13 @@ export function listSignDocuments(form: SaleFormData): SignDocument[] {
         originId: venta.id,
         title: `Carta de no papelería · ${venta.folio || venta.id}`,
         hint: 'FOR-GSM-CMR-09 · un formato por contrato anterior',
+      });
+      docs.push({
+        kind: 'solicitudCancelacion',
+        key: `solicitudCancelacion:${venta.id}`,
+        originId: venta.id,
+        title: `Solicitud de cancelación · ${venta.folio || venta.id}`,
+        hint: 'Una solicitud por contrato a reconocer',
       });
     }
   }

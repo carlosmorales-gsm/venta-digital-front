@@ -164,6 +164,34 @@ export async function fillOriginFolioSolicitud(
   }
 }
 
+/** Empresa de cada venta origen que se eligió antes de guardar ese dato. */
+export async function fillOriginCompanies(
+  ventas: ReconocimientoVenta[],
+): Promise<void> {
+  const missing = ventas.filter((item) => item.id > 0 && !Number(item.companyId));
+  if (!missing.length) return;
+  try {
+    const { data } = await http.get<
+      { id: number; companyId?: number; companyName?: string }[]
+    >('/odoo/ordenes/empresas', {
+      params: { ids: missing.map((item) => item.id).join(',') },
+      skipGlobalLoading: true,
+    });
+    const byId = new Map(
+      (Array.isArray(data) ? data : []).map((item) => [Number(item.id), item]),
+    );
+    for (const venta of missing) {
+      const found = byId.get(venta.id);
+      const companyId = Number(found?.companyId);
+      if (!companyId) continue;
+      venta.companyId = companyId;
+      venta.companyName = String(found?.companyName ?? '');
+    }
+  } catch {
+    /* la carta usa la empresa del plan si Odoo no responde */
+  }
+}
+
 async function listClienteVentas(
   partnerId: number,
   kind: 'suspendidas' | 'activas',

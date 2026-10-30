@@ -1286,6 +1286,7 @@ function buildFromSeed(seed: DevSaleSeed): SaleFormData {
       cartaNominaPdf: null,
       solicitudReconocimientoPdfs: [],
       cartaNoPapeleriaPdfs: [],
+      solicitudCancelacionPdfs: [],
     },
   });
   applyMockContactoRules(form);

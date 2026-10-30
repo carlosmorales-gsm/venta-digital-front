@@ -10,6 +10,7 @@ import { buildConvenioLetterBundle } from '../utils/convenio-letter-pdf';
 import { buildExclusionesLetterBundle } from '../utils/exclusiones-letter-pdf';
 import { buildRecognitionBalanceBundle } from '../utils/recognition-balance-pdf';
 import { buildNoStationeryBundle } from '../utils/no-stationery-pdf';
+import { buildCancellationRequestBundle } from '../utils/cancellation-request-pdf';
 import { buildInvoiceLetterBundle } from '../utils/invoice-letter-pdf';
 import { buildNoInvoiceConsentBundle } from '../utils/no-invoice-consent-pdf';
 import { buildParkRegulationBundle } from '../utils/park-regulation-pdf';
@@ -132,6 +133,11 @@ async function buildDocBundle(doc: SignDocument) {
       });
     case 'cartaNoPapeleria':
       return buildNoStationeryBundle(props.form, {
+        ...opts,
+        originId: doc.originId,
+      });
+    case 'solicitudCancelacion':
+      return buildCancellationRequestBundle(props.form, {
         ...opts,
         originId: doc.originId,
       });
