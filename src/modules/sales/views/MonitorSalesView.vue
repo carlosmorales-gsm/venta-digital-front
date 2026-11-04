@@ -530,7 +530,7 @@ async function exportPdf() {
           ?.name
       : undefined;
 
-    await downloadMonitorSalesPdf(allItems.value, {
+    await downloadMonitorSalesPdf(sortedItems.value, {
       sellerName,
       statusLabel: applied.status ? statusLabel(applied.status) : undefined,
       dateFrom: applied.dateFrom || undefined,

@@ -46,7 +46,54 @@ const form = reactive({
   nombreJefeVentas: '',
 });
 
+const GROUP_ORDER: UserType[] = ['VENDEDOR', 'MONITOR', 'ADMIN'];
+
+const GROUP_META: Record<
+  UserType,
+  { title: string; hint: string; empty: string }
+> = {
+  VENDEDOR: {
+    title: 'Vendedores',
+    hint: 'Entran con PIN de WhatsApp',
+    empty: 'No hay vendedores.',
+  },
+  MONITOR: {
+    title: 'Monitores',
+    hint: 'Consultan ventas y reportes',
+    empty: 'No hay monitores.',
+  },
+  ADMIN: {
+    title: 'Administradores',
+    hint: 'Gestionan usuarios y el sistema',
+    empty: 'No hay administradores.',
+  },
+};
+
+const openGroups = reactive<Record<UserType, boolean>>({
+  VENDEDOR: true,
+  MONITOR: true,
+  ADMIN: true,
+});
+
 const isEditing = computed(() => editingId.value != null);
+
+const userGroups = computed(() =>
+  GROUP_ORDER.map((type) => ({
+    type,
+    ...GROUP_META[type],
+    open: openGroups[type],
+    users: users.value
+      .filter((user) => user.type === type)
+      .slice()
+      .sort((a, b) =>
+        a.fullName.localeCompare(b.fullName, 'es', { sensitivity: 'base' }),
+      ),
+  })),
+);
+
+function toggleGroup(type: UserType) {
+  openGroups[type] = !openGroups[type];
+}
 
 const formTitle = computed(() =>
   isEditing.value ? 'Editar usuario' : 'Nuevo usuario',
@@ -283,210 +330,244 @@ onMounted(loadUsers);
       </div>
     </header>
 
-    <div class="panel list-panel">
-      <h2>Listado</h2>
-      <p v-if="listError" class="error-text">{{ listError }}</p>
+    <p v-if="listError" class="error-text users-error">{{ listError }}</p>
 
-      <div v-if="loading" class="loading">
-        <span class="spinner" />
-        Cargando…
-      </div>
+    <div v-if="loading" class="panel loading">
+      <span class="spinner" />
+      Cargando…
+    </div>
 
-      <template v-else>
-        <div class="table-wrap desktop-list">
-          <table class="data users-table">
-            <thead>
-              <tr>
-                <th>Nombre</th>
-                <th>Tipo</th>
-                <th>Acceso</th>
-                <th>Jefe de ventas</th>
-                <th>Estado</th>
-                <th>Alta</th>
-                <th>Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="u in users" :key="u.id">
-                <td>{{ u.fullName }}</td>
-                <td>{{ u.type }}</td>
-                <td>{{ u.cellphone || u.username }}</td>
-                <td>{{ u.type === 'VENDEDOR' ? u.nombreJefeVentas || '—' : '—' }}</td>
-                <td>
+    <div v-else class="user-groups">
+      <section
+        v-for="group in userGroups"
+        :key="group.type"
+        class="panel user-group"
+      >
+        <button
+          type="button"
+          class="user-group__toggle"
+          :aria-expanded="group.open"
+          :aria-controls="`users-${group.type}`"
+          @click="toggleGroup(group.type)"
+        >
+          <span
+            class="user-group__chevron"
+            :class="{ 'is-open': group.open }"
+            aria-hidden="true"
+          >
+            <svg viewBox="0 0 24 24" fill="none">
+              <path
+                d="m9 6 6 6-6 6"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </span>
+          <span class="user-group__copy">
+            <strong>{{ group.title }}</strong>
+            <small>{{ group.hint }}</small>
+          </span>
+          <span class="user-group__count">{{ group.users.length }}</span>
+        </button>
+
+        <div
+          v-show="group.open"
+          :id="`users-${group.type}`"
+          class="user-group__body"
+        >
+          <p v-if="!group.users.length" class="user-group__empty">
+            {{ group.empty }}
+          </p>
+
+          <template v-else>
+            <div class="table-wrap desktop-list">
+              <table class="data users-table">
+                <thead>
+                  <tr>
+                    <th>Nombre</th>
+                    <th>Acceso</th>
+                    <th v-if="group.type === 'VENDEDOR'">Jefe de ventas</th>
+                    <th>Estado</th>
+                    <th>Alta</th>
+                    <th>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="u in group.users" :key="u.id">
+                    <td>{{ u.fullName }}</td>
+                    <td>{{ u.cellphone || u.username }}</td>
+                    <td v-if="group.type === 'VENDEDOR'">
+                      {{ u.nombreJefeVentas || '—' }}
+                    </td>
+                    <td>
+                      <span class="badge" :class="u.active ? 'badge-ok' : 'badge-off'">
+                        {{ u.active ? 'Activo' : 'Inactivo' }}
+                      </span>
+                    </td>
+                    <td>{{ formatUtcToLocal(u.createdAt) }}</td>
+                    <td>
+                      <div class="row-actions">
+                        <button
+                          type="button"
+                          class="icon-btn"
+                          title="Editar"
+                          aria-label="Editar usuario"
+                          @click="startEdit(u)"
+                        >
+                          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <path
+                              d="M4 20h4l10.5-10.5a1.5 1.5 0 0 0 0-2.12l-1.88-1.88a1.5 1.5 0 0 0-2.12 0L4 16v4Z"
+                              stroke="currentColor"
+                              stroke-width="1.8"
+                              stroke-linejoin="round"
+                            />
+                            <path
+                              d="M13 6.5 17.5 11"
+                              stroke="currentColor"
+                              stroke-width="1.8"
+                              stroke-linecap="round"
+                            />
+                          </svg>
+                        </button>
+                        <button
+                          v-if="canEnterAsSeller(u)"
+                          type="button"
+                          class="icon-btn"
+                          title="Entrar como vendedor"
+                          aria-label="Entrar como vendedor"
+                          :disabled="enteringId === u.id"
+                          @click="enterAsSeller(u)"
+                        >
+                          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <path
+                              d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"
+                              stroke="currentColor"
+                              stroke-width="1.8"
+                              stroke-linecap="round"
+                            />
+                            <path
+                              d="M10 17 15 12 10 7"
+                              stroke="currentColor"
+                              stroke-width="1.8"
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                            />
+                            <path
+                              d="M15 12H3"
+                              stroke="currentColor"
+                              stroke-width="1.8"
+                              stroke-linecap="round"
+                            />
+                          </svg>
+                        </button>
+                        <VdSwitch
+                          :model-value="u.active"
+                          :disabled="togglingId === u.id || isSelf(u)"
+                          :aria-label="u.active ? 'Deshabilitar usuario' : 'Habilitar usuario'"
+                          :title="isSelf(u) ? 'No puedes desactivar tu cuenta' : u.active ? 'Deshabilitar' : 'Habilitar'"
+                          @change="toggleActive(u)"
+                        />
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="mobile-list">
+              <article
+                v-for="u in group.users"
+                :key="`card-${u.id}`"
+                class="user-card"
+              >
+                <div class="user-card__head">
+                  <strong>{{ u.fullName }}</strong>
                   <span class="badge" :class="u.active ? 'badge-ok' : 'badge-off'">
                     {{ u.active ? 'Activo' : 'Inactivo' }}
                   </span>
-                </td>
-                <td>{{ formatUtcToLocal(u.createdAt) }}</td>
-                <td>
-                  <div class="row-actions">
-                    <button
-                      type="button"
-                      class="icon-btn"
-                      title="Editar"
-                      aria-label="Editar usuario"
-                      @click="startEdit(u)"
-                    >
-                      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                        <path
-                          d="M4 20h4l10.5-10.5a1.5 1.5 0 0 0 0-2.12l-1.88-1.88a1.5 1.5 0 0 0-2.12 0L4 16v4Z"
-                          stroke="currentColor"
-                          stroke-width="1.8"
-                          stroke-linejoin="round"
-                        />
-                        <path
-                          d="M13 6.5 17.5 11"
-                          stroke="currentColor"
-                          stroke-width="1.8"
-                          stroke-linecap="round"
-                        />
-                      </svg>
-                    </button>
-                    <button
-                      v-if="canEnterAsSeller(u)"
-                      type="button"
-                      class="icon-btn"
-                      title="Entrar como vendedor"
-                      aria-label="Entrar como vendedor"
-                      :disabled="enteringId === u.id"
-                      @click="enterAsSeller(u)"
-                    >
-                      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                        <path
-                          d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"
-                          stroke="currentColor"
-                          stroke-width="1.8"
-                          stroke-linecap="round"
-                        />
-                        <path
-                          d="M10 17 15 12 10 7"
-                          stroke="currentColor"
-                          stroke-width="1.8"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                        />
-                        <path
-                          d="M15 12H3"
-                          stroke="currentColor"
-                          stroke-width="1.8"
-                          stroke-linecap="round"
-                        />
-                      </svg>
-                    </button>
-                    <VdSwitch
-                      :model-value="u.active"
-                      :disabled="togglingId === u.id || isSelf(u)"
-                      :aria-label="u.active ? 'Deshabilitar usuario' : 'Habilitar usuario'"
-                      :title="isSelf(u) ? 'No puedes desactivar tu cuenta' : u.active ? 'Deshabilitar' : 'Habilitar'"
-                      @change="toggleActive(u)"
-                    />
+                </div>
+                <dl class="user-card__meta">
+                  <div>
+                    <dt>Acceso</dt>
+                    <dd>{{ u.cellphone || u.username }}</dd>
                   </div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <div class="mobile-list">
-          <article v-for="u in users" :key="`card-${u.id}`" class="user-card">
-            <div class="user-card__head">
-              <strong>{{ u.fullName }}</strong>
-              <span class="badge" :class="u.active ? 'badge-ok' : 'badge-off'">
-                {{ u.active ? 'Activo' : 'Inactivo' }}
-              </span>
+                  <div v-if="u.type === 'VENDEDOR'">
+                    <dt>Jefe de ventas</dt>
+                    <dd>{{ u.nombreJefeVentas || '—' }}</dd>
+                  </div>
+                  <div>
+                    <dt>Alta</dt>
+                    <dd>{{ formatUtcToLocal(u.createdAt) }}</dd>
+                  </div>
+                </dl>
+                <div class="row-actions card-actions">
+                  <button
+                    type="button"
+                    class="icon-btn"
+                    title="Editar"
+                    aria-label="Editar usuario"
+                    @click="startEdit(u)"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path
+                        d="M4 20h4l10.5-10.5a1.5 1.5 0 0 0 0-2.12l-1.88-1.88a1.5 1.5 0 0 0-2.12 0L4 16v4Z"
+                        stroke="currentColor"
+                        stroke-width="1.8"
+                        stroke-linejoin="round"
+                      />
+                      <path
+                        d="M13 6.5 17.5 11"
+                        stroke="currentColor"
+                        stroke-width="1.8"
+                        stroke-linecap="round"
+                      />
+                    </svg>
+                  </button>
+                  <button
+                    v-if="canEnterAsSeller(u)"
+                    type="button"
+                    class="icon-btn"
+                    title="Entrar como vendedor"
+                    aria-label="Entrar como vendedor"
+                    :disabled="enteringId === u.id"
+                    @click="enterAsSeller(u)"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path
+                        d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"
+                        stroke="currentColor"
+                        stroke-width="1.8"
+                        stroke-linecap="round"
+                      />
+                      <path
+                        d="M10 17 15 12 10 7"
+                        stroke="currentColor"
+                        stroke-width="1.8"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      />
+                      <path
+                        d="M15 12H3"
+                        stroke="currentColor"
+                        stroke-width="1.8"
+                        stroke-linecap="round"
+                      />
+                    </svg>
+                  </button>
+                  <VdSwitch
+                    :model-value="u.active"
+                    :disabled="togglingId === u.id || isSelf(u)"
+                    :aria-label="u.active ? 'Deshabilitar usuario' : 'Habilitar usuario'"
+                    @change="toggleActive(u)"
+                  />
+                </div>
+              </article>
             </div>
-            <dl class="user-card__meta">
-              <div>
-                <dt>Tipo</dt>
-                <dd>{{ u.type }}</dd>
-              </div>
-              <div>
-                <dt>Acceso</dt>
-                <dd>{{ u.cellphone || u.username }}</dd>
-              </div>
-              <div v-if="u.type === 'VENDEDOR'">
-                <dt>Jefe de ventas</dt>
-                <dd>{{ u.nombreJefeVentas || '—' }}</dd>
-              </div>
-              <div>
-                <dt>Alta</dt>
-                <dd>{{ formatUtcToLocal(u.createdAt) }}</dd>
-              </div>
-            </dl>
-            <div class="row-actions card-actions">
-              <button
-                type="button"
-                class="icon-btn"
-                title="Editar"
-                aria-label="Editar usuario"
-                @click="startEdit(u)"
-              >
-                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <path
-                    d="M4 20h4l10.5-10.5a1.5 1.5 0 0 0 0-2.12l-1.88-1.88a1.5 1.5 0 0 0-2.12 0L4 16v4Z"
-                    stroke="currentColor"
-                    stroke-width="1.8"
-                    stroke-linejoin="round"
-                  />
-                  <path
-                    d="M13 6.5 17.5 11"
-                    stroke="currentColor"
-                    stroke-width="1.8"
-                    stroke-linecap="round"
-                  />
-                </svg>
-              </button>
-              <button
-                v-if="canEnterAsSeller(u)"
-                type="button"
-                class="icon-btn"
-                title="Entrar como vendedor"
-                aria-label="Entrar como vendedor"
-                :disabled="enteringId === u.id"
-                @click="enterAsSeller(u)"
-              >
-                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <path
-                    d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"
-                    stroke="currentColor"
-                    stroke-width="1.8"
-                    stroke-linecap="round"
-                  />
-                  <path
-                    d="M10 17 15 12 10 7"
-                    stroke="currentColor"
-                    stroke-width="1.8"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  />
-                  <path
-                    d="M15 12H3"
-                    stroke="currentColor"
-                    stroke-width="1.8"
-                    stroke-linecap="round"
-                  />
-                </svg>
-              </button>
-              <VdSwitch
-                :model-value="u.active"
-                :disabled="togglingId === u.id || isSelf(u)"
-                :aria-label="u.active ? 'Deshabilitar usuario' : 'Habilitar usuario'"
-                @change="toggleActive(u)"
-              />
-            </div>
-          </article>
-
-          <div v-if="!users.length" class="empty-state">
-            <strong>Sin usuarios</strong>
-            Crea el primero con “Nuevo usuario”.
-          </div>
+          </template>
         </div>
-
-        <div v-if="users.length === 0 && !loading" class="empty-state desktop-empty">
-          <strong>Sin usuarios</strong>
-          Crea el primero con “Nuevo usuario”.
-        </div>
-      </template>
+      </section>
     </div>
 
     <VdModal :open="modalOpen" :title="formTitle" @close="closeModal">
@@ -652,14 +733,100 @@ onMounted(loadUsers);
   padding: 0.45rem 1rem;
 }
 
-.list-panel {
-  min-width: 0;
-  width: 100%;
+.users-error {
+  margin-bottom: 0.75rem;
 }
 
-.list-panel > h2 {
-  font-size: 1.25rem;
-  margin-bottom: 0.75rem;
+.user-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.user-group {
+  padding: 0;
+  overflow: hidden;
+}
+
+.user-group__toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem 1.15rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.user-group__toggle:hover {
+  background: rgba(53, 100, 125, 0.04);
+}
+
+.user-group__chevron {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 8px;
+  background: rgba(53, 100, 125, 0.08);
+  color: var(--gsm-blue);
+  transition: transform 0.15s ease;
+}
+
+.user-group__chevron svg {
+  width: 16px;
+  height: 16px;
+}
+
+.user-group__chevron.is-open {
+  transform: rotate(90deg);
+}
+
+.user-group__copy {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+}
+
+.user-group__copy strong {
+  color: var(--gsm-blue);
+  font-size: 1.05rem;
+  line-height: 1.2;
+}
+
+.user-group__copy small {
+  color: var(--vd-muted);
+  font-size: 0.8rem;
+  line-height: 1.3;
+}
+
+.user-group__count {
+  min-width: 1.85rem;
+  height: 1.85rem;
+  padding: 0 0.5rem;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(53, 100, 125, 0.1);
+  color: var(--gsm-blue);
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.user-group__body {
+  border-top: 1px solid var(--vd-line);
+  padding: 0.85rem 1.15rem 1.1rem;
+}
+
+.user-group__empty {
+  margin: 0.15rem 0;
+  color: var(--vd-muted);
 }
 
 .loading {
@@ -727,10 +894,6 @@ onMounted(loadUsers);
   display: none;
   flex-direction: column;
   gap: 0.75rem;
-}
-
-.desktop-empty {
-  display: block;
 }
 
 .user-card {
@@ -864,8 +1027,7 @@ onMounted(loadUsers);
 }
 
 @media (max-width: 720px) {
-  .desktop-list,
-  .desktop-empty {
+  .desktop-list {
     display: none;
   }
 
