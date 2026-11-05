@@ -1421,6 +1421,7 @@ const stepComplete = computed<Record<StepKey, boolean>>(() => {
       hasText(c.sexo) &&
       isValidMxPhone(c.celular1) &&
       (!isDomiciliado.value || isLikelyEmail(c.correo)) &&
+      (c.factura === 'SI' || c.factura === 'NO') &&
       (c.factura !== 'SI' ||
         ((c.tipoPersona === 'FISICA' || c.tipoPersona === 'MORAL') &&
           hasText(c.razonSocial) &&
@@ -1510,6 +1511,9 @@ function missingFieldsFor(key: StepKey): string[] {
       missing.push(
         'Domicilio para entrega de documentación (titular o 2.º contacto)',
       );
+    }
+    if (c.factura !== 'SI' && c.factura !== 'NO') {
+      missing.push('Factura (sí o no)');
     }
     if (c.factura === 'SI') {
       if (c.tipoPersona !== 'FISICA' && c.tipoPersona !== 'MORAL') {
@@ -3100,8 +3104,8 @@ async function goBack() {
           <div class="field-row">
             <label>
               Factura
-              <select v-model="form.contacto.factura" :disabled="!canEdit">
-                <option value="">—</option>
+              <select v-model="form.contacto.factura" :disabled="!canEdit" required>
+                <option value="" disabled>Selecciona…</option>
                 <option value="SI">Sí</option>
                 <option value="NO">No</option>
               </select>
