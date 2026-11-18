@@ -15,7 +15,7 @@ import SaleLocationSearchModal, {
   type ParkLocationSelection,
 } from '../components/SaleLocationSearchModal.vue';
 import SaleKindModal from '../components/SaleKindModal.vue';
-import { SALE_ORIGIN_OPTIONS } from '../constants/sale-origins';
+import { loadSaleOrigins, saleOriginLabel, type SaleOriginOption } from '../constants/sale-origins';
 import {
   FISCAL_REGIMEN_CARTA,
   FISCAL_REGIMEN_OTRO,
@@ -689,6 +689,15 @@ async function loadEmpresasConvenio() {
 
 const planSearchOpen = ref(false);
 const locationSearchOpen = ref(false);
+const saleOrigins = ref<SaleOriginOption[]>([]);
+const saleOriginChoices = computed(() => {
+  const options = saleOrigins.value.slice();
+  const current = form.meta.origenVenta;
+  if (current && !options.some((opt) => opt.value === current)) {
+    options.push({ value: current, label: saleOriginLabel(current) });
+  }
+  return options;
+});
 const branches = ref<SaleBranch[]>([]);
 const serviceTypes = ref<SaleBranch[]>([]);
 const sellerDefaults = ref<SellerDefaults>(emptySellerDefaults());
@@ -1898,6 +1907,11 @@ async function loadSale(id: number) {
 }
 
 onMounted(async () => {
+  void loadSaleOrigins()
+    .then((rows) => {
+      saleOrigins.value = rows;
+    })
+    .catch(() => undefined);
   void loadDraftPolicy();
   const idParam = route.params.id;
   if (idParam && idParam !== 'nueva') {
@@ -2871,7 +2885,7 @@ async function goBack() {
           <select v-model="form.meta.origenVenta" :disabled="!canEdit">
             <option value="">Selecciona origen…</option>
             <option
-              v-for="opt in SALE_ORIGIN_OPTIONS"
+              v-for="opt in saleOriginChoices"
               :key="opt.value"
               :value="opt.value"
             >

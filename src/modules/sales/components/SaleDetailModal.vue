@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import VdModal from '../../../shared/ui/modal/VdModal.vue';
-import { SALE_ORIGIN_OPTIONS } from '../constants/sale-origins';
+import { loadSaleOrigins, type SaleOriginOption } from '../constants/sale-origins';
 import { saleKindLabel } from '../constants/sale-kinds';
 import {
   formatDigitalFolio,
@@ -109,8 +109,18 @@ function dateLabel(value: string | null | undefined): string {
   return `${match[3]}/${match[2]}/${match[1]}`;
 }
 
+const saleOrigins = ref<SaleOriginOption[]>([]);
+
+onMounted(() => {
+  void loadSaleOrigins()
+    .then((rows) => {
+      saleOrigins.value = rows;
+    })
+    .catch(() => undefined);
+});
+
 function originLabel(value: string): string {
-  const found = SALE_ORIGIN_OPTIONS.find((opt) => opt.value === value);
+  const found = saleOrigins.value.find((opt) => opt.value === value);
   return found?.label || text(value);
 }
 

@@ -1,47 +1,60 @@
-/**
- * Orígenes de venta — mismos values/labels que
- * sale.order.sale_origin (sale_extensions).
- */
-export const SALE_ORIGIN_OPTIONS = [
-  { value: 'inmediate_need', label: 'Immediate Need' },
-  { value: 'field_selling', label: 'Field Selling' },
-  { value: 'social_media', label: 'Social Media' },
-  { value: 'redes_personal', label: 'Redes Personal' },
-  { value: 'agreement', label: 'Agreement' },
-  { value: 'exhibition', label: 'Exhibition' },
-  { value: 'guard_culiacan_park', label: 'Guardia parque Culiacán' },
-  { value: 'guard_montebello', label: 'Guardia Montebello' },
-  { value: 'guard_zapata_branch', label: 'Guardia suc Zapata' },
-  { value: 'guard_funeral_losmochis', label: 'Guardia Funeraria Los Mochis' },
-  { value: 'guard_sucursal_guasave', label: 'Guardia Sucursal Guasave' },
-  { value: 'guard_funeral_guasave', label: 'Guardia Funeraria Guasave' },
-  { value: 'guard_parque_guasave', label: 'Guardia Parque Guasave' },
-  { value: 'floor_sales', label: 'Venta piso' },
-  { value: 'natural_market_sales', label: 'Ventas mercado natural' },
-  { value: 'referral_sales', label: 'Ventas por referidos' },
-  { value: 'telemarketing_sales', label: 'Ventas por telemarketing' },
-  { value: 'employee_sales', label: 'Venta empleado' },
-  { value: 'operational', label: 'Operational' },
-  { value: 'direct', label: 'Direct' },
-  { value: 'convention', label: 'Convention' },
-  { value: 'agency', label: 'Agency' },
-  { value: 'omnichannel', label: 'Omnicanal' },
-  { value: 'plaza_fiesta', label: 'Plaza Fiesta' },
-  { value: 'ley_humaya', label: 'Ley Humaya' },
-  { value: 'ley_abastos', label: 'Ley Abastos' },
-  { value: 'ley_san_isidro', label: 'Ley San Isidro' },
-  { value: 'independiente', label: 'Independiente' },
-  { value: 'guard_parque_losmochis', label: 'Guardia Parque Los Mochis' },
-  { value: 'guard_parque_navalato', label: 'Guardia Parque Navolato' },
-  { value: 'guard_sucursal_costarica', label: 'Guardia Sucursal Costa Rica' },
-  { value: 'guard_sucursal_navolato', label: 'Guardia Sucursal Navolato' },
-  { value: 'ventas_por_guardias', label: 'Ventas por Guardias' },
-  { value: 'ventas_por_jefe_turno', label: 'Ventas por Jefe Turno' },
-  { value: 'ventas_programa_lealtad', label: 'Ventas Programa Lealtad' },
-] as const;
+import { http, tokenStorage } from '../../../shared/api/http';
+
+/** Código de sale.order.origin. Ese código es el que se guarda en origenVenta. */
+export type SaleOriginOption = {
+  value: string;
+  label: string;
+};
+
+type OriginRow = {
+  code?: string;
+  name?: string;
+};
+
+let memory: SaleOriginOption[] = [];
+let inflight: Promise<SaleOriginOption[]> | null = null;
+
+function asOptions(rows: unknown): SaleOriginOption[] {
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .map((row) => {
+      const item = row as OriginRow;
+      return {
+        value: String(item.code || '').trim(),
+        label: String(item.name || '').trim(),
+      };
+    })
+    .filter((row) => row.value && row.label);
+}
+
+export function saleOriginOptions(): SaleOriginOption[] {
+  return memory;
+}
 
 export function saleOriginLabel(value: string | null | undefined): string {
-  if (!value) return '';
-  const found = SALE_ORIGIN_OPTIONS.find((o) => o.value === value);
-  return found?.label ?? value;
+  const code = String(value || '').trim();
+  if (!code) return '';
+  return memory.find((row) => row.value === code)?.label || code;
+}
+
+/** Lee el catálogo activo de Odoo (sale.order.origin). */
+export function loadSaleOrigins(): Promise<SaleOriginOption[]> {
+  if (memory.length) return Promise.resolve(memory);
+  if (inflight) return inflight;
+  inflight = http
+    .get<OriginRow[]>(
+      tokenStorage.getAccess()
+        ? '/odoo/origenes-venta'
+        : '/public/sign/origenes-venta',
+      { skipGlobalLoading: true },
+    )
+    .then(({ data }) => {
+      const rows = asOptions(data);
+      if (rows.length) memory = rows;
+      return memory;
+    })
+    .finally(() => {
+      inflight = null;
+    });
+  return inflight;
 }

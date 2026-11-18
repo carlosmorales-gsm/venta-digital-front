@@ -1,5 +1,5 @@
 import { GState, jsPDF } from 'jspdf';
-import { saleOriginLabel } from '../constants/sale-origins';
+import { loadSaleOrigins, saleOriginLabel } from '../constants/sale-origins';
 import { saleCompanyName } from '../constants/sale-companies';
 import {
   documentContractFolio,
@@ -33,6 +33,7 @@ export async function buildFunepetCaratulaBundle(
   form: SaleFormData,
   opts?: { saleId?: number | null; status?: string },
 ): Promise<{ blob: Blob; pages: string[] }> {
+  await loadSaleOrigins().catch(() => undefined);
   const [logo, companySig] = await Promise.all([
     loadPng('/forms/logo-funepet-white.png'),
     loadPng('/forms/firma-inhumaciones-abc.png'),

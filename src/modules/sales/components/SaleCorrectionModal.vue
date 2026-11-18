@@ -9,7 +9,7 @@ import {
   TIPO_PERSONA_OPTIONS,
 } from '../constants/fiscal-regimes';
 import { SALE_KINDS } from '../constants/sale-kinds';
-import { SALE_ORIGIN_OPTIONS } from '../constants/sale-origins';
+import { loadSaleOrigins, type SaleOriginOption } from '../constants/sale-origins';
 import { todayIsoDate } from '../../../shared/utils/datetime';
 import { DEFAULT_SERVICIO_FUNERARIO, type SaleFormData } from '../types/sale-form';
 import SaleLocationSearchModal, {
@@ -62,6 +62,7 @@ const companions = reactive<Record<string, string>>({});
 const files = reactive<Record<string, { name: string; mime: string; dataBase64: string }>>({});
 
 const catalog = computed(() => readSellerPrefetch());
+const saleOrigins = ref<SaleOriginOption[]>([]);
 const planSearchOpen = ref(false);
 const locationSearchOpen = ref(false);
 const plan = reactive<SaleFormData['ubicacionPlan']>({
@@ -255,7 +256,7 @@ function selectOptions(item: CorrectionFieldDef): SelectOption[] | null {
   const key = item.key;
   if (key === 'meta.origenVenta') {
     return withCurrent(
-      SALE_ORIGIN_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label })),
+      saleOrigins.value.map((opt) => ({ value: opt.value, label: opt.label })),
       current,
     );
   }
@@ -639,6 +640,19 @@ function recomputeFinancing() {
   finance.importeCadaPago = formatMoneyField(breakdown.importeCadaPago);
   if (pagoInicialActivo.value) finance.pagoInicial = finance.importeCadaPago;
 }
+
+watch(
+  () => props.open,
+  (open) => {
+    if (!open) return;
+    void loadSaleOrigins()
+      .then((rows) => {
+        saleOrigins.value = rows;
+      })
+      .catch(() => undefined);
+  },
+  { immediate: true },
+);
 
 watch(pagoInicialActivo, (active) => {
   finance.pagoInicial = active ? finance.importeCadaPago : '';

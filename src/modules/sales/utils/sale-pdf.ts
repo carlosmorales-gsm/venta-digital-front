@@ -6,7 +6,7 @@ import {
   isSignedSaleStatus,
   type SaleFormData,
 } from '../types/sale-form';
-import { saleOriginLabel } from '../constants/sale-origins';
+import { saleOriginLabel, loadSaleOrigins } from '../constants/sale-origins';
 import { saleCompanyName } from '../constants/sale-companies';
 import { formatMoneyDisplay } from './sale-finance';
 
@@ -981,6 +981,7 @@ function drawDraftWatermark(doc: Doc) {
 }
 
 async function buildDoc(form: SaleFormData, opts?: SalePdfOpts): Promise<jsPDF> {
+  await loadSaleOrigins().catch(() => undefined);
   const logo = await loadLogo();
   const doc = new jsPDF({
     unit: 'pt',
