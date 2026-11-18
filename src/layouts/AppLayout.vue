@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../modules/auth/stores/auth.store';
 
@@ -34,7 +34,7 @@ const allItems: NavItem[] = [
     label: 'Inicio',
     hint: 'Panel principal',
     icon: 'inicio',
-    roles: ['MONITOR', 'ADMIN'],
+    roles: ['ADMIN'],
     permission: 'dashboard.ver',
   },
   {
@@ -125,6 +125,12 @@ watch(
 
 watch(collapsed, (value) => {
   localStorage.setItem('vd.sidebarCollapsed', value ? '1' : '0');
+});
+
+onMounted(() => {
+  if (auth.user && auth.userType !== 'VENDEDOR') {
+    void auth.refreshMe();
+  }
 });
 
 async function logout() {

@@ -65,7 +65,11 @@ async function onSubmit() {
       currentPassword.value,
       newPassword.value.trim(),
     );
-    await router.replace({ name: 'monitor-menu' });
+    await router.replace({
+      name: auth.hasPermission('dashboard.ver')
+        ? 'monitor-menu'
+        : 'monitor-ventas',
+    });
   } catch {
     localError.value = auth.error || 'No se pudo cambiar la contraseña';
   }

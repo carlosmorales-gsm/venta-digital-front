@@ -65,7 +65,10 @@ const router = createRouter({
       path: '/monitor',
       name: 'monitor-menu',
       component: () => import('../modules/monitor/views/MonitorMenuView.vue'),
-      meta: { roles: ['MONITOR', 'ADMIN'] },
+      meta: {
+        roles: ['ADMIN'],
+        permissions: ['dashboard.ver'],
+      },
     },
     {
       path: '/monitor/ventas',
@@ -132,7 +135,8 @@ router.beforeEach(async (to) => {
     if (hasToken && auth.user && !sessionExpired()) {
       if (auth.userType === 'VENDEDOR') return { name: 'vendedor-ventas' };
       if (auth.user.mustChangePassword) return { name: 'cambiar-password' };
-      return { name: 'monitor-menu' };
+      if (auth.hasPermission('dashboard.ver')) return { name: 'monitor-menu' };
+      return { name: 'monitor-ventas' };
     }
     return true;
   }
@@ -165,7 +169,9 @@ router.beforeEach(async (to) => {
 
   const permissions = (to.meta.permissions as string[] | undefined) ?? [];
   if (permissions.length && !permissions.every((p) => auth.hasPermission(p))) {
-    return { name: 'monitor-menu' };
+    return to.name === 'monitor-menu'
+      ? { name: 'monitor-ventas' }
+      : { name: 'monitor-menu' };
   }
 
   return true;

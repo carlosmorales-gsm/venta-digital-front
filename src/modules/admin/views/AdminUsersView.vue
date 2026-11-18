@@ -44,6 +44,7 @@ const form = reactive({
   password: '',
   mustChangePassword: true,
   nombreJefeVentas: '',
+  verIndicadores: false,
 });
 
 const GROUP_ORDER: UserType[] = ['VENDEDOR', 'MONITOR', 'ADMIN'];
@@ -121,6 +122,7 @@ function resetForm() {
   form.password = '';
   form.mustChangePassword = true;
   form.nombreJefeVentas = '';
+  form.verIndicadores = false;
   formError.value = null;
 }
 
@@ -138,6 +140,8 @@ function startEdit(user: PublicUser) {
   form.password = '';
   form.mustChangePassword = Boolean(user.mustChangePassword);
   form.nombreJefeVentas = user.nombreJefeVentas ?? '';
+  form.verIndicadores =
+    user.type === 'ADMIN' && user.permissions.includes('dashboard.ver');
   formError.value = null;
   modalOpen.value = true;
 }
@@ -178,6 +182,9 @@ async function createUser() {
     payload.username = form.username.trim();
     payload.password = form.password;
     payload.mustChangePassword = form.mustChangePassword;
+    if (form.type === 'ADMIN') {
+      payload.verIndicadores = form.verIndicadores;
+    }
   }
 
   try {
@@ -216,10 +223,18 @@ async function updateUser() {
       payload.password = form.password;
     }
     payload.mustChangePassword = form.mustChangePassword;
+    if (form.type === 'ADMIN') {
+      payload.verIndicadores = form.verIndicadores;
+    }
   }
 
+  const editedId = editingId.value;
+
   try {
-    await http.patch(`/users/${editingId.value}`, payload);
+    await http.patch(`/users/${editedId}`, payload);
+    if (editedId === auth.user?.id) {
+      await auth.refreshMe();
+    }
     modalOpen.value = false;
     resetForm();
     await loadUsers();
@@ -642,6 +657,23 @@ onMounted(loadUsers);
               </small>
             </span>
           </label>
+          <label
+            v-if="form.type === 'ADMIN'"
+            class="check-row"
+            for="verIndicadores"
+          >
+            <input
+              id="verIndicadores"
+              v-model="form.verIndicadores"
+              type="checkbox"
+            />
+            <span>
+              Ver indicadores de ventas
+              <small>
+                Muestra la pantalla de Inicio con los gráficos de ventas.
+              </small>
+            </span>
+          </label>
         </template>
 
         <p class="hint">
@@ -655,7 +687,7 @@ onMounted(loadUsers);
             Permisos default: panel, ventas y reportes.
           </template>
           <template v-else>
-            Permisos default: todos + gestión de usuarios.
+            Los indicadores de Inicio se activan con el check.
           </template>
         </p>
 

@@ -273,6 +273,11 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function hasPermission(code: string) {
+    if (code === 'dashboard.ver') {
+      return (
+        user.value?.type === 'ADMIN' && permissions.value.includes(code)
+      );
+    }
     if (user.value?.type === 'ADMIN') return true;
     return permissions.value.includes(code);
   }

@@ -18,8 +18,13 @@ async function onSubmit() {
   localError.value = null;
   try {
     const data = await auth.loginMonitor(username.value.trim(), password.value);
+    const home =
+      data.user.type === 'ADMIN' &&
+      data.user.permissions.includes('dashboard.ver')
+        ? 'monitor-menu'
+        : 'monitor-ventas';
     router.replace({
-      name: data.user.mustChangePassword ? 'cambiar-password' : 'monitor-menu',
+      name: data.user.mustChangePassword ? 'cambiar-password' : home,
     });
   } catch {
     localError.value = auth.error || 'No se pudo iniciar sesión';

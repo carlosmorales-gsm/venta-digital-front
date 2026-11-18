@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useAuthStore } from '../../auth/stores/auth.store';
+import SalesDashboard from '../components/SalesDashboard.vue';
 
 const auth = useAuthStore();
 
@@ -14,35 +15,9 @@ const greeting = computed(() => {
   <section class="home">
     <header class="page-head">
       <h1>Inicio</h1>
-      <p>
-        {{ greeting }}. Usa el menú lateral para navegar según tus permisos
-        <template v-if="auth.userType === 'ADMIN'"> (administrador)</template>.
-      </p>
+      <p>{{ greeting }}. Indicadores de las ventas del periodo.</p>
     </header>
 
-    <div class="panel home-card">
-      <strong>Venta Digital</strong>
-      <span>Panel de monitoreo y administración.</span>
-    </div>
+    <SalesDashboard />
   </section>
 </template>
-
-<style scoped>
-.home-card {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  border-left: 3px solid var(--gsm-cafe);
-}
-
-.home-card strong {
-  font-family: var(--font-display);
-  color: var(--gsm-blue);
-  font-size: 1.25rem;
-}
-
-.home-card span {
-  color: var(--vd-muted);
-  font-size: 0.95rem;
-}
-</style>
