@@ -98,6 +98,42 @@ function dayLabel(iso: string) {
 }
 
 const dayPeak = computed(() => peak(data.value?.byDay ?? []));
+const selectedDayKey = ref<string | null>(null);
+
+const selectedDayRow = computed(() => {
+  const rows = data.value?.byDay ?? [];
+  if (!rows.length) return null;
+  const current = rows.find((row) => row.key === selectedDayKey.value);
+  if (current) return current;
+  return [...rows].reverse().find((row) => row.count > 0) ?? rows[rows.length - 1];
+});
+
+function dayTitle(iso: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!match) return iso;
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  return new Intl.DateTimeFormat('es-MX', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  }).format(date);
+}
+
+const dayTicks = computed(() => {
+  const rows = data.value?.byDay ?? [];
+  if (!rows.length) return [];
+  const count = rows.length <= 10 ? rows.length : 6;
+  const ticks: Array<{ key: string; label: string }> = [];
+  const seen = new Set<number>();
+  for (let i = 0; i < count; i += 1) {
+    const index =
+      count === 1 ? 0 : Math.round((i * (rows.length - 1)) / (count - 1));
+    if (seen.has(index)) continue;
+    seen.add(index);
+    ticks.push({ key: rows[index].key, label: dayLabel(rows[index].key) });
+  }
+  return ticks;
+});
 
 async function load() {
   loading.value = true;
@@ -196,12 +232,29 @@ onMounted(() => {
       <div v-else class="grid">
         <article class="panel chart">
           <h2>Por día</h2>
+          <div v-if="selectedDayRow" class="day-detail">
+            <p>{{ dayTitle(selectedDayRow.key) }}</p>
+            <dl>
+              <div>
+                <dt>Ventas</dt>
+                <dd>{{ selectedDayRow.count }}</dd>
+              </div>
+              <div>
+                <dt>Monto</dt>
+                <dd>{{ formatMoney(selectedDayRow.amount) }}</dd>
+              </div>
+            </dl>
+          </div>
           <div class="days">
-            <div
+            <button
               v-for="day in data.byDay"
               :key="day.key"
+              type="button"
               class="day"
-              :title="`${dayLabel(day.key)}: ${day.count} ventas, ${formatMoney(day.amount)}`"
+              :class="{ 'is-selected': selectedDayRow?.key === day.key }"
+              :aria-pressed="selectedDayRow?.key === day.key"
+              :aria-label="`${dayTitle(day.key)}: ${day.count} ventas, ${formatMoney(day.amount)}`"
+              @click="selectedDayKey = day.key"
             >
               <div class="day__track">
                 <span
@@ -209,8 +262,10 @@ onMounted(() => {
                   :style="{ height: `${(day.count / dayPeak) * 100}%` }"
                 />
               </div>
-              <small>{{ dayLabel(day.key) }}</small>
-            </div>
+            </button>
+          </div>
+          <div class="day-axis">
+            <span v-for="tick in dayTicks" :key="tick.key">{{ tick.label }}</span>
           </div>
         </article>
 
@@ -315,6 +370,8 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 0.9rem;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .dash-toolbar {
@@ -389,8 +446,14 @@ onMounted(() => {
 
 .grid {
   display: grid;
-  grid-template-columns: 1.4fr 1fr;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
   gap: 0.85rem;
+  min-width: 0;
+}
+
+.chart {
+  min-width: 0;
+  overflow: hidden;
 }
 
 .chart h2 {
@@ -402,19 +465,83 @@ onMounted(() => {
 .days {
   display: flex;
   align-items: flex-end;
-  gap: 0.28rem;
-  overflow-x: auto;
-  min-height: 150px;
-  padding-bottom: 0.2rem;
+  gap: 2px;
+  width: 100%;
+  min-width: 0;
+  min-height: 118px;
+}
+
+.day-detail {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+  flex-wrap: wrap;
+  margin: 0 0 0.75rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: 10px;
+  background: var(--vd-surface-2);
+}
+
+.day-detail p {
+  margin: 0;
+  color: var(--gsm-blue);
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.day-detail dl {
+  display: flex;
+  gap: 1.15rem;
+  margin: 0;
+}
+
+.day-detail dt {
+  color: var(--vd-muted);
+  font-size: 0.72rem;
+}
+
+.day-detail dd {
+  margin: 0.1rem 0 0;
+  color: var(--gsm-blue);
+  font-size: 1.05rem;
+  font-weight: 600;
 }
 
 .day {
-  flex: 1 0 28px;
-  min-width: 28px;
+  flex: 1 1 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.3rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+}
+
+.day.is-selected .day__bar {
+  background: var(--gsm-cafe);
+}
+
+.day.is-selected .day__track {
+  box-shadow: inset 0 0 0 2px var(--gsm-cafe);
+}
+
+.day:focus-visible .day__track {
+  outline: 2px solid var(--gsm-blue);
+  outline-offset: 1px;
+}
+
+.day-axis {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.4rem;
+  margin-top: 0.4rem;
+  color: var(--vd-muted);
+  font-size: 0.68rem;
 }
 
 .day__track {
@@ -432,12 +559,6 @@ onMounted(() => {
   min-height: 2px;
   background: var(--gsm-blue);
   border-radius: 6px 6px 2px 2px;
-}
-
-.day small {
-  color: var(--vd-muted);
-  font-size: 0.62rem;
-  white-space: nowrap;
 }
 
 .bars {
@@ -506,7 +627,7 @@ onMounted(() => {
 @media (max-width: 800px) {
   .kpis,
   .grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>
